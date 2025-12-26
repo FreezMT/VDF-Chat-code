@@ -16,6 +16,81 @@ var registerScreen   = document.getElementById('registerScreen');
 var parentInfoScreen = document.getElementById('parentInfoScreen');
 var dancerInfoScreen = document.getElementById('dancerInfoScreen');
 var loginScreen      = document.getElementById('loginScreen');
+var mainScreen = document.getElementById('mainScreen');
+var chatList = document.getElementById('chatList');
+var currentUser = null;
+
+function addChatItem(chat) {
+    if (!chatList) return;
+
+    var item = document.createElement('div');
+    item.className = 'chat-item';
+
+    var avatarWrapper = document.createElement('div');
+    avatarWrapper.className = 'chat-avatar';
+
+    if (chat.avatar) {
+        var img = document.createElement('img');
+        img.src = chat.avatar;
+        img.alt = chat.title;
+        avatarWrapper.appendChild(img);
+    }
+
+    var body = document.createElement('div');
+    body.className = 'chat-body';
+
+    var title = document.createElement('div');
+    title.className = 'chat-title';
+    title.textContent = chat.title;
+
+    var subtitle = document.createElement('div');
+    subtitle.className = 'chat-subtitle';
+    subtitle.textContent = chat.subtitle || '';
+
+    body.appendChild(title);
+    body.appendChild(subtitle);
+
+    item.appendChild(avatarWrapper);
+    item.appendChild(body);
+
+    chatList.appendChild(item);
+}
+
+async function openMainScreen(user) {
+    currentUser = user;
+
+    if (welcomeScreen) welcomeScreen.style.display = 'none';
+    if (registerScreen) registerScreen.style.display = 'none';
+    if (parentInfoScreen) parentInfoScreen.style.display = 'none';
+    if (dancerInfoScreen) dancerInfoScreen.style.display = 'none';
+    if (loginScreen) loginScreen.style.display = 'none';
+
+    if (mainScreen) mainScreen.style.display = 'flex';
+
+    if (!user || !user.login || !chatList) return;
+
+    chatList.innerHTML = '';
+
+    try {
+        var resp = await fetch('/api/chats', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ login: user.login })
+        });
+        var data = await resp.json();
+
+        if (!resp.ok) {
+            alert(data.error || 'Ошибка загрузки чатов');
+            return;
+        }
+
+        (data.chats || []).forEach(function (chat) {
+            addChatItem(chat);
+        });
+    } catch (e) {
+        alert('Сетевая ошибка при загрузке чатов');
+    }
+}
 
 var registrationBaseData = {
     login: null,
@@ -250,7 +325,11 @@ if (parentContinueBtn && parentFirstNameInput && parentLastNameInput && teamValu
                 return;
             }
 
-            alert('Регистрация родителя успешна');
+            openMainScreen({
+                login: registrationBaseData.login,
+                role: registrationBaseData.role,
+                team: team
+                });
         } catch (e) {
             alert('Сетевая ошибка');
         }
@@ -373,7 +452,11 @@ if (dancerContinueBtn && dancerFirstNameInput && dancerLastNameInput && dancerTe
                 return;
             }
 
-            alert('Регистрация танцора успешна');
+            openMainScreen({
+                login: registrationBaseData.login,
+                role: registrationBaseData.role,
+                team: team
+            });
         } catch (e) {
             alert('Сетевая ошибка');
         }
@@ -397,7 +480,7 @@ if (loginScreenPassword) {
 }
 
 if (loginContinueBtn && loginScreenLogin && loginScreenPassword) {
-    loginContinueBtn.addEventListener('click', function () {
+    loginContinueBtn.addEventListener('click', async function () {
         var login    = loginScreenLogin.value.trim();
         var password = loginScreenPassword.value;
 
@@ -406,6 +489,26 @@ if (loginContinueBtn && loginScreenLogin && loginScreenPassword) {
             return;
         }
 
-        alert('Проверка логина и пароля будет добавлена позже');
+        try {
+            var resp = await fetch('/api/login', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ login: login, password: password })
+            });
+            var data = await resp.json();
+
+            if (!resp.ok) {
+                alert(data.error || 'Ошибка входа');
+                return;
+            }
+
+            openMainScreen({
+                login: login,
+                role: data.role,
+                team: data.team
+            });
+        } catch (e) {
+            alert('Сетевая ошибка');
+        }
     });
 }

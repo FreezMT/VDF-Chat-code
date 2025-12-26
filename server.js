@@ -45,6 +45,24 @@ db.run(
   )`
 );
 
+db.run(
+  `CREATE TABLE IF NOT EXISTS group_members (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL,
+    team TEXT NOT NULL,
+    FOREIGN KEY(user_id) REFERENCES users(id)
+  )`
+);
+
+db.run(
+  `CREATE TABLE IF NOT EXISTS trainer_teams (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    trainer_id INTEGER NOT NULL,
+    team TEXT NOT NULL,
+    FOREIGN KEY(trainer_id) REFERENCES users(id)
+  )`
+);
+
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -62,6 +80,15 @@ function get(db, sql, params = []) {
     db.get(sql, params, function (err, row) {
       if (err) reject(err);
       else resolve(row);
+    });
+  });
+}
+
+function all(db, sql, params = []) {
+  return new Promise((resolve, reject) => {
+    db.all(sql, params, function (err, rows) {
+      if (err) reject(err);
+      else resolve(rows);
     });
   });
 }
@@ -157,6 +184,119 @@ app.post('/api/check-login', async (req, res) => {
     res.json({ ok: true });
   } catch (e) {
     console.error('CHECK LOGIN ERROR:', e);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
+app.post('/api/login', async (req, res) => {
+  try {
+    const { login, password } = req.body;
+
+    if (!login || !password) {
+      return res.status(400).json({ error: 'Введите логин и пароль' });
+    }
+
+    if (!isValidAsciiField(login, 20) || !isValidAsciiField(password, 20)) {
+      return res.status(400).json({ error: 'Неверный логин или пароль' });
+    }
+
+    const user = await get(
+      db,
+      'SELECT id, password_hash, role, first_name, last_name, team, dob FROM users WHERE login = ?',
+      [login]
+    );
+
+    if (!user) {
+      return res.status(401).json({ error: 'Неверный логин или пароль' });
+    }
+
+    const match = await bcrypt.compare(password, user.password_hash);
+    if (!match) {
+      return res.status(401).json({ error: 'Неверный логин или пароль' });
+    }
+
+      res.json({
+        ok: true,
+        role: user.role,
+        team: user.team,
+        login,
+        firstName: user.first_name,
+        lastName: user.last_name
+    });
+  } catch (e) {
+    console.error('LOGIN ERROR:', e);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
+app.post('/api/chats', async (req, res) => {
+  try {
+    const { login } = req.body;
+
+    if (!login) {
+      return res.status(400).json({ error: 'Нет логина' });
+    }
+
+    const user = await get(
+      db,
+      'SELECT id, role, team, first_name, last_name FROM users WHERE login = ?',
+      [login]
+    );
+
+    if (!user) {
+      return res.status(404).json({ error: 'Пользователь не найден' });
+    }
+
+    const chats = [];
+
+    const memberRow = await get(
+      db,
+      'SELECT 1 FROM group_members WHERE user_id = ? AND team = ? LIMIT 1',
+      [user.id, user.team]
+    );
+
+    if (memberRow) {
+      const countRow = await get(
+        db,
+        'SELECT COUNT(DISTINCT user_id) AS cnt FROM group_members WHERE team = ?',
+        [user.team]
+      );
+      const membersCount = countRow ? countRow.cnt : 0;
+
+      chats.push({
+        id: 'group-' + user.team,
+        type: 'group',
+        title: user.team,
+        subtitle: membersCount ? membersCount + ' участников' : 'Групповой чат',
+        avatar: '/logo.png'
+      });
+    }
+
+    const trainers = await all(
+      db,
+      'SELECT DISTINCT u.id, u.first_name, u.last_name, u.login ' +
+      'FROM trainer_teams tt ' +
+      'JOIN users u ON u.id = tt.trainer_id ' +
+      'WHERE LOWER(tt.team) = LOWER(?) ' +
+      '  AND LOWER(u.role) IN ("trainer", "тренер")',
+      [user.team]
+    );
+
+    trainers.forEach(tr => {
+      chats.push({
+        id: 'trainer-' + tr.id,
+        type: 'trainer',
+        title: (tr.first_name + ' ' + tr.last_name).trim(),
+        subtitle: 'Последнее сообщение',
+        avatar: '/trainers/' + tr.login + '.png',
+        trainerId: tr.id,
+        trainerLogin: tr.login
+      });
+    });
+
+    res.json({ ok: true, chats });
+  } catch (e) {
+    console.error('CHATS ERROR:', e);
     res.status(500).json({ error: 'Ошибка сервера' });
   }
 });
