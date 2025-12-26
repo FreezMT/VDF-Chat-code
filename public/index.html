@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VDF Chat</title>
+
+    <link href="https://fonts.googleapis.com/css2?family=Jost:wght@400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+    <link rel="icon" href="file-003 rem.png" type="image/png">
+</head>
+<body>
+    <main id="splash" class="splash">
+        <img src="file-003 rem.png" alt="VDF Chat" class="logo">
+    </main>
+
+    <main id="welcome" class="welcome-screen">
+        <section class="welcome-content">
+            <h1 class="welcome-title">
+                Добро пожаловать в<br>
+                <span>VDF Chat</span>
+            </h1>
+            <p class="welcome-subtitle">
+                Здесь вы сможете общаться<br>
+                со своей командой
+            </p>
+        </section>
+
+<section class="welcome-buttons">
+    <button class="btn" id="registerBtn">Регистрация</button>
+    <button class="btn" id="loginBtn">Вход</button>
+</section>
+    </main>
+
+        <main id="registerScreen" class="register-screen">
+        <button type="button" class="back-btn" id="backToWelcome">←</button>
+        <header class="register-header">
+            <h1 class="register-title">Регистрация</h1>
+            <p class="register-subtitle">
+                Придумайте логин и пароль<br>
+                и выберите кем вы являетесь
+            </p>
+        </header>
+
+        <form class="register-form" autocomplete="off">
+            <p class="field-note">Только на латинице</p>
+            <div class="field">
+                <input id="loginInput" type="text" maxlength="20" placeholder="Логин">
+            </div>
+
+            <p class="field-note">Только на латинице</p>
+            <div class="field field-password">
+                <input id="passwordInput" type="password" maxlength="20" placeholder="Пароль">
+                <button type="button" class="toggle-password" aria-label="Показать пароль"></button>
+            </div>
+        
+            <div class="field field-select" id="roleSelect">
+                <div class="select-display">
+                    <span id="roleText">Выберите</span>
+                    <span class="select-arrow"></span>
+                </div>
+                <div class="select-options">
+                    <div class="select-option" data-value="parent">Родитель</div>
+                    <div class="select-option" data-value="dancer">Танцор</div>
+                </div>
+                <input type="hidden" id="roleValue">
+            </div>
+
+            <button type="button" class="btn btn-primary">Продолжить</button>
+        </form>
+    </main>
+        <main id="parentInfoScreen" class="parent-screen">
+        <button type="button" class="back-btn" id="backToRegister">←</button>
+
+        <header class="parent-header">
+            <h1 class="register-title">Регистрация</h1>
+            <p class="register-subtitle">
+                Введите имя, фамилию и<br>
+                выберите команду в которой<br>
+                занимается ваш ребёнок
+            </p>
+        </header>
+
+        <form class="parent-form" autocomplete="off">
+            <div class="field">
+                <input id="parentFirstName" type="text" maxlength="30" placeholder="Имя">
+            </div>
+
+            <div class="field">
+                <input id="parentLastName" type="text" maxlength="30" placeholder="Фамилия">
+            </div>
+
+            <div class="field field-select" id="teamSelect">
+                <div class="select-display">
+                    <span id="teamText">Выберите</span>
+                    <span class="select-arrow"></span>
+                </div>
+                <div class="select-options">
+                    <div class="select-option" data-value="vinyl-dance-family">Vinyl Dance Family</div>
+                    <div class="select-option" data-value="vinyl-junior-family">Vinyl Junior Family</div>
+                    <div class="select-option" data-value="vinyl-kids-family">Vinyl Kids Family</div>
+                    <div class="select-option" data-value="vdf-crew">VDF Crew</div>
+                    <div class="select-option" data-value="vdf-kidz-crew">VDF Kidz Crew</div>
+
+                    <div class="select-option" data-value="Аделя 10+">Аделя 10+</div>
+                    <div class="select-option" data-value="Ди 10+">Ди 10+</div>
+                    <div class="select-option" data-value="Аделя 18+">Аделя 18+</div>
+                    <div class="select-option" data-value="Алексей 10+">Алексей 10+</div>
+                    <div class="select-option" data-value="Вика 9+">Вика 9+</div>
+                    <div class="select-option" data-value="Алексей 12+ Гжель">Алексей 12+ Гжель</div>
+                    <div class="select-option" data-value="Ангелина 7+">Ангелина 7+</div>
+                    <div class="select-option" data-value="Аврора 7+">Аврора 7+</div>
+                    <div class="select-option" data-value="Ангелина 12+">Ангелина 12+</div>
+                    <div class="select-option" data-value="Ангелина 14+">Ангелина 14+</div>
+                    <div class="select-option" data-value="6 Состав">6 Состав</div>
+                    <div class="select-option" data-value="7 Состав">7 Состав</div>
+                    <div class="select-option" data-value="Crazy Parents">Crazy Parents</div>
+                    <div class="select-option" data-value="Алексей 7+ Реутов">Алексей 7+ Реутов</div>
+                    <div class="select-option" data-value="Вика 7+ Реутов">Вика 7+ Реутов</div>
+                </div>
+                <input type="hidden" id="teamValue">
+            </div>
+
+            <button type="button" class="btn btn-primary" id="parentContinueBtn">Продолжить</button>
+        </form>
+    </main>
+        <main id="dancerInfoScreen" class="dancer-screen">
+        <button type="button" class="back-btn" id="backToRegisterFromDancer">←</button>
+
+        <header class="dancer-header">
+            <h1 class="register-title">Регистрация</h1>
+            <p class="register-subtitle">
+                Введите имя, фамилию,<br>
+                выберите дату рождения и<br>
+                команду в которой занимаетесь
+            </p>
+        </header>
+
+        <form class="dancer-form" autocomplete="off">
+            <div class="field">
+                <input id="dancerFirstName" type="text" maxlength="30" placeholder="Имя">
+            </div>
+
+            <div class="field">
+                <input id="dancerLastName" type="text" maxlength="30" placeholder="Фамилия">
+            </div>
+
+            <div class="field field-select" id="dancerTeamSelect">
+                <div class="select-display">
+                    <span id="dancerTeamText">Выберите</span>
+                    <span class="select-arrow"></span>
+                </div>
+                <div class="select-options">
+                    <div class="select-option" data-value="vinyl-dance-family">Vinyl Dance Family</div>
+                    <div class="select-option" data-value="vinyl-junior-family">Vinyl Junior Family</div>
+                    <div class="select-option" data-value="vinyl-kids-family">Vinyl Kids Family</div>
+                    <div class="select-option" data-value="vdf-crew">VDF Crew</div>
+                    <div class="select-option" data-value="vdf-kidz-crew">VDF Kidz Crew</div>
+
+                    <div class="select-option" data-value="Аделя 10+">Аделя 10+</div>
+                    <div class="select-option" data-value="Ди 10+">Ди 10+</div>
+                    <div class="select-option" data-value="Аделя 18+">Аделя 18+</div>
+                    <div class="select-option" data-value="Алексей 10+">Алексей 10+</div>
+                    <div class="select-option" data-value="Вика 9+">Вика 9+</div>
+                    <div class="select-option" data-value="Алексей 12+ Гжель">Алексей 12+ Гжель</div>
+                    <div class="select-option" data-value="Ангелина 7+">Ангелина 7+</div>
+                    <div class="select-option" data-value="Аврора 7+">Аврора 7+</div>
+                    <div class="select-option" data-value="Ангелина 12+">Ангелина 12+</div>
+                    <div class="select-option" data-value="Ангелина 14+">Ангелина 14+</div>
+                    <div class="select-option" data-value="6 Состав">6 Состав</div>
+                    <div class="select-option" data-value="7 Состав">7 Состав</div>
+                    <div class="select-option" data-value="Crazy Parents">Crazy Parents</div>
+                    <div class="select-option" data-value="Алексей 7+ Реутов">Алексей 7+ Реутов</div>
+                    <div class="select-option" data-value="Вика 7+ Реутов">Вика 7+ Реутов</div>
+                </div>
+                <input type="hidden" id="dancerTeamValue">
+            </div>
+
+            <div class="field field-date" id="dancerDobField">
+                <span id="dancerDobText">Выберите</span>
+                <button type="button" class="date-btn" id="dancerDobBtn"></button>
+                <input type="date" id="dancerDobInput">
+            </div>
+
+            <button type="button" class="btn btn-primary" id="dancerContinueBtn">Продолжить</button>
+        </form>
+    </main>
+        <main id="loginScreen" class="login-screen">
+        <button type="button" class="back-btn" id="backToWelcomeFromLogin">←</button>
+
+        <header class="login-header">
+            <h1 class="register-title">Вход</h1>
+            <p class="register-subtitle">
+                Введите логин и пароль для<br>
+                входа
+            </p>
+        </header>
+
+        <form class="login-form" autocomplete="off">
+            <div class="field">
+                <input id="loginScreenLogin" type="text" maxlength="20" placeholder="Логин">
+            </div>
+
+            <div class="field">
+                <input id="loginScreenPassword" type="password" maxlength="20" placeholder="Пароль">
+            </div>
+
+            <button type="button" class="btn btn-primary" id="loginContinueBtn">Продолжить</button>
+        </form>
+    </main>
+
+    <script src="script.js"></script>
+</body>
+</html>
