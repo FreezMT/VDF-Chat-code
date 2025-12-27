@@ -29,12 +29,24 @@ function addChatItem(chat) {
     var avatarWrapper = document.createElement('div');
     avatarWrapper.className = 'chat-avatar';
 
+    var img = document.createElement('img');
+    var defaultAvatar = '/img/image 1.png';
+
     if (chat.avatar) {
-        var img = document.createElement('img');
         img.src = chat.avatar;
-        img.alt = chat.title;
-        avatarWrapper.appendChild(img);
+    } else if (chat.type === 'group') {
+        img.src = '/logo.png';
+    } else {
+        img.src = defaultAvatar;
     }
+
+    img.alt = chat.title;
+    img.onerror = function () {
+        this.onerror = null;
+        this.src = defaultAvatar;
+    };
+
+    avatarWrapper.appendChild(img);
 
     var body = document.createElement('div');
     body.className = 'chat-body';
