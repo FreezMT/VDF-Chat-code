@@ -8,6 +8,7 @@ const db = new sqlite3.Database(path.join(__dirname, 'db.sqlite'));
 
 const PORT = process.env.PORT || 3000;
 const SALT_ROUNDS = 10;
+const ANGELINA_LOGIN = 'AngelinaO';
 const TEAMS = [
   'vinyl-dance-family',
   'vinyl-junior-family',
@@ -297,27 +298,26 @@ app.post('/api/chats', async (req, res) => {
       });
     });
 
-      if (user.role && user.role.toLowerCase() === 'parent') {
-    const angelina = await get(
-      db,
-      'SELECT id, first_name, last_name, login FROM users ' +
-      'WHERE LOWER(TRIM(first_name)) LIKE "ангелина%" ' +
-      '  AND LOWER(TRIM(last_name)) LIKE "олеговна%" ' +
-      'LIMIT 1'
-    );
+      if ((user.role || '').toLowerCase() === 'parent') {
+  const angelina = await get(
+    db,
+    'SELECT id, first_name, last_name, login FROM users ' +
+    'WHERE login = ? LIMIT 1',
+    [ANGELINA_LOGIN]
+  );
 
-    if (angelina && !trainerIds.has(angelina.id)) {
-      chats.push({
-        id: 'trainer-' + angelina.id,
-        type: 'trainer',
-        title: (angelina.first_name + ' ' + angelina.last_name).trim(),
-        subtitle: 'Последнее сообщение',
-        avatar: '/trainers/' + angelina.login + '.png',
-        trainerId: angelina.id,
-        trainerLogin: angelina.login
-      });
-    }
+  if (angelina && !trainerIds.has(angelina.id)) {
+    chats.push({
+      id: 'trainer-' + angelina.id,
+      type: 'trainer',
+      title: (angelina.first_name + ' ' + angelina.last_name).trim(),
+      subtitle: 'Последнее сообщение',
+      avatar: '/trainers/' + angelina.login + '.png',
+      trainerId: angelina.id,
+      trainerLogin: angelina.login
+    });
   }
+}
 
     res.json({ ok: true, chats });
   } catch (e) {
