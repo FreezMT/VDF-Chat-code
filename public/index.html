@@ -4,20 +4,20 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>VDF Chat</title>
-
-    <link href="https://fonts.googleapis.com/css2?family=Jost:wght@400;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Jost:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
-    <link rel="icon" href="file-003 rem.png" type="image/png">
 </head>
 <body>
+    <!-- SPLASH -->
     <main id="splash" class="splash">
-        <img src="file-003 rem.png" alt="VDF Chat" class="logo">
+        <img src="logo.png" alt="Vinyl Dance Family" class="logo">
     </main>
 
+    <!-- WELCOME -->
     <main id="welcome" class="welcome-screen">
         <section class="welcome-content">
             <h1 class="welcome-title">
-                Добро пожаловать в<br>
+                Добро пожаловаться в<br>
                 <span>VDF Chat</span>
             </h1>
             <p class="welcome-subtitle">
@@ -26,14 +26,16 @@
             </p>
         </section>
 
-<section class="welcome-buttons">
-    <button class="btn" id="registerBtn">Регистрация</button>
-    <button class="btn" id="loginBtn">Вход</button>
-</section>
+        <section class="welcome-buttons">
+            <button class="btn" id="registerBtn">Регистрация</button>
+            <button class="btn" id="loginBtn">Вход</button>
+        </section>
     </main>
 
-        <main id="registerScreen" class="register-screen">
+    <!-- REGISTER: ROLE -->
+    <main id="registerScreen" class="register-screen">
         <button type="button" class="back-btn" id="backToWelcome">←</button>
+
         <header class="register-header">
             <h1 class="register-title">Регистрация</h1>
             <p class="register-subtitle">
@@ -53,7 +55,7 @@
                 <input id="passwordInput" type="password" maxlength="20" placeholder="Пароль">
                 <button type="button" class="toggle-password" aria-label="Показать пароль"></button>
             </div>
-        
+
             <div class="field field-select" id="roleSelect">
                 <div class="select-display">
                     <span id="roleText">Выберите</span>
@@ -69,7 +71,9 @@
             <button type="button" class="btn btn-primary">Продолжить</button>
         </form>
     </main>
-        <main id="parentInfoScreen" class="parent-screen">
+
+    <!-- REGISTER: PARENT -->
+    <main id="parentInfoScreen" class="parent-screen">
         <button type="button" class="back-btn" id="backToRegister">←</button>
 
         <header class="parent-header">
@@ -77,7 +81,7 @@
             <p class="register-subtitle">
                 Введите имя, фамилию и<br>
                 выберите команду в которой<br>
-                занимается ваш ребёнок
+                ваш ребёнок
             </p>
         </header>
 
@@ -101,7 +105,6 @@
                     <div class="select-option" data-value="vinyl-kids-family">Vinyl Kids Family</div>
                     <div class="select-option" data-value="vdf-crew">VDF Crew</div>
                     <div class="select-option" data-value="vdf-kidz-crew">VDF Kidz Crew</div>
-
                     <div class="select-option" data-value="Аделя 10+">Аделя 10+</div>
                     <div class="select-option" data-value="Ди 10+">Ди 10+</div>
                     <div class="select-option" data-value="Аделя 18+">Аделя 18+</div>
@@ -124,7 +127,9 @@
             <button type="button" class="btn btn-primary" id="parentContinueBtn">Продолжить</button>
         </form>
     </main>
-        <main id="dancerInfoScreen" class="dancer-screen">
+
+    <!-- REGISTER: DANCER -->
+    <main id="dancerInfoScreen" class="dancer-screen">
         <button type="button" class="back-btn" id="backToRegisterFromDancer">←</button>
 
         <header class="dancer-header">
@@ -156,7 +161,6 @@
                     <div class="select-option" data-value="vinyl-kids-family">Vinyl Kids Family</div>
                     <div class="select-option" data-value="vdf-crew">VDF Crew</div>
                     <div class="select-option" data-value="vdf-kidz-crew">VDF Kidz Crew</div>
-
                     <div class="select-option" data-value="Аделя 10+">Аделя 10+</div>
                     <div class="select-option" data-value="Ди 10+">Ди 10+</div>
                     <div class="select-option" data-value="Аделя 18+">Аделя 18+</div>
@@ -185,7 +189,9 @@
             <button type="button" class="btn btn-primary" id="dancerContinueBtn">Продолжить</button>
         </form>
     </main>
-        <main id="loginScreen" class="login-screen">
+
+    <!-- LOGIN -->
+    <main id="loginScreen" class="login-screen">
         <button type="button" class="back-btn" id="backToWelcomeFromLogin">←</button>
 
         <header class="login-header">
@@ -208,22 +214,160 @@
             <button type="button" class="btn btn-primary" id="loginContinueBtn">Продолжить</button>
         </form>
     </main>
-        <main id="mainScreen" class="main-screen">
+
+    <!-- MAIN (LIST OF CHATS) -->
+    <main id="mainScreen" class="main-screen">
         <section class="chat-list" id="chatList"></section>
-            <nav class="bottom-nav">
-        <button class="nav-btn nav-add">
-            <img src="Pluse regtangle grey.png" alt="Добавить чат">
+    </main>
+
+    <!-- CHAT -->
+    <main id="chatScreen" class="chat-screen">
+        <header class="chat-header">
+            <button type="button" class="chat-back" id="backToMainFromChat">←</button>
+            <div class="chat-header-title" id="chatHeaderTitle">Чат</div>
+            <div class="chat-header-avatar">
+                <img id="chatHeaderAvatar" src="/img/default-avatar.png" alt="">
+            </div>
+        </header>
+
+        <section class="chat-content"></section>
+
+        <form class="chat-input-bar" id="chatInputForm">
+            <input type="text" id="chatInput" placeholder="Сообщение">
+            <button type="submit" class="chat-send-btn"></button>
+        </form>
+
+        <!-- MODAL WITH USER INFO -->
+        <div id="chatUserModal" class="chat-user-modal">
+            <div class="chat-user-modal-backdrop"></div>
+            <div class="chat-user-modal-card">
+                <div class="chat-user-avatar-wrapper">
+                    <img id="chatUserAvatar" src="/img/default-avatar.png" alt="Аватар" class="chat-user-avatar">
+                </div>
+                <div class="chat-user-name" id="chatUserName"></div>
+                <div class="chat-user-pill" id="chatUserId"></div>
+                <div class="chat-user-pill" id="chatUserTeam"></div>
+                <div class="chat-user-pill" id="chatUserDob"></div>
+            </div>
+        </div>
+
+        <!-- MODAL WITH GROUP INFO -->
+        <div id="groupModal" class="chat-user-modal">
+            <div class="group-modal-backdrop"></div>
+            <div class="group-modal-card">
+                <div class="group-avatar-row">
+                    <div class="group-avatar-wrapper">
+                        <img id="groupAvatar" src="/logo.png" alt="Аватар группы" class="group-avatar">
+                    </div>
+                    <button type="button" class="edit-icon" id="editGroupAvatarBtn"></button>
+                </div>
+
+                <div class="group-name-row">
+                    <div class="group-name" id="groupNameTitle"></div>
+                    <button type="button" class="edit-icon" id="editGroupNameBtn"></button>
+                </div>
+
+                <!-- выбор новой аватарки -->
+                <input type="file" id="groupAvatarInput" accept="image/*" style="display:none">
+
+                <!-- редактирование названия -->
+                <input type="text" id="groupNameEditInput" class="group-name-input" style="display:none">
+                <button type="button" id="groupNameSaveBtn" class="group-name-save-btn" style="display:none">
+                    Сохранить
+                </button>
+
+                <div class="chat-user-pill" id="groupMembersCount"></div>
+
+                <button type="button" class="group-add-member-btn" id="groupAddMemberBtn">
+                    Добавить участника
+                </button>
+
+                <div class="group-members-list" id="groupMembersList"></div>
+            </div>
+        </div>
+    </main>
+
+    <!-- PROFILE -->
+    <main id="profileScreen" class="profile-screen">
+        <div class="profile-content">
+            <div class="profile-avatar-wrapper">
+                <img id="profileAvatar" src="/img/default-avatar.png" alt="Аватар" class="profile-avatar">
+            </div>
+
+            <button type="button" class="profile-change-photo" id="changePhotoBtn">
+                Изменить фотографию
+            </button>
+            <input type="file" id="profilePhotoInput" accept="image/*" style="display:none">
+
+            <div class="profile-name" id="profileName"></div>
+
+            <div class="profile-pill" id="profileId"></div>
+            <div class="profile-pill" id="profileTeam"></div>
+            <div class="profile-pill" id="profileDob"></div>
+        </div>
+    </main>
+
+    <!-- CREATE GROUP -->
+    <main id="createGroupScreen" class="create-group-screen">
+        <header class="create-group-header">
+            <h1 class="register-title">Создание новой группы</h1>
+        </header>
+
+        <form class="create-group-form" autocomplete="off">
+            <div class="field">
+                <input id="groupNameInput" type="text" maxlength="40" placeholder="Название группы">
+            </div>
+
+            <div class="create-group-role-label">
+                Группа для родителей или для танцоров?
+            </div>
+            <div class="create-group-role">
+                <label class="radio-option">
+                    <input type="radio" name="groupAudience" value="parents" id="audienceParents">
+                    <span class="radio-circle"></span>
+                    <span>Для родителей</span>
+                </label>
+                <label class="radio-option">
+                    <input type="radio" name="groupAudience" value="dancers" id="audienceDancers">
+                    <span class="radio-circle"></span>
+                    <span>Для танцоров</span>
+                </label>
+            </div>
+
+            <div class="field field-select create-group-age-field" id="ageField">
+                <div class="select-display">
+                    <span id="ageText">Выберите возраст участников</span>
+                    <span class="select-arrow"></span>
+                </div>
+                <div class="select-options">
+                    <div class="select-option" data-value="5+">5+</div>
+                    <div class="select-option" data-value="7+">7+</div>
+                    <div class="select-option" data-value="9+">9+</div>
+                    <div class="select-option" data-value="10+">10+</div>
+                    <div class="select-option" data-value="12+">12+</div>
+                    <div class="select-option" data-value="14+">14+</div>
+                    <div class="select-option" data-value="18+">18+</div>
+                </div>
+                <input type="hidden" id="ageValue">
+            </div>
+
+            <button type="button" class="btn btn-primary" id="createGroupBtn">Создать</button>
+        </form>
+    </main>
+
+    <!-- BOTTOM NAV -->
+    <nav id="bottomNav" class="bottom-nav">
+        <button class="nav-btn nav-add" id="navAddBtn">
+            <img id="navAddIcon" src="icons/plus.png" alt="Создать группу">
         </button>
-        <button class="nav-btn nav-home nav-home-active">
-            <img src="Home white.png" alt="Главная">
+        <button class="nav-btn nav-home" id="navHomeBtn">
+            <img id="navHomeIcon" src="icons/home.png" alt="Главная">
         </button>
-        <button class="nav-btn nav-profile">
-            <img src="Person grey.png" alt="Профиль">
+        <button class="nav-btn nav-profile" id="navProfileBtn">
+            <img id="navProfileIcon" src="icons/user.png" alt="Профиль">
         </button>
     </nav>
 
-    </main>
-
-    <script src="script.js"></script>
+    <script src="app.js"></script>
 </body>
 </html>
