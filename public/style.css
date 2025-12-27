@@ -717,3 +717,77 @@ body.welcome-active{background-color:#1C1C1C}
     margin-bottom:8px;
     cursor:pointer;
 }
+
+.group-add-modal-backdrop{
+    position:absolute;
+    inset:0;
+    background:rgba(0,0,0,.6);
+}
+
+.group-add-modal-card{
+    position:relative;
+    z-index:31;
+    width:80%;
+    max-width:320px;
+    padding:24px 24px 24px;
+    border-radius:16px;
+    background-color:#101010;
+    text-align:center;
+    display:flex;
+    flex-direction:column;
+    align-items:stretch;
+}
+
+.group-add-label{
+    margin:16px 0 8px;
+    font-size:14px;
+    color:#FFFFFF;
+}
+
+.group-add-input-wrapper{
+    width:100%;
+    max-width:260px;
+    margin:0 auto 16px;
+    border-radius:12px;
+    border:1px solid rgba(255,255,255,.4);
+    padding:8px 12px;
+    background:transparent;
+}
+
+#groupAddUserIdInput{
+    width:100%;
+    border:none;
+    outline:none;
+    background:transparent;
+    color:#FFFFFF;
+    font-size:16px;
+    text-align:center;
+}
+
+#groupAddUserIdInput::placeholder{
+    color:rgba(255,255,255,.4);
+}
+
+.group-add-submit-btn{
+    width:100%;
+    max-width:260px;
+    margin:0 auto;
+    padding:10px 0;
+    border:none;
+    border-radius:999px;
+    background:#3F3F3F;
+    color:#FFFFFF;
+    font-size:16px;
+    font-weight:600;
+    cursor:pointer;
+}
+
+.msg-sender-name{
+    font-size:12px;
+    font-weight:600;
+    margin-bottom:2px;
+}
+
+.msg-item.msg-me .msg-sender-name{
+    color:#000000;
+}

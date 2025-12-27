@@ -224,7 +224,7 @@ function isValidDateIso(dateStr) {
 async function generateUniquePublicId() {
   let tries = 0;
   while (tries < 20) {
-    const code = String(Math.floor(1000000 + Math.random() * 9000000));
+    const code = String(Math.floor(1000000 + Math.random() * 9000000)); // 7 цифр
     const existing = await get(db, 'SELECT id FROM users WHERE public_id = ?', [code]);
     if (!existing) return code;
     tries++;
@@ -297,7 +297,7 @@ app.post('/api/register', async (req, res) => {
       return res.status(409).json({ error: 'Пользователь с таким логином уже существует' });
     }
 
-    const publicId    = await generateUniquePublicId();
+    const publicId     = await generateUniquePublicId();
     const passwordHash = await bcrypt.hash(password, SALT_ROUNDS);
 
     await run(
@@ -343,15 +343,15 @@ app.post('/api/login', async (req, res) => {
     }
 
     res.json({
-      ok: true,
-      login:      user.login,
-      publicId:   user.public_id,
-      role:       user.role,
-      team:       user.team,
-      firstName:  user.first_name,
-      lastName:   user.last_name,
-      dob:        user.dob,
-      avatar:     user.avatar
+      ok:        true,
+      login:     user.login,
+      publicId:  user.public_id,
+      role:      user.role,
+      team:      user.team,
+      firstName: user.first_name,
+      lastName:  user.last_name,
+      dob:       user.dob,
+      avatar:    user.avatar
     });
   } catch (e) {
     console.error('LOGIN ERROR:', e);
@@ -409,12 +409,12 @@ app.post('/api/chats', async (req, res) => {
         if (!otherUser) continue;
 
         const chat = {
-          id: chatId,
-          type: 'trainer',
-          title: (otherUser.first_name + ' ' + otherUser.last_name).trim(),
-          subtitle: '',
-          avatar: otherUser.avatar || '/img/default-avatar.png',
-          partnerId: otherUserId,
+          id:           chatId,
+          type:         'trainer',
+          title:        (otherUser.first_name + ' ' + otherUser.last_name).trim(),
+          subtitle:     '',
+          avatar:       otherUser.avatar || '/img/default-avatar.png',
+          partnerId:    otherUserId,
           partnerLogin: otherUser.login
         };
 
@@ -428,6 +428,18 @@ app.post('/api/chats', async (req, res) => {
           chat.lastMessageSenderLogin = last.sender_login;
           chat.lastMessageText        = last.text;
           chat.lastMessageCreatedAt   = last.created_at;
+          try {
+            const lu = await get(
+              db,
+              'SELECT first_name, last_name FROM users WHERE login = ?',
+              [last.sender_login]
+            );
+            if (lu) {
+              chat.lastMessageSenderName = (lu.first_name + ' ' + lu.last_name).trim();
+            }
+          } catch (e2) {
+            console.error('CHATS last sender name error (trainer personal):', e2);
+          }
         }
 
         chats.push(chat);
@@ -451,11 +463,11 @@ app.post('/api/chats', async (req, res) => {
         }
 
         const chat = {
-          id: chatId,
-          type: 'groupCustom',
-          title: g.name,
+          id:       chatId,
+          type:     'groupCustom',
+          title:    g.name,
           subtitle: subtitle,
-          avatar: g.avatar || '/logo.png'
+          avatar:   g.avatar || '/logo.png'
         };
 
         const last = await getMsg(
@@ -468,6 +480,18 @@ app.post('/api/chats', async (req, res) => {
           chat.lastMessageSenderLogin = last.sender_login;
           chat.lastMessageText        = last.text;
           chat.lastMessageCreatedAt   = last.created_at;
+          try {
+            const lu = await get(
+              db,
+              'SELECT first_name, last_name FROM users WHERE login = ?',
+              [last.sender_login]
+            );
+            if (lu) {
+              chat.lastMessageSenderName = (lu.first_name + ' ' + lu.last_name).trim();
+            }
+          } catch (e2) {
+            console.error('CHATS last sender name error (trainer groupCustom):', e2);
+          }
         }
 
         chats.push(chat);
@@ -494,11 +518,11 @@ app.post('/api/chats', async (req, res) => {
       const membersCount = countRow ? countRow.cnt : 0;
 
       chats.push({
-        id: 'group-' + user.team,
-        type: 'group',
-        title: user.team,
+        id:       'group-' + user.team,
+        type:     'group',
+        title:    user.team,
         subtitle: membersCount ? membersCount + ' участников' : 'Групповой чат',
-        avatar: '/logo.png'
+        avatar:   '/logo.png'
       });
     }
 
@@ -520,12 +544,12 @@ app.post('/api/chats', async (req, res) => {
       const chatId = 'trainer-' + tr.id + '-' + userId;
 
       const chat = {
-        id: chatId,
-        type: 'trainer',
-        title: (tr.first_name + ' ' + tr.last_name).trim(),
-        subtitle: '',
-        avatar: tr.avatar || '/img/default-avatar.png',
-        trainerId: tr.id,
+        id:           chatId,
+        type:         'trainer',
+        title:        (tr.first_name + ' ' + tr.last_name).trim(),
+        subtitle:     '',
+        avatar:       tr.avatar || '/img/default-avatar.png',
+        trainerId:    tr.id,
         trainerLogin: tr.login
       };
 
@@ -539,6 +563,18 @@ app.post('/api/chats', async (req, res) => {
         chat.lastMessageSenderLogin = last.sender_login;
         chat.lastMessageText        = last.text;
         chat.lastMessageCreatedAt   = last.created_at;
+        try {
+          const lu = await get(
+            db,
+            'SELECT first_name, last_name FROM users WHERE login = ?',
+            [last.sender_login]
+          );
+          if (lu) {
+            chat.lastMessageSenderName = (lu.first_name + ' ' + lu.last_name).trim();
+          }
+        } catch (e2) {
+          console.error('CHATS last sender name error (user-trainer):', e2);
+        }
       }
 
       chats.push(chat);
@@ -557,12 +593,12 @@ app.post('/api/chats', async (req, res) => {
         const chatId = 'angelina-' + angelina.id + '-' + userId;
 
         const chat = {
-          id: chatId,
-          type: 'trainer',
-          title: (angelina.first_name + ' ' + angelina.last_name).trim(),
-          subtitle: '',
-          avatar: angelina.avatar || '/img/default-avatar.png',
-          trainerId: angelina.id,
+          id:           chatId,
+          type:         'trainer',
+          title:        (angelina.first_name + ' ' + angelina.last_name).trim(),
+          subtitle:     '',
+          avatar:       angelina.avatar || '/img/default-avatar.png',
+          trainerId:    angelina.id,
           trainerLogin: angelina.login
         };
 
@@ -576,10 +612,88 @@ app.post('/api/chats', async (req, res) => {
           chat.lastMessageSenderLogin = last.sender_login;
           chat.lastMessageText        = last.text;
           chat.lastMessageCreatedAt   = last.created_at;
+          try {
+            const lu = await get(
+              db,
+              'SELECT first_name, last_name FROM users WHERE login = ?',
+              [last.sender_login]
+            );
+            if (lu) {
+              chat.lastMessageSenderName = (lu.first_name + ' ' + lu.last_name).trim();
+            }
+          } catch (e2) {
+            console.error('CHATS last sender name error (user-angelina):', e2);
+          }
         }
 
         chats.push(chat);
       }
+    }
+
+    // КАСТОМНЫЕ ГРУППЫ, где пользователь является участником (group_custom_members)
+    const customMemberships = await all(
+      db,
+      'SELECT group_name FROM group_custom_members WHERE LOWER(user_login) = LOWER(?)',
+      [login]
+    );
+
+    for (const m of customMemberships) {
+      const groupName = m.group_name;
+
+      const g = await get(
+        db,
+        'SELECT name, audience, age, avatar FROM created_groups WHERE name = ?',
+        [groupName]
+      );
+
+      const chatId  = groupName;
+      const title   = (g && g.name) || groupName;
+      const aud     = g && g.audience;
+      const age     = g && g.age;
+      const avatar  = g && g.avatar;
+
+      let subtitle;
+      if (aud === 'parents') {
+        subtitle = 'Группа для родителей';
+      } else if (aud === 'dancers') {
+        subtitle = 'Группа для танцоров ' + (age || '');
+      } else {
+        subtitle = 'Групповой чат';
+      }
+
+      const chat = {
+        id:       chatId,
+        type:     'groupCustom',
+        title:    title,
+        subtitle: subtitle,
+        avatar:   avatar || '/logo.png'
+      };
+
+      const last = await getMsg(
+        'SELECT sender_login, text, created_at FROM messages ' +
+        'WHERE chat_id = ? ORDER BY created_at DESC, id DESC LIMIT 1',
+        [chatId]
+      );
+
+      if (last) {
+        chat.lastMessageSenderLogin = last.sender_login;
+        chat.lastMessageText        = last.text;
+        chat.lastMessageCreatedAt   = last.created_at;
+        try {
+          const lu = await get(
+            db,
+            'SELECT first_name, last_name FROM users WHERE login = ?',
+            [last.sender_login]
+          );
+          if (lu) {
+            chat.lastMessageSenderName = (lu.first_name + ' ' + lu.last_name).trim();
+          }
+        } catch (e2) {
+          console.error('CHATS last sender name error (user groupCustom):', e2);
+        }
+      }
+
+      chats.push(chat);
     }
 
     return res.json({ ok: true, chats });
@@ -605,13 +719,31 @@ app.post('/api/messages/send', async (req, res) => {
       [chatId, senderLogin, cleanText]
     );
 
-    const row = await getMsg(
+    let row = await getMsg(
       `SELECT id, chat_id, sender_login, text, created_at
        FROM messages
        WHERE id = ?
        LIMIT 1`,
       [result.lastID]
     );
+
+    if (row) {
+      try {
+        const u = await get(
+          db,
+          'SELECT first_name, last_name FROM users WHERE login = ?',
+          [row.sender_login]
+        );
+        if (u) {
+          row.sender_name = (u.first_name + ' ' + u.last_name).trim();
+        } else {
+          row.sender_name = row.sender_login;
+        }
+      } catch (e2) {
+        console.error('SEND MESSAGE sender_name error:', e2);
+        row.sender_name = row.sender_login;
+      }
+    }
 
     res.json({ ok: true, message: row });
   } catch (e) {
@@ -636,6 +768,29 @@ app.post('/api/messages/list', async (req, res) => {
        ORDER BY created_at ASC, id ASC`,
       [chatId]
     );
+
+    // добавляем sender_name к сообщениям
+    const uniqueLogins = [...new Set(rows.map(r => r.sender_login))];
+    const nameMap = {};
+
+    for (const lg of uniqueLogins) {
+      try {
+        const u = await get(
+          db,
+          'SELECT first_name, last_name FROM users WHERE login = ?',
+          [lg]
+        );
+        if (u) {
+          nameMap[lg] = (u.first_name + ' ' + u.last_name).trim();
+        }
+      } catch (e2) {
+        console.error('LIST MESSAGES sender_name error:', e2);
+      }
+    }
+
+    rows.forEach(r => {
+      r.sender_name = nameMap[r.sender_login] || r.sender_login;
+    });
 
     res.json({ ok: true, messages: rows });
   } catch (e) {
@@ -831,15 +986,136 @@ app.post('/api/group/info', async (req, res) => {
     }
 
     res.json({
-      ok: true,
-      name: groupName,
-      avatar: groupAvatar,
+      ok:           true,
+      name:         groupName,
+      avatar:       groupAvatar,
       membersCount: members.length,
-      members: members
+      members:      members
     });
   } catch (e) {
     console.error('GROUP INFO ERROR:', e);
     res.status(500).json({ error: 'Ошибка сервера при загрузке информации о группе' });
+  }
+});
+
+// /api/group/add-member
+app.post('/api/group/add-member', async (req, res) => {
+  try {
+    const { login, chatId, publicId } = req.body;
+
+    if (!login || !chatId || !publicId) {
+      return res.status(400).json({ error: 'Нет логина, chatId или ID пользователя' });
+    }
+
+    const trainer = await get(
+      db,
+      'SELECT id, role, login FROM users WHERE login = ?',
+      [login]
+    );
+    if (!trainer) {
+      return res.status(404).json({ error: 'Пользователь не найден' });
+    }
+
+    const roleLower = (trainer.role || '').toLowerCase();
+    if (roleLower !== 'trainer' && roleLower !== 'тренер') {
+      return res.status(403).json({ error: 'Добавлять участников может только тренер' });
+    }
+
+    const code = String(publicId).trim();
+    if (!/^\d{7}$/.test(code)) {
+      return res.status(400).json({ error: 'Некорректный ID пользователя' });
+    }
+
+    const member = await get(
+      db,
+      'SELECT id, login, public_id, first_name, last_name, avatar, team FROM users WHERE public_id = ?',
+      [code]
+    );
+    if (!member) {
+      return res.status(404).json({ error: 'ID не найден' });
+    }
+
+    let teamKey;
+    let isCustom = false;
+
+    if (chatId.startsWith('group-') && !chatId.startsWith('group-custom-')) {
+      teamKey = chatId.substring('group-'.length);
+    } else {
+      teamKey = chatId;
+      isCustom = true;
+    }
+
+    if (isCustom) {
+      const group = await get(
+        db,
+        'SELECT id, owner_login FROM created_groups WHERE name = ?',
+        [teamKey]
+      );
+      if (!group) {
+        return res.status(404).json({ error: 'Группа не найдена' });
+      }
+      if (group.owner_login !== trainer.login) {
+        return res.status(403).json({ error: 'Добавлять участников в эту группу может только её создатель' });
+      }
+
+      const exists = await get(
+        db,
+        'SELECT id FROM group_custom_members WHERE group_name = ? AND user_login = ?',
+        [teamKey, member.login]
+      );
+      if (exists) {
+        return res.status(409).json({ error: 'Пользователь уже является участником этой группы' });
+      }
+
+      await run(
+        db,
+        'INSERT INTO group_custom_members (group_name, user_login) VALUES (?, ?)',
+        [teamKey, member.login]
+      );
+    } else {
+      const isTrainerOfTeam = await get(
+        db,
+        'SELECT 1 FROM trainer_teams tt ' +
+        'JOIN users u ON u.id = tt.trainer_id ' +
+        'WHERE u.login = ? AND LOWER(tt.team) = LOWER(?) ' +
+        'LIMIT 1',
+        [trainer.login, teamKey]
+      );
+
+      if (!isTrainerOfTeam) {
+        return res.status(403).json({ error: 'Вы не являетесь тренером этой группы' });
+      }
+
+      const exists = await get(
+        db,
+        'SELECT id FROM group_members WHERE user_id = ? AND team = ?',
+        [member.id, teamKey]
+      );
+      if (exists) {
+        return res.status(409).json({ error: 'Пользователь уже является участником этой группы' });
+      }
+
+      await run(
+        db,
+        'INSERT INTO group_members (user_id, team) VALUES (?, ?)',
+        [member.id, teamKey]
+      );
+    }
+
+    res.json({
+      ok: true,
+      user: {
+        publicId:  member.public_id,
+        login:     member.login,
+        firstName: member.first_name,
+        lastName:  member.last_name,
+        avatar:    member.avatar,
+        team:      member.team
+      }
+    });
+  } catch (e) {
+    console.error('GROUP ADD MEMBER ERROR:', e);
+    res.status(500).json({ error: 'Ошибка сервера при добавлении участника' });
   }
 });
 
@@ -979,6 +1255,38 @@ app.post('/api/profile/avatar', upload.single('avatar'), async (req, res) => {
   } catch (e) {
     console.error('AVATAR UPLOAD ERROR:', e);
     res.status(500).json({ error: 'Ошибка сервера при сохранении аватара' });
+  }
+});
+
+// DEBUG: кастомные группы пользователя
+app.post('/api/debug/user-custom-groups', async (req, res) => {
+  try {
+    const { login } = req.body;
+    if (!login) {
+      return res.status(400).json({ error: 'Нет логина' });
+    }
+
+    const user = await get(
+      db,
+      'SELECT id, login FROM users WHERE login = ?',
+      [login]
+    );
+    if (!user) {
+      return res.status(404).json({ error: 'Пользователь не найден' });
+    }
+
+    const rows = await all(
+      db,
+      'SELECT gcm.group_name, gcm.user_login ' +
+      'FROM group_custom_members gcm ' +
+      'WHERE LOWER(gcm.user_login) = LOWER(?)',
+      [login]
+    );
+
+    return res.json({ ok: true, login, groups: rows });
+  } catch (e) {
+    console.error('DEBUG USER CUSTOM GROUPS ERROR:', e);
+    res.status(500).json({ error: 'Ошибка сервера' });
   }
 });
 

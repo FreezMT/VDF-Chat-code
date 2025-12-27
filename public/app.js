@@ -66,6 +66,14 @@ var groupAvatarInput   = document.getElementById('groupAvatarInput');
 var groupNameEditInput = document.getElementById('groupNameEditInput');
 var groupNameSaveBtn   = document.getElementById('groupNameSaveBtn');
 
+var groupAddModal        = document.getElementById('groupAddModal');
+var groupAddBackdrop     = document.querySelector('.group-add-modal-backdrop');
+var groupAddAvatar       = document.getElementById('groupAddAvatar');
+var groupAddName         = document.getElementById('groupAddName');
+var groupAddMembersCount = document.getElementById('groupAddMembersCount');
+var groupAddUserIdInput  = document.getElementById('groupAddUserIdInput');
+var groupAddSubmitBtn    = document.getElementById('groupAddSubmitBtn');
+
 var groupNameInput     = document.getElementById('groupNameInput');
 var audienceParents    = document.getElementById('audienceParents');
 var audienceDancers    = document.getElementById('audienceDancers');
@@ -77,12 +85,24 @@ var createGroupBtn     = document.getElementById('createGroupBtn');
 var currentUser        = null;
 var currentChat        = null;
 var currentGroupName   = null;
+var currentGroupInfo   = null;
 
 var registrationBaseData = {
     login: null,
     password: null,
     role: null
 };
+
+// цвета для отправителей сообщений в группах
+var senderColors = [
+    '#FF6B6B', // красный
+    '#FFD93D', // жёлтый
+    '#6BCB77', // зелёный
+    '#4D96FF', // синий
+    '#C77DFF', // фиолетовый
+    '#FF9F1C', // оранжевый
+    '#2EC4B6'  // бирюзовый
+];
 
 function allowOnlyCyrillic(value) {
     return value.replace(/[^А-Яа-яЁё]/g, '').slice(0, 30);
@@ -94,6 +114,22 @@ function formatTime(ts) {
     var hh = String(d.getHours()).padStart(2, '0');
     var mm = String(d.getMinutes()).padStart(2, '0');
     return hh + ':' + mm;
+}
+
+function colorHash(str) {
+    if (!str) return 0;
+    var h = 0;
+    for (var i = 0; i < str.length; i++) {
+        h = ((h << 5) - h) + str.charCodeAt(i);
+        h |= 0;
+    }
+    return Math.abs(h);
+}
+
+function getSenderColor(login) {
+    if (!login) return '#FFFFFF';
+    var idx = colorHash(login) % senderColors.length;
+    return senderColors[idx];
 }
 
 function setNavActive(tab) {
@@ -174,7 +210,8 @@ function renderMessage(msg) {
     var item = document.createElement('div');
     item.className = 'msg-item';
 
-    if (currentUser && msg.sender_login === currentUser.login) {
+    var isMe = currentUser && msg.sender_login === currentUser.login;
+    if (isMe) {
         item.classList.add('msg-me');
     } else {
         item.classList.add('msg-other');
@@ -182,6 +219,24 @@ function renderMessage(msg) {
 
     var bubble = document.createElement('div');
     bubble.className = 'msg-bubble';
+
+    var isGroupChat = currentChat && (currentChat.type === 'group' || currentChat.type === 'groupCustom');
+
+    // Имя/фамилия над сообщением в группах
+    if (isGroupChat) {
+        var senderDiv = document.createElement('div');
+        senderDiv.className = 'msg-sender-name';
+
+        if (isMe) {
+            senderDiv.textContent = 'Вы';
+            senderDiv.style.color = '#000000';
+        } else {
+            senderDiv.textContent = msg.sender_name || msg.sender_login || '';
+            senderDiv.style.color = getSenderColor(msg.sender_login);
+        }
+
+        bubble.appendChild(senderDiv);
+    }
 
     var textDiv = document.createElement('div');
     textDiv.textContent = msg.text;
@@ -234,7 +289,11 @@ function buildChatSubtitle(chat) {
         if (chat.lastMessageSenderLogin === currentUser.login) {
             senderLabel = 'Вы';
         } else if (chat.type === 'trainer' && chat.title) {
+            // личные чаты с тренером
             senderLabel = chat.title;
+        } else if (chat.lastMessageSenderName) {
+            // группы — Имя Фамилия
+            senderLabel = chat.lastMessageSenderName;
         } else {
             senderLabel = chat.lastMessageSenderLogin || '';
         }
@@ -418,6 +477,37 @@ function hideGroupModal() {
     if (groupModal) groupModal.classList.remove('visible');
 }
 
+function hideGroupAddModal() {
+    if (groupAddModal) groupAddModal.classList.remove('visible');
+}
+
+function showGroupAddModal() {
+    if (!groupAddModal || !currentGroupName || !currentGroupInfo) return;
+
+    if (groupAddAvatar) {
+        groupAddAvatar.src = currentGroupInfo.avatar || '/logo.png';
+        groupAddAvatar.onerror = function () {
+            this.onerror = null;
+            this.src = '/logo.png';
+        };
+    }
+
+    if (groupAddName) {
+        groupAddName.textContent = currentGroupInfo.name || '';
+    }
+
+    if (groupAddMembersCount) {
+        groupAddMembersCount.textContent = (currentGroupInfo.membersCount || 0) + ' участников';
+    }
+
+    if (groupAddUserIdInput) {
+        groupAddUserIdInput.value = '';
+        groupAddUserIdInput.focus();
+    }
+
+    groupAddModal.classList.add('visible');
+}
+
 async function openGroupModal() {
     if (!groupModal || !currentChat || !currentUser) return;
     if (currentChat.type !== 'group' && currentChat.type !== 'groupCustom') return;
@@ -437,9 +527,12 @@ async function openGroupModal() {
 
         var isTrainer = /(trainer|тренер)/i.test(currentUser.role || '');
 
+        var groupName      = data.name   || currentChat.id || '';
+        var groupAvatarUrl = data.avatar || '/logo.png';
+        var membersCount   = data.membersCount || 0;
+
         if (groupAvatar) {
-            var src = data.avatar || '/logo.png';
-            groupAvatar.src = src;
+            groupAvatar.src = groupAvatarUrl;
             groupAvatar.onerror = function () {
                 this.onerror = null;
                 this.src = '/logo.png';
@@ -447,10 +540,15 @@ async function openGroupModal() {
         }
 
         if (groupNameTitle) {
-            groupNameTitle.textContent = data.name || '';
+            groupNameTitle.textContent = groupName;
         }
 
-        currentGroupName = data.name || currentChat.id || '';
+        currentGroupName = groupName;
+        currentGroupInfo = {
+            name: groupName,
+            avatar: groupAvatarUrl,
+            membersCount: membersCount
+        };
 
         if (groupNameEditInput) {
             groupNameEditInput.value = currentGroupName;
@@ -461,7 +559,7 @@ async function openGroupModal() {
         }
 
         if (groupMembersCount) {
-            groupMembersCount.textContent = (data.membersCount || 0) + ' участников';
+            groupMembersCount.textContent = membersCount + ' участников';
         }
 
         if (groupMembersList) {
@@ -504,6 +602,7 @@ async function openGroupModal() {
             groupAddMemberBtn.style.display = isTrainer ? '' : 'none';
         }
 
+        hideGroupAddModal();
         groupModal.classList.add('visible');
     } catch (e) {
         alert('Сетевая ошибка при загрузке группы');
@@ -532,6 +631,10 @@ async function openMainScreen(user) {
     if (chatScreen)       chatScreen.style.display       = 'none';
     if (profileScreen)    profileScreen.style.display    = 'none';
     if (createGroupScreen)createGroupScreen.style.display= 'none';
+
+    hideChatUserModal();
+    hideGroupModal();
+    hideGroupAddModal();
 
     if (mainScreen) mainScreen.style.display = 'flex';
     if (bottomNav) bottomNav.style.display   = 'flex';
@@ -580,6 +683,10 @@ function openProfileScreen() {
     profileScreen.style.display = 'flex';
     if (bottomNav) bottomNav.style.display = 'flex';
 
+    hideChatUserModal();
+    hideGroupModal();
+    hideGroupAddModal();
+
     setNavActive('profile');
     updateProfileUI();
 }
@@ -605,6 +712,10 @@ function openCreateGroupScreen() {
     createGroupScreen.style.display = 'block';
     if (bottomNav) bottomNav.style.display = 'flex';
     setNavActive('plus');
+
+    hideChatUserModal();
+    hideGroupModal();
+    hideGroupAddModal();
 
     if (groupNameInput) groupNameInput.value = '';
     if (audienceParents) audienceParents.checked = false;
@@ -676,6 +787,7 @@ if (backToMainFromChat && chatScreen) {
         setNavActive('home');
         hideChatUserModal();
         hideGroupModal();
+        hideGroupAddModal();
         await reloadChatList();
     });
 }
@@ -690,6 +802,7 @@ if (navHomeBtn && mainScreen) {
         setNavActive('home');
         hideChatUserModal();
         hideGroupModal();
+        hideGroupAddModal();
         await reloadChatList();
     });
 }
@@ -766,6 +879,37 @@ if (chatUserBackdrop && chatUserModal) {
 if (groupModalBackdrop && groupModal) {
     groupModalBackdrop.addEventListener('click', function () {
         hideGroupModal();
+    });
+}
+
+// модал "Добавить участника" — клик по фону
+if (groupAddBackdrop && groupAddModal) {
+    groupAddBackdrop.addEventListener('click', function () {
+        hideGroupAddModal();
+    });
+}
+
+// открыть модал добавления по кнопке "Добавить участника"
+if (groupAddMemberBtn) {
+    groupAddMemberBtn.addEventListener('click', function () {
+        var roleLower = (currentUser && currentUser.role ? currentUser.role.toLowerCase() : '');
+        if (roleLower !== 'trainer' && roleLower !== 'тренер') {
+            alert('Только тренер может добавлять участников');
+            return;
+        }
+        if (!currentGroupName) {
+            alert('Сначала откройте информацию о группе');
+            return;
+        }
+        hideGroupModal();
+        showGroupAddModal();
+    });
+}
+
+// только цифры в поле ID
+if (groupAddUserIdInput) {
+    groupAddUserIdInput.addEventListener('input', function () {
+        this.value = this.value.replace(/\D/g, '').slice(0, 7);
     });
 }
 
@@ -852,12 +996,86 @@ if (editGroupNameBtn && groupNameEditInput && groupNameSaveBtn) {
             if (currentChat)     currentChat.id              = currentGroupName;
             if (currentChat)     currentChat.title           = currentGroupName;
 
+            if (currentGroupInfo) {
+                currentGroupInfo.name = currentGroupName;
+            }
+
             groupNameEditInput.style.display = 'none';
             groupNameSaveBtn.style.display   = 'none';
 
             await reloadChatList();
         } catch (e) {
             alert('Сетевая ошибка при переименовании группы');
+        }
+    });
+}
+
+// отправка ID пользователя на сервер для добавления в группу
+if (groupAddSubmitBtn && groupAddUserIdInput) {
+    groupAddSubmitBtn.addEventListener('click', async function () {
+        var idValue = groupAddUserIdInput.value.trim();
+        if (!idValue) {
+            alert('Введите ID пользователя');
+            return;
+        }
+        if (!currentUser || !currentUser.login || !currentChat) {
+            alert('Ошибка: нет данных о текущем пользователе или группе');
+            return;
+        }
+
+        try {
+            var resp = await fetch('/api/group/add-member', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    login:    currentUser.login,
+                    chatId:   currentChat.id,
+                    publicId: idValue
+                })
+            });
+            var data = await resp.json();
+
+            if (!resp.ok) {
+                alert(data.error || 'Ошибка добавления участника');
+                return;
+            }
+
+            alert('Участник добавлен');
+
+            try {
+                var infoResp = await fetch('/api/group/info', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ chatId: currentChat.id })
+                });
+                var infoData = await infoResp.json();
+                if (infoResp.ok && infoData) {
+                    var newCount = infoData.membersCount || 0;
+
+                    currentGroupInfo = currentGroupInfo || {};
+                    currentGroupInfo.name         = infoData.name || currentGroupName;
+                    currentGroupInfo.avatar       = infoData.avatar || (currentGroupInfo.avatar || '/logo.png');
+                    currentGroupInfo.membersCount = newCount;
+
+                    if (groupAddMembersCount) {
+                        groupAddMembersCount.textContent = newCount + ' участников';
+                    }
+                    if (groupMembersCount) {
+                        groupMembersCount.textContent = newCount + ' участников';
+                    }
+                }
+            } catch (e2) {}
+
+            groupAddUserIdInput.value = '';
+        } catch (e) {
+            alert('Сетевая ошибка при добавлении участника');
+        }
+    });
+
+    groupAddUserIdInput.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            groupAddSubmitBtn.click();
         }
     });
 }
@@ -1378,7 +1596,12 @@ if (chatInputForm && chatInput) {
                 if (chatContent) chatContent.scrollTop = chatContent.scrollHeight;
             } else {
                 var nowIso = new Date().toISOString();
-                renderMessage({ sender_login: currentUser.login, text: text, created_at: nowIso });
+                renderMessage({
+                    sender_login: currentUser.login,
+                    sender_name:  currentUser.firstName + ' ' + currentUser.lastName,
+                    text:         text,
+                    created_at:   nowIso
+                });
                 if (chatContent) chatContent.scrollTop = chatContent.scrollHeight;
             }
         } catch (e2) {

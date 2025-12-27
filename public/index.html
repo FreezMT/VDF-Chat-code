@@ -285,6 +285,31 @@
                 <div class="group-members-list" id="groupMembersList"></div>
             </div>
         </div>
+                <!-- MODAL: ADD MEMBER BY ID -->
+        <div id="groupAddModal" class="chat-user-modal">
+            <div class="group-add-modal-backdrop"></div>
+            <div class="group-add-modal-card">
+                <div class="group-avatar-row">
+                    <div class="group-avatar-wrapper">
+                        <img id="groupAddAvatar" src="/logo.png" alt="Аватар группы" class="group-avatar">
+                    </div>
+                </div>
+
+                <div class="group-name" id="groupAddName"></div>
+
+                <div class="chat-user-pill" id="groupAddMembersCount"></div>
+
+                <div class="group-add-label">Введите ID пользователя</div>
+
+                <div class="group-add-input-wrapper">
+                    <input type="text" id="groupAddUserIdInput" maxlength="10" placeholder="ID">
+                </div>
+
+                <button type="button" class="group-add-submit-btn" id="groupAddSubmitBtn">
+                    Добавить
+                </button>
+            </div>
+        </div>
     </main>
 
     <!-- PROFILE -->
