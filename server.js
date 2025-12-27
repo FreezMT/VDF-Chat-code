@@ -282,7 +282,10 @@ app.post('/api/chats', async (req, res) => {
       [user.team]
     );
 
+    const trainerIds = new Set();
+
     trainers.forEach(tr => {
+      trainerIds.add(tr.id);
       chats.push({
         id: 'trainer-' + tr.id,
         type: 'trainer',
@@ -293,6 +296,28 @@ app.post('/api/chats', async (req, res) => {
         trainerLogin: tr.login
       });
     });
+
+      if (user.role && user.role.toLowerCase() === 'parent') {
+    const angelina = await get(
+      db,
+      'SELECT id, first_name, last_name, login FROM users ' +
+      'WHERE LOWER(TRIM(first_name)) LIKE "ангелина%" ' +
+      '  AND LOWER(TRIM(last_name)) LIKE "олеговна%" ' +
+      'LIMIT 1'
+    );
+
+    if (angelina && !trainerIds.has(angelina.id)) {
+      chats.push({
+        id: 'trainer-' + angelina.id,
+        type: 'trainer',
+        title: (angelina.first_name + ' ' + angelina.last_name).trim(),
+        subtitle: 'Последнее сообщение',
+        avatar: '/trainers/' + angelina.login + '.png',
+        trainerId: angelina.id,
+        trainerLogin: angelina.login
+      });
+    }
+  }
 
     res.json({ ok: true, chats });
   } catch (e) {
