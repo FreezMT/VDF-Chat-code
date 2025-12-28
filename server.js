@@ -118,7 +118,7 @@ msgDb.run(
   )`
 );
 
-// таблица "прочтений" чатов
+// таблица прочтений чатов
 msgDb.run(
   `CREATE TABLE IF NOT EXISTS chat_reads (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -235,7 +235,7 @@ function isValidDateIso(dateStr) {
 async function generateUniquePublicId() {
   let tries = 0;
   while (tries < 20) {
-    const code = String(Math.floor(1000000 + Math.random() * 9000000)); // 7 цифр
+    const code = String(Math.floor(1000000 + Math.random() * 9000000));
     const existing = await get(db, 'SELECT id FROM users WHERE public_id = ?', [code]);
     if (!existing) return code;
     tries++;
@@ -750,6 +750,88 @@ app.post('/api/chats', async (req, res) => {
   }
 });
 
+// /api/chat/personal — вернуть (и при необходимости "создать") личный чат между логином и targetLogin
+app.post('/api/chat/personal', async (req, res) => {
+  try {
+    const { login, targetLogin } = req.body;
+
+    if (!login || !targetLogin) {
+      return res.status(400).json({ error: 'Нет логина или targetLogin' });
+    }
+
+    const u1 = await get(
+      db,
+      'SELECT id, login, role, first_name, last_name, avatar FROM users WHERE login = ?',
+      [login]
+    );
+    const u2 = await get(
+      db,
+      'SELECT id, login, role, first_name, last_name, avatar FROM users WHERE login = ?',
+      [targetLogin]
+    );
+
+    if (!u1 || !u2) {
+      return res.status(404).json({ error: 'Один из пользователей не найден' });
+    }
+
+    const r1 = (u1.role || '').toLowerCase();
+    const r2 = (u2.role || '').toLowerCase();
+
+    let trainerUser, otherUser;
+
+    if (r1 === 'trainer' || r1 === 'тренер' || u1.login === ANGELINA_LOGIN) {
+      trainerUser = u1;
+      otherUser   = u2;
+    } else if (r2 === 'trainer' || r2 === 'тренер' || u2.login === ANGELINA_LOGIN) {
+      trainerUser = u2;
+      otherUser   = u1;
+    } else {
+      return res.status(400).json({ error: 'Личные чаты поддерживаются только с тренерами' });
+    }
+
+    // вычисляем chat_id по тем же правилам, что и в /api/chats
+    let chatId;
+    if (trainerUser.login === ANGELINA_LOGIN && (otherUser.role || '').toLowerCase() === 'parent') {
+      chatId = 'angelina-' + trainerUser.id + '-' + otherUser.id;
+    } else {
+      chatId = 'trainer-' + trainerUser.id + '-' + otherUser.id;
+    }
+
+    // строим объект чата с точки зрения текущего пользователя (login)
+    const current = (u1.login === login) ? u1 : u2;
+    const other   = (current.login === trainerUser.login) ? otherUser : trainerUser;
+
+    const chat = {
+      id:        chatId,
+      type:      'trainer',
+      title:     ((other.first_name || '') + ' ' + (other.last_name || '')).trim(),
+      subtitle:  '',
+      avatar:    other.avatar || '/img/default-avatar.png',
+      trainerId: trainerUser.id,
+      trainerLogin: trainerUser.login,
+      partnerId:    otherUser.id,
+      partnerLogin: otherUser.login
+    };
+
+    const last = await getMsg(
+      'SELECT sender_login, text, created_at FROM messages ' +
+      'WHERE chat_id = ? ORDER BY created_at DESC, id DESC LIMIT 1',
+      [chatId]
+    );
+
+    if (last) {
+      chat.lastMessageSenderLogin = last.sender_login;
+      chat.lastMessageText        = last.text;
+      chat.lastMessageCreatedAt   = last.created_at;
+    }
+
+    res.json({ ok: true, chat });
+  } catch (e) {
+    console.error('CHAT PERSONAL ERROR:', e);
+    res.status(500).json({ error: 'Ошибка сервера при открытии личного чата' });
+  }
+});
+
 // /api/messages/send
 app.post('/api/messages/send', async (req, res) => {
   try {
@@ -791,7 +873,7 @@ app.post('/api/messages/send', async (req, res) => {
         row.sender_name = row.sender_login;
       }
 
-      // обновляем "прочитано" для отправителя
+      // обновляем прочтение для отправителя
       try {
         const existing = await getMsg(
           'SELECT id FROM chat_reads WHERE chat_id = ? AND user_login = ?',
@@ -1064,7 +1146,7 @@ app.post('/api/group/info', async (req, res) => {
 
       members = await all(
         db,
-        'SELECT u.id, u.first_name, u.last_name, u.avatar ' +
+        'SELECT u.id, u.first_name, u.last_name, u.avatar, u.login ' +
         'FROM group_custom_members gcm ' +
         'JOIN users u ON u.login = gcm.user_login ' +
         'WHERE gcm.group_name = ? ' +
@@ -1074,7 +1156,7 @@ app.post('/api/group/info', async (req, res) => {
     } else {
       members = await all(
         db,
-        'SELECT u.id, u.first_name, u.last_name, u.avatar ' +
+        'SELECT u.id, u.first_name, u.last_name, u.avatar, u.login ' +
         'FROM group_members gm ' +
         'JOIN users u ON u.id = gm.user_id ' +
         'WHERE gm.team = ? ' +
@@ -1084,7 +1166,7 @@ app.post('/api/group/info', async (req, res) => {
 
       const trainers = await all(
         db,
-        'SELECT u.id, u.first_name, u.last_name, u.avatar ' +
+        'SELECT u.id, u.first_name, u.last_name, u.avatar, u.login ' +
         'FROM trainer_teams tt ' +
         'JOIN users u ON u.id = tt.trainer_id ' +
         'WHERE LOWER(tt.team) = LOWER(?)',

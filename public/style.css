@@ -441,15 +441,47 @@ body.welcome-active{background-color:#1C1C1C}
     background: rgba(0, 0, 0, 0.6);
 }
 
-.chat-user-modal-card {
-    position: relative;
-    z-index: 31;
-    width: 80%;
-    max-width: 320px;
-    padding: 32px 24px 24px;
-    border-radius: 16px;
-    background-color: #101010;
-    text-align: center;
+.chat-user-modal-card{
+    position:relative; /* чтобы стрелка позиционировалась внутри карточки */
+}
+
+/* стрелка "Назад" в модалке пользователя */
+.chat-user-back-btn{
+    position:absolute;
+    top:12px;
+    left:12px;
+    width:28px;
+    height:28px;
+    border:none;
+    border-radius:50%;
+    background-color:#101010; /* тот же цвет, что и фон карточки */
+    color:#FFFFFF;
+    font-size:18px;
+    display:none;              /* по умолчанию скрыта, включаем из JS */
+    align-items:center;
+    justify-content:center;
+    cursor:pointer;
+}
+.chat-user-back-btn:active{
+    opacity:.8;
+}
+
+/* кнопка "Написать" (если ещё не было стилей) */
+.chat-user-write-btn{
+    margin:16px auto 0;
+    max-width:260px;
+    width:100%;
+    padding:10px 0;
+    border:none;
+    border-radius:999px;
+    background-color:#3BA9FF;
+    color:#000000;
+    font-size:15px;
+    font-weight:600;
+    cursor:pointer;
+}
+.chat-user-write-btn:active{
+    opacity:.8;
 }
 
 .chat-user-avatar-wrapper {
@@ -965,4 +997,119 @@ body.welcome-active{background-color:#1C1C1C}
     justify-content:center;
     padding:0 5px;
     margin-left:8px;
+}
+
+.chat-user-write-btn{
+    margin:16px auto 0;
+    max-width:260px;
+    width:100%;
+    padding:10px 0;
+    border:none;
+    border-radius:999px;
+    background-color:#3BA9FF;
+    color:#000000;
+    font-size:15px;
+    font-weight:600;
+    cursor:pointer;
+}
+.chat-user-write-btn:active{
+    opacity:0.8;
+}
+
+.chat-user-modal {
+    position: fixed;
+    inset: 0;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 30;
+}
+
+.chat-user-modal.visible {
+    display: flex;
+}
+
+.chat-user-modal-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+}
+
+/* заполненный блок модалки — СЮДА ВАЖНО ВЕРНУТЬ background-color */
+.chat-user-modal-card {
+    position: relative;              /* нужно для стрелки */
+    z-index: 31;
+    width: 80%;
+    max-width: 320px;
+    padding: 32px 24px 24px;
+    border-radius: 16px;
+    background-color: #101010;      /* фон самой карточки */
+    text-align: center;
+}
+
+/* стрелка "Назад" */
+.chat-user-back-btn{
+    position:absolute;
+    top:12px;
+    left:12px;
+    width:28px;
+    height:28px;
+    border:none;
+    border-radius:50%;
+    background-color:#101010;  /* тот же цвет, что и .chat-user-modal-card */
+    color:#FFFFFF;
+    font-size:18px;
+    display:none;              /* по умолчанию скрыта, JS включает */
+    align-items:center;
+    justify-content:center;
+    cursor:pointer;
+}
+.chat-user-back-btn:active{
+    opacity:0.8;
+}
+
+/* аватар, имя, пилюли — твой старый код, оставляем */
+.chat-user-avatar-wrapper {
+    width: 72px;
+    height: 72px;
+    border-radius: 50%;
+    overflow: hidden;
+    margin: 0 auto 16px;
+    background-color: #2A2A2A;
+}
+.chat-user-avatar {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+.chat-user-name {
+    font-size: 18px;
+    font-weight: 600;
+    margin-bottom: 20px;
+}
+.chat-user-pill {
+    margin: 0 auto 12px;
+    max-width: 260px;
+    padding: 8px 16px;
+    border-radius: 999px;
+    background-color: #3F3F3F;
+    font-size: 15px;
+}
+
+/* кнопка "Написать" */
+.chat-user-write-btn{
+    margin:16px auto 0;
+    max-width:260px;
+    width:100%;
+    padding:10px 0;
+    border:none;
+    border-radius:999px;
+    background-color:#3BA9FF;
+    color:#000000;
+    font-size:15px;
+    font-weight:600;
+    cursor:pointer;
+}
+.chat-user-write-btn:active{
+    opacity:0.8;
 }

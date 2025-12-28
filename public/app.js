@@ -12,6 +12,7 @@ window.addEventListener('load', function () {
     }, 2000);
 });
 
+// ЭКРАНЫ
 var welcomeScreen      = document.getElementById('welcome');
 var registerScreen     = document.getElementById('registerScreen');
 var parentInfoScreen   = document.getElementById('parentInfoScreen');
@@ -23,6 +24,7 @@ var profileScreen      = document.getElementById('profileScreen');
 var createGroupScreen  = document.getElementById('createGroupScreen');
 var bottomNav          = document.getElementById('bottomNav');
 
+// ЧАТ
 var chatList           = document.getElementById('chatList');
 var chatHeaderTitle    = document.getElementById('chatHeaderTitle');
 var chatHeaderAvatar   = document.getElementById('chatHeaderAvatar');
@@ -30,12 +32,13 @@ var chatContent        = document.querySelector('.chat-content');
 var chatInputForm      = document.getElementById('chatInputForm');
 var chatInput          = document.getElementById('chatInput');
 
-// панель ответа
+// ПАНЕЛЬ ОТВЕТА
 var replyBar        = document.getElementById('replyBar');
 var replySenderEl   = document.getElementById('replySender');
 var replyTextEl     = document.getElementById('replyText');
 var replyCancelBtn  = document.getElementById('replyCancelBtn');
 
+// НАВИГАЦИЯ
 var navAddBtn          = document.getElementById('navAddBtn');
 var navHomeBtn         = document.getElementById('navHomeBtn');
 var navProfileBtn      = document.getElementById('navProfileBtn');
@@ -43,6 +46,7 @@ var navAddIcon         = document.getElementById('navAddIcon');
 var navHomeIcon        = document.getElementById('navHomeIcon');
 var navProfileIcon     = document.getElementById('navProfileIcon');
 
+// ПРОФИЛЬ
 var profileAvatar      = document.getElementById('profileAvatar');
 var changePhotoBtn     = document.getElementById('changePhotoBtn');
 var profilePhotoInput  = document.getElementById('profilePhotoInput');
@@ -51,6 +55,7 @@ var profileIdEl        = document.getElementById('profileId');
 var profileTeamEl      = document.getElementById('profileTeam');
 var profileDobEl       = document.getElementById('profileDob');
 
+// МОДАЛКА ПОЛЬЗОВАТЕЛЯ
 var chatUserModal      = document.getElementById('chatUserModal');
 var chatUserAvatar     = document.getElementById('chatUserAvatar');
 var chatUserName       = document.getElementById('chatUserName');
@@ -58,7 +63,10 @@ var chatUserId         = document.getElementById('chatUserId');
 var chatUserTeam       = document.getElementById('chatUserTeam');
 var chatUserDob        = document.getElementById('chatUserDob');
 var chatUserBackdrop   = document.querySelector('.chat-user-modal-backdrop');
+var chatUserWriteBtn   = document.getElementById('chatUserWriteBtn'); // "Написать"
+var chatUserBackBtn    = document.getElementById('chatUserBackBtn');  // "Назад"
 
+// МОДАЛКА ГРУППЫ
 var groupModal         = document.getElementById('groupModal');
 var groupModalBackdrop = document.querySelector('.group-modal-backdrop');
 var groupAvatar        = document.getElementById('groupAvatar');
@@ -72,6 +80,7 @@ var groupAvatarInput   = document.getElementById('groupAvatarInput');
 var groupNameEditInput = document.getElementById('groupNameEditInput');
 var groupNameSaveBtn   = document.getElementById('groupNameSaveBtn');
 
+// ДОБАВЛЕНИЕ УЧАСТНИКА
 var groupAddModal        = document.getElementById('groupAddModal');
 var groupAddBackdrop     = document.querySelector('.group-add-modal-backdrop');
 var groupAddAvatar       = document.getElementById('groupAddAvatar');
@@ -80,6 +89,7 @@ var groupAddMembersCount = document.getElementById('groupAddMembersCount');
 var groupAddUserIdInput  = document.getElementById('groupAddUserIdInput');
 var groupAddSubmitBtn    = document.getElementById('groupAddSubmitBtn');
 
+// СОЗДАНИЕ ГРУППЫ
 var groupNameInput     = document.getElementById('groupNameInput');
 var audienceParents    = document.getElementById('audienceParents');
 var audienceDancers    = document.getElementById('audienceDancers');
@@ -88,6 +98,7 @@ var ageText            = document.getElementById('ageText');
 var ageValue           = document.getElementById('ageValue');
 var createGroupBtn     = document.getElementById('createGroupBtn');
 
+// СОСТОЯНИЕ
 var currentUser        = null;
 var currentChat        = null;
 var currentGroupName   = null;
@@ -99,10 +110,13 @@ var registrationBaseData = {
     role: null
 };
 
-var currentReplyTarget = null;   // сообщение, на которое отвечаем
+var currentReplyTarget = null;
 var swipeStartX = 0;
 var swipeStartY = 0;
 var swipeItem   = null;
+
+var lastChats         = [];
+var userInfoFromGroup = false; // модалка пользователя открыта из группы?
 
 // цвета для отправителей в группах
 var senderColors = [
@@ -114,6 +128,8 @@ var senderColors = [
     '#FF9F1C',
     '#2EC4B6'
 ];
+
+// ---------- ХЕЛПЕРЫ ----------
 
 function allowOnlyCyrillic(value) {
     return value.replace(/[^А-Яа-яЁё]/g, '').slice(0, 30);
@@ -205,7 +221,6 @@ function updateProfileUI() {
 
     if (profileDobEl) {
         var roleLower = (currentUser.role || '').toLowerCase();
-
         if (roleLower === 'parent' || !currentUser.dobFormatted) {
             profileDobEl.style.display = 'none';
         } else {
@@ -239,7 +254,7 @@ function parseReplyWrappedText(raw) {
     var end = raw.indexOf(marker);
     if (end === -1) return res;
 
-    var metaStr   = raw.substring(3, end); // после [r]
+    var metaStr   = raw.substring(3, end);
     var metaLines = metaStr.split('\n');
     res.reply = {
         senderName:  metaLines[0] || '',
@@ -248,6 +263,24 @@ function parseReplyWrappedText(raw) {
     };
     res.mainText = raw.substring(end + marker.length);
     return res;
+}
+
+// ---------- ПОИСК ЛИЧНОГО ЧАТА ДЛЯ "НАПИСАТЬ" ----------
+
+function findChatWithUser(login) {
+    if (!currentUser || !lastChats || !lastChats.length || !login) return null;
+
+    var roleLower = (currentUser.role || '').toLowerCase();
+
+    if (roleLower === 'trainer' || roleLower === 'тренер') {
+        return lastChats.find(function (ch) {
+            return ch.type === 'trainer' && ch.partnerLogin === login;
+        }) || null;
+    }
+
+    return lastChats.find(function (ch) {
+        return ch.type === 'trainer' && ch.trainerLogin === login;
+    }) || null;
 }
 
 // ---------- ЛОГИКА ОТВЕТА ----------
@@ -297,7 +330,6 @@ function onMsgTouchMove(e) {
     var dx = t.clientX - swipeStartX;
     var dy = t.clientY - swipeStartY;
 
-    // свайп ВЛЕВО > 40px, почти без вертикального движения
     if (dx < -40 && Math.abs(dy) < 30) {
         startReplyFromElement(swipeItem);
         swipeItem = null;
@@ -308,7 +340,7 @@ function onMsgTouchEnd() {
     swipeItem = null;
 }
 
-// ---------- РЕНДЕР СООБЩЕНИЙ И ЧАТОВ ----------
+// ---------- РЕНДЕР СООБЩЕНИЙ ----------
 
 function renderMessage(msg) {
     if (!chatContent) return;
@@ -321,11 +353,8 @@ function renderMessage(msg) {
     item.className = 'msg-item';
 
     var isMe = currentUser && msg.sender_login === currentUser.login;
-    if (isMe) {
-        item.classList.add('msg-me');
-    } else {
-        item.classList.add('msg-other');
-    }
+    if (isMe) item.classList.add('msg-me');
+    else      item.classList.add('msg-other');
 
     var bubble = document.createElement('div');
     bubble.className = 'msg-bubble';
@@ -385,13 +414,13 @@ function renderMessage(msg) {
     item.dataset.msgSenderLogin = msg.sender_login;
     item.dataset.msgSenderName  = msg.sender_name || msg.sender_login || '';
 
-    // свайп влево на мобильных
+    // свайп влево
     item.addEventListener('touchstart', onMsgTouchStart, { passive: true });
     item.addEventListener('touchmove',  onMsgTouchMove,  { passive: true });
     item.addEventListener('touchend',   onMsgTouchEnd);
     item.addEventListener('touchcancel',onMsgTouchEnd);
 
-    // двойной клик на десктопе
+    // двойной клик
     item.addEventListener('dblclick', function () {
         startReplyFromElement(item);
     });
@@ -426,6 +455,8 @@ async function loadMessages(chatId) {
         alert('Сетевая ошибка при загрузке сообщений');
     }
 }
+
+// ---------- РЕНДЕР ЧАТОВ ----------
 
 function buildChatSubtitle(chat) {
     if (!chat || !currentUser) return chat && chat.subtitle ? chat.subtitle : '';
@@ -541,6 +572,8 @@ async function reloadChatList() {
         }
 
         var chatsArr = data.chats || [];
+        lastChats = chatsArr.slice();
+
         chatsArr.sort(function (a, b) {
             var ad = a.lastMessageCreatedAt || '';
             var bd = b.lastMessageCreatedAt || '';
@@ -556,6 +589,8 @@ async function reloadChatList() {
     }
 }
 
+// ---------- ПАРТНЕР В ЛИЧНОМ ЧАТЕ ----------
+
 function getChatPartnerLogin(chat) {
     if (!chat || !currentUser) return null;
     var roleLower = (currentUser.role || '').toLowerCase();
@@ -570,21 +605,27 @@ function getChatPartnerLogin(chat) {
     return null;
 }
 
+// ---------- МОДАЛКА ПОЛЬЗОВАТЕЛЯ ----------
+
 function hideChatUserModal() {
     if (chatUserModal) chatUserModal.classList.remove('visible');
+    userInfoFromGroup = false;
 }
 
-async function openChatUserModal() {
-    if (!chatUserModal || !currentChat || !currentUser) return;
+async function openUserInfoModal(login, fromGroup) {
+    if (!chatUserModal || !login) return;
 
-    var partnerLogin = getChatPartnerLogin(currentChat);
-    if (!partnerLogin) return;
+    userInfoFromGroup = !!fromGroup;
+
+    if (userInfoFromGroup && groupModal) {
+        groupModal.classList.remove('visible');
+    }
 
     try {
         var resp = await fetch('/api/user/info', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ login: partnerLogin })
+            body: JSON.stringify({ login: login })
         });
         var data = await resp.json();
 
@@ -633,11 +674,59 @@ async function openChatUserModal() {
             }
         }
 
+        if (!userInfoFromGroup) {
+            // личный чат: без стрелки и без "Написать"
+            if (chatUserBackBtn)  { chatUserBackBtn.style.display  = 'none'; chatUserBackBtn.onclick  = null; }
+            if (chatUserWriteBtn) { chatUserWriteBtn.style.display = 'none'; chatUserWriteBtn.onclick = null; }
+        } else {
+            // из группы: стрелка назад и "Написать"
+            if (chatUserBackBtn) {
+                chatUserBackBtn.style.display = '';
+                chatUserBackBtn.onclick = function () {
+                    hideChatUserModal();
+                    if (groupModal) groupModal.classList.add('visible');
+                };
+            }
+            if (chatUserWriteBtn) {
+                chatUserWriteBtn.style.display = '';
+                chatUserWriteBtn.onclick = async function () {
+                    try {
+                        var resp2 = await fetch('/api/chat/personal', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                login: currentUser.login,
+                                targetLogin: user.login
+                            })
+                        });
+                        var d2 = await resp2.json();
+                        if (!resp2.ok || !d2.ok) {
+                            alert(d2.error || 'Не удалось открыть личный чат');
+                            return;
+                        }
+                        hideChatUserModal();
+                        openChat(d2.chat);
+                    } catch (e2) {
+                        alert('Сетевая ошибка при открытии личного чата');
+                    }
+                };
+            }
+        }
+
         chatUserModal.classList.add('visible');
     } catch (e) {
         alert('Сетевая ошибка при загрузке профиля пользователя');
     }
 }
+
+async function openChatUserModal() {
+    if (!currentChat || !currentUser) return;
+    var partnerLogin = getChatPartnerLogin(currentChat);
+    if (!partnerLogin) return;
+    openUserInfoModal(partnerLogin, false);
+}
+
+// ---------- МОДАЛКА ГРУППЫ ----------
 
 function hideGroupModal() {
     if (groupModal) groupModal.classList.remove('visible');
@@ -690,8 +779,6 @@ async function openGroupModal() {
             alert(data.error || 'Не удалось получить информацию о группе');
             return;
         }
-
-        var isTrainer = /(trainer|тренер)/i.test(currentUser.role || '');
 
         var groupName      = data.name   || currentChat.id || '';
         var groupAvatarUrl = data.avatar || '/logo.png';
@@ -754,19 +841,23 @@ async function openGroupModal() {
                 item.appendChild(aw);
                 item.appendChild(nm);
 
+                var lg = m.login || '';
+                item.dataset.login = lg;
+
+                if (lg) {
+                    item.addEventListener('click', function () {
+                        openUserInfoModal(this.dataset.login, true);
+                    });
+                }
+
                 groupMembersList.appendChild(item);
             });
         }
 
-        if (editGroupAvatarBtn) {
-            editGroupAvatarBtn.style.display = isTrainer ? '' : 'none';
-        }
-        if (editGroupNameBtn) {
-            editGroupNameBtn.style.display = isTrainer ? '' : 'none';
-        }
-        if (groupAddMemberBtn) {
-            groupAddMemberBtn.style.display = isTrainer ? '' : 'none';
-        }
+        // иконки всегда активны, сервер всё равно проверит права
+        if (editGroupAvatarBtn) editGroupAvatarBtn.style.display = '';
+        if (editGroupNameBtn)   editGroupNameBtn.style.display   = '';
+        if (groupAddMemberBtn)  groupAddMemberBtn.style.display  = '';
 
         hideGroupAddModal();
         groupModal.classList.add('visible');
@@ -774,6 +865,8 @@ async function openGroupModal() {
         alert('Сетевая ошибка при загрузке группы');
     }
 }
+
+// ---------- ЭКРАНЫ: ОСНОВНОЙ, ЧАТ, ПРОФИЛЬ, СОЗДАНИЕ ГРУППЫ ----------
 
 async function openMainScreen(user) {
     currentUser = currentUser || {};
@@ -896,7 +989,7 @@ function openCreateGroupScreen() {
     if (ageValue) ageValue.value = '';
 }
 
-// ----- НАВИГАЦИЯ И ОБРАБОТЧИКИ -----
+// ---------- НАВИГАЦИЯ ----------
 
 var registerBtn = document.getElementById('registerBtn');
 if (registerBtn && welcomeScreen && registerScreen) {
@@ -991,6 +1084,40 @@ if (navAddBtn) {
     });
 }
 
+// клик по шапке чата
+document.addEventListener('click', function (e) {
+    var header = e.target.closest('.chat-header');
+    if (!header) return;
+    if (e.target.closest('.chat-back')) return;
+    if (!currentChat) return;
+
+    if (currentChat.type === 'trainer') {
+        openChatUserModal();
+    } else if (currentChat.type === 'group' || currentChat.type === 'groupCustom') {
+        openGroupModal();
+    }
+});
+
+// закрытие модалок по фону
+if (chatUserBackdrop && chatUserModal) {
+    chatUserBackdrop.addEventListener('click', function () {
+        hideChatUserModal();
+    });
+}
+
+if (groupModalBackdrop && groupModal) {
+    groupModalBackdrop.addEventListener('click', function () {
+        hideGroupModal();
+    });
+}
+
+if (groupAddBackdrop && groupAddModal) {
+    groupAddBackdrop.addEventListener('click', function () {
+        hideGroupAddModal();
+    });
+}
+
+// ПРОФИЛЬ: смена фото
 if (changePhotoBtn && profilePhotoInput) {
     changePhotoBtn.addEventListener('click', function () {
         profilePhotoInput.click();
@@ -1028,68 +1155,9 @@ if (changePhotoBtn && profilePhotoInput) {
     });
 }
 
-document.addEventListener('click', function (e) {
-    var header = e.target.closest('.chat-header');
-    if (!header) return;
-    if (e.target.closest('.chat-back')) return;
-    if (!currentChat) return;
-
-    if (currentChat.type === 'trainer') {
-        openChatUserModal();
-    } else if (currentChat.type === 'group' || currentChat.type === 'groupCustom') {
-        openGroupModal();
-    }
-});
-
-if (chatUserBackdrop && chatUserModal) {
-    chatUserBackdrop.addEventListener('click', function () {
-        hideChatUserModal();
-    });
-}
-
-if (groupModalBackdrop && groupModal) {
-    groupModalBackdrop.addEventListener('click', function () {
-        hideGroupModal();
-    });
-}
-
-if (groupAddBackdrop && groupAddModal) {
-    groupAddBackdrop.addEventListener('click', function () {
-        hideGroupAddModal();
-    });
-}
-
-if (groupAddMemberBtn) {
-    groupAddMemberBtn.addEventListener('click', function () {
-        var roleLower = (currentUser && currentUser.role ? currentUser.role.toLowerCase() : '');
-        if (roleLower !== 'trainer' && roleLower !== 'тренер') {
-            alert('Только тренер может добавлять участников');
-            return;
-        }
-        if (!currentGroupName) {
-            alert('Сначала откройте информацию о группе');
-            return;
-        }
-        hideGroupModal();
-        showGroupAddModal();
-    });
-}
-
-if (groupAddUserIdInput) {
-    groupAddUserIdInput.addEventListener('input', function () {
-        this.value = this.value.replace(/\D/g, '').slice(0, 7);
-    });
-}
-
-if (replyCancelBtn) {
-    replyCancelBtn.addEventListener('click', clearReply);
-}
-
-// редактирование аватара группы
+// редактирование аватара группы (клик всегда работает, права проверит сервер)
 if (editGroupAvatarBtn && groupAvatarInput) {
     editGroupAvatarBtn.addEventListener('click', function () {
-        var roleLower = (currentUser?.role || '').toLowerCase();
-        if (roleLower !== 'trainer' && roleLower !== 'тренер') return;
         if (!currentGroupName) return;
         groupAvatarInput.click();
     });
@@ -1124,11 +1192,9 @@ if (editGroupAvatarBtn && groupAvatarInput) {
     });
 }
 
-// редактирование названия группы
+// редактирование названия группы (клик всегда работает, права проверит сервер)
 if (editGroupNameBtn && groupNameEditInput && groupNameSaveBtn) {
     editGroupNameBtn.addEventListener('click', function () {
-        var roleLower = (currentUser?.role || '').toLowerCase();
-        if (roleLower !== 'trainer' && roleLower !== 'тренер') return;
         if (!currentGroupName) return;
 
         groupNameEditInput.value = currentGroupName;
@@ -1182,74 +1248,39 @@ if (editGroupNameBtn && groupNameEditInput && groupNameSaveBtn) {
     });
 }
 
-// отправка ID пользователя на сервер для добавления в группу
-if (groupAddSubmitBtn && groupAddUserIdInput) {
-    groupAddSubmitBtn.addEventListener('click', async function () {
-        var idValue = groupAddUserIdInput.value.trim();
-        if (!idValue) {
-            alert('Введите ID пользователя');
-            return;
-        }
-        if (!currentUser || !currentUser.login || !currentChat) {
-            alert('Ошибка: нет данных о текущем пользователе или группе');
-            return;
-        }
+// открытие модалки группы по клику на шапку
+document.addEventListener('click', function (e) {
+    var header = e.target.closest('.chat-header');
+    if (!header) return;
+    if (e.target.closest('.chat-back')) return;
+    if (!currentChat) return;
 
-        try {
-            var resp = await fetch('/api/group/add-member', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    login:    currentUser.login,
-                    chatId:   currentChat.id,
-                    publicId: idValue
-                })
-            });
-            var data = await resp.json();
+    if (currentChat.type === 'trainer') {
+        openChatUserModal();
+    } else if (currentChat.type === 'group' || currentChat.type === 'groupCustom') {
+        openGroupModal();
+    }
+});
 
-            if (!resp.ok) {
-                alert(data.error || 'Ошибка добавления участника');
-                return;
-            }
-
-            alert('Участник добавлен');
-
-            try {
-                var infoResp = await fetch('/api/group/info', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ chatId: currentChat.id })
-                });
-                var infoData = await infoResp.json();
-                if (infoResp.ok && infoData) {
-                    var newCount = infoData.membersCount || 0;
-
-                    currentGroupInfo = currentGroupInfo || {};
-                    currentGroupInfo.name         = infoData.name || currentGroupName;
-                    currentGroupInfo.avatar       = infoData.avatar || (currentGroupInfo.avatar || '/logo.png');
-                    currentGroupInfo.membersCount = newCount;
-
-                    if (groupAddMembersCount) {
-                        groupAddMembersCount.textContent = newCount + ' участников';
-                    }
-                    if (groupMembersCount) {
-                        groupMembersCount.textContent = newCount + ' участников';
-                    }
-                }
-            } catch (e2) {}
-
-            groupAddUserIdInput.value = '';
-        } catch (e) {
-            alert('Сетевая ошибка при добавлении участника');
-        }
+// открытие модалки добавления участника
+if (groupAddMemberBtn) {
+    groupAddMemberBtn.addEventListener('click', function () {
+        if (!currentGroupName) return;
+        hideGroupModal();
+        showGroupAddModal();
     });
+}
 
-    groupAddUserIdInput.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            groupAddSubmitBtn.click();
-        }
+// обработчик ID участника
+if (groupAddUserIdInput) {
+    groupAddUserIdInput.addEventListener('input', function () {
+        this.value = this.value.replace(/\D/g, '').slice(0, 7);
     });
+}
+
+// КНОПКА "Отмена" панели ответа
+if (replyCancelBtn) {
+    replyCancelBtn.addEventListener('click', clearReply);
 }
 
 // --- возраст в создании группы ---
@@ -1297,6 +1328,7 @@ if (ageField && ageText && ageValue) {
     });
 }
 
+// СОЗДАНИЕ ГРУППЫ
 if (createGroupBtn) {
     createGroupBtn.addEventListener('click', async function () {
         if (!currentUser) {
@@ -1357,8 +1389,7 @@ if (createGroupBtn) {
     });
 }
 
-
-// --- INPUTS & REG/LOGIN/MSG ---
+// ------- ВВОДЫ & РЕГИСТРАЦИЯ / ЛОГИН / ОТПРАВКА -------
 
 var loginInput = document.getElementById('loginInput');
 if (loginInput) {
@@ -1680,10 +1711,6 @@ if (dancerContinueBtn && dancerFirstNameInput && dancerLastNameInput && dancerTe
     });
 }
 
-var loginScreenLogin    = document.getElementById('loginScreenLogin');
-var loginScreenPassword = document.getElementById('loginScreenPassword');
-var loginContinueBtn    = document.getElementById('loginContinueBtn');
-
 if (loginScreenLogin) {
     loginScreenLogin.addEventListener('input', function () {
         this.value = this.value.replace(/[^\x20-\x7E]/g, '').slice(0, 20);
@@ -1745,7 +1772,7 @@ if (chatInputForm && chatInput) {
         var finalText = text;
 
         if (currentReplyTarget) {
-            var sName = currentReplyTarget.senderName || currentReplyTarget.senderLogin || '';
+            var sName  = currentReplyTarget.senderName  || currentReplyTarget.senderLogin || '';
             var sLogin = currentReplyTarget.senderLogin || '';
 
             var quoted = String(currentReplyTarget.text || '').replace(/\s+/g, ' ').trim();
@@ -1754,7 +1781,6 @@ if (chatInputForm && chatInput) {
             }
             quoted = quoted.replace(/\n/g, ' ');
 
-            // оборачиваем текст в метаданные ответа
             finalText = '[r]' + sName + '\n' + sLogin + '\n' + quoted + '\n[/r]\n' + text;
         }
 
