@@ -231,7 +231,13 @@
         </header>
 
         <section class="chat-content"></section>
-
+        <div id="replyBar" class="reply-bar" style="display:none">
+            <div class="reply-bar-content">
+                <div class="reply-bar-title" id="replySender"></div>
+                <div class="reply-bar-text" id="replyText"></div>
+            </div>
+            <button type="button" class="reply-bar-cancel" id="replyCancelBtn">✕</button>
+        </div>
         <form class="chat-input-bar" id="chatInputForm">
             <input type="text" id="chatInput" placeholder="Сообщение">
             <button type="submit" class="chat-send-btn"></button>

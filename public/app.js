@@ -30,6 +30,12 @@ var chatContent        = document.querySelector('.chat-content');
 var chatInputForm      = document.getElementById('chatInputForm');
 var chatInput          = document.getElementById('chatInput');
 
+// панель ответа
+var replyBar        = document.getElementById('replyBar');
+var replySenderEl   = document.getElementById('replySender');
+var replyTextEl     = document.getElementById('replyText');
+var replyCancelBtn  = document.getElementById('replyCancelBtn');
+
 var navAddBtn          = document.getElementById('navAddBtn');
 var navHomeBtn         = document.getElementById('navHomeBtn');
 var navProfileBtn      = document.getElementById('navProfileBtn');
@@ -93,15 +99,20 @@ var registrationBaseData = {
     role: null
 };
 
-// цвета для отправителей сообщений в группах
+var currentReplyTarget = null;   // сообщение, на которое отвечаем
+var swipeStartX = 0;
+var swipeStartY = 0;
+var swipeItem   = null;
+
+// цвета для отправителей в группах
 var senderColors = [
-    '#FF6B6B', // красный
-    '#FFD93D', // жёлтый
-    '#6BCB77', // зелёный
-    '#4D96FF', // синий
-    '#C77DFF', // фиолетовый
-    '#FF9F1C', // оранжевый
-    '#2EC4B6'  // бирюзовый
+    '#FF6B6B',
+    '#FFD93D',
+    '#6BCB77',
+    '#4D96FF',
+    '#C77DFF',
+    '#FF9F1C',
+    '#2EC4B6'
 ];
 
 function allowOnlyCyrillic(value) {
@@ -204,8 +215,107 @@ function updateProfileUI() {
     }
 }
 
+async function markChatRead(chatId) {
+    if (!currentUser || !currentUser.login || !chatId) return;
+    try {
+        await fetch('/api/chat/mark-read', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ login: currentUser.login, chatId: chatId })
+        });
+    } catch (e) {
+        // можно игнорировать
+    }
+}
+
+// ---------- ПАРСИНГ ТЕКСТА-ОТВЕТА ----------
+// формат: [r]senderName\nsenderLogin\nquotedText\n[/r]\nmainText
+function parseReplyWrappedText(raw) {
+    var res = { mainText: raw || '', reply: null };
+    if (typeof raw !== 'string') return res;
+    if (!raw.startsWith('[r]')) return res;
+
+    var marker = '\n[/r]\n';
+    var end = raw.indexOf(marker);
+    if (end === -1) return res;
+
+    var metaStr   = raw.substring(3, end); // после [r]
+    var metaLines = metaStr.split('\n');
+    res.reply = {
+        senderName:  metaLines[0] || '',
+        senderLogin: metaLines[1] || '',
+        text:        metaLines[2] || ''
+    };
+    res.mainText = raw.substring(end + marker.length);
+    return res;
+}
+
+// ---------- ЛОГИКА ОТВЕТА ----------
+
+function startReplyForMessage(msg) {
+    if (!replyBar || !replySenderEl || !replyTextEl) return;
+
+    currentReplyTarget = msg;
+
+    var isMe = currentUser && msg.senderLogin === currentUser.login;
+    replySenderEl.textContent = isMe ? 'Вы' : (msg.senderName || msg.senderLogin || '');
+
+    var preview = String(msg.text || '').replace(/\s+/g, ' ').trim();
+    if (preview.length > 80) {
+        preview = preview.slice(0, 77) + '…';
+    }
+    replyTextEl.textContent = preview;
+
+    replyBar.style.display = 'flex';
+}
+
+function startReplyFromElement(el) {
+    var msg = {
+        id:           Number(el.dataset.msgId),
+        senderLogin:  el.dataset.msgSenderLogin,
+        senderName:   el.dataset.msgSenderName,
+        text:         el.dataset.msgText
+    };
+    startReplyForMessage(msg);
+}
+
+function clearReply() {
+    currentReplyTarget = null;
+    if (replyBar) replyBar.style.display = 'none';
+}
+
+function onMsgTouchStart(e) {
+    var t = e.touches[0];
+    swipeStartX = t.clientX;
+    swipeStartY = t.clientY;
+    swipeItem   = e.currentTarget;
+}
+
+function onMsgTouchMove(e) {
+    if (!swipeItem) return;
+    var t = e.touches[0];
+    var dx = t.clientX - swipeStartX;
+    var dy = t.clientY - swipeStartY;
+
+    // свайп ВЛЕВО > 40px, почти без вертикального движения
+    if (dx < -40 && Math.abs(dy) < 30) {
+        startReplyFromElement(swipeItem);
+        swipeItem = null;
+    }
+}
+
+function onMsgTouchEnd() {
+    swipeItem = null;
+}
+
+// ---------- РЕНДЕР СООБЩЕНИЙ И ЧАТОВ ----------
+
 function renderMessage(msg) {
     if (!chatContent) return;
+
+    var parsed = parseReplyWrappedText(msg.text || '');
+    var replyInfo = parsed.reply;
+    var mainText  = parsed.mainText;
 
     var item = document.createElement('div');
     item.className = 'msg-item';
@@ -222,7 +332,7 @@ function renderMessage(msg) {
 
     var isGroupChat = currentChat && (currentChat.type === 'group' || currentChat.type === 'groupCustom');
 
-    // Имя/фамилия над сообщением в группах
+    // имя отправителя в группах
     if (isGroupChat) {
         var senderDiv = document.createElement('div');
         senderDiv.className = 'msg-sender-name';
@@ -238,8 +348,26 @@ function renderMessage(msg) {
         bubble.appendChild(senderDiv);
     }
 
+    // блок цитаты, если это ответ
+    if (replyInfo && replyInfo.text) {
+        var rb = document.createElement('div');
+        rb.className = 'reply-block';
+
+        var rbTitle = document.createElement('div');
+        rbTitle.className = 'reply-block-title';
+        rbTitle.textContent = replyInfo.senderName || replyInfo.senderLogin || '';
+
+        var rbText = document.createElement('div');
+        rbText.className  = 'reply-block-text';
+        rbText.textContent = replyInfo.text;
+
+        rb.appendChild(rbTitle);
+        rb.appendChild(rbText);
+        bubble.appendChild(rb);
+    }
+
     var textDiv = document.createElement('div');
-    textDiv.textContent = msg.text;
+    textDiv.textContent = mainText;
 
     var timeSpan = document.createElement('span');
     timeSpan.className = 'msg-time';
@@ -250,6 +378,23 @@ function renderMessage(msg) {
 
     item.appendChild(bubble);
     chatContent.appendChild(item);
+
+    // данные для ответа
+    item.dataset.msgId          = msg.id;
+    item.dataset.msgText        = mainText;
+    item.dataset.msgSenderLogin = msg.sender_login;
+    item.dataset.msgSenderName  = msg.sender_name || msg.sender_login || '';
+
+    // свайп влево на мобильных
+    item.addEventListener('touchstart', onMsgTouchStart, { passive: true });
+    item.addEventListener('touchmove',  onMsgTouchMove,  { passive: true });
+    item.addEventListener('touchend',   onMsgTouchEnd);
+    item.addEventListener('touchcancel',onMsgTouchEnd);
+
+    // двойной клик на десктопе
+    item.addEventListener('dblclick', function () {
+        startReplyFromElement(item);
+    });
 }
 
 async function loadMessages(chatId) {
@@ -275,6 +420,8 @@ async function loadMessages(chatId) {
         });
 
         chatContent.scrollTop = chatContent.scrollHeight;
+
+        await markChatRead(chatId);
     } catch (e) {
         alert('Сетевая ошибка при загрузке сообщений');
     }
@@ -284,21 +431,21 @@ function buildChatSubtitle(chat) {
     if (!chat || !currentUser) return chat && chat.subtitle ? chat.subtitle : '';
 
     if (chat.lastMessageText) {
+        var parsed = parseReplyWrappedText(chat.lastMessageText || '');
+        var text   = String(parsed.mainText || '').replace(/\s+/g, ' ').trim();
+
         var senderLabel = '';
 
         if (chat.lastMessageSenderLogin === currentUser.login) {
             senderLabel = 'Вы';
         } else if (chat.type === 'trainer' && chat.title) {
-            // личные чаты с тренером
             senderLabel = chat.title;
         } else if (chat.lastMessageSenderName) {
-            // группы — Имя Фамилия
             senderLabel = chat.lastMessageSenderName;
         } else {
             senderLabel = chat.lastMessageSenderLogin || '';
         }
 
-        var text = String(chat.lastMessageText).replace(/\s+/g, ' ').trim();
         var full = senderLabel ? (senderLabel + ': ' + text) : text;
 
         var maxLen = 40;
@@ -354,8 +501,19 @@ function addChatItem(chat) {
     body.appendChild(title);
     body.appendChild(subtitle);
 
+    var meta = document.createElement('div');
+    meta.className = 'chat-meta';
+
+    if (chat.unreadCount && chat.unreadCount > 0) {
+        var badge = document.createElement('div');
+        badge.className = 'chat-unread-badge';
+        badge.textContent = chat.unreadCount > 99 ? '99+' : chat.unreadCount;
+        meta.appendChild(badge);
+    }
+
     item.appendChild(avatarWrapper);
     item.appendChild(body);
+    item.appendChild(meta);
 
     item.addEventListener('click', function () {
         openChat(chat);
@@ -382,7 +540,15 @@ async function reloadChatList() {
             return;
         }
 
-        (data.chats || []).forEach(function (chat) {
+        var chatsArr = data.chats || [];
+        chatsArr.sort(function (a, b) {
+            var ad = a.lastMessageCreatedAt || '';
+            var bd = b.lastMessageCreatedAt || '';
+            if (ad === bd) return 0;
+            return ad > bd ? -1 : 1;
+        });
+
+        chatsArr.forEach(function (chat) {
             addChatItem(chat);
         });
     } catch (e) {
@@ -478,7 +644,7 @@ function hideGroupModal() {
 }
 
 function hideGroupAddModal() {
-    if (groupAddModal) groupAddModal.classList.remove('visible');
+    if (groupAddModal) groupAddModal.style.display = 'none';
 }
 
 function showGroupAddModal() {
@@ -505,7 +671,7 @@ function showGroupAddModal() {
         groupAddUserIdInput.focus();
     }
 
-    groupAddModal.classList.add('visible');
+    groupAddModal.style.display = 'flex';
 }
 
 async function openGroupModal() {
@@ -635,6 +801,7 @@ async function openMainScreen(user) {
     hideChatUserModal();
     hideGroupModal();
     hideGroupAddModal();
+    clearReply();
 
     if (mainScreen) mainScreen.style.display = 'flex';
     if (bottomNav) bottomNav.style.display   = 'flex';
@@ -670,6 +837,7 @@ function openChat(chat) {
 
     if (chatInput) chatInput.value = '';
     if (chatContent) chatContent.innerHTML = '';
+    clearReply();
 
     loadMessages(chat.id);
 }
@@ -686,6 +854,7 @@ function openProfileScreen() {
     hideChatUserModal();
     hideGroupModal();
     hideGroupAddModal();
+    clearReply();
 
     setNavActive('profile');
     updateProfileUI();
@@ -716,6 +885,7 @@ function openCreateGroupScreen() {
     hideChatUserModal();
     hideGroupModal();
     hideGroupAddModal();
+    clearReply();
 
     if (groupNameInput) groupNameInput.value = '';
     if (audienceParents) audienceParents.checked = false;
@@ -788,6 +958,7 @@ if (backToMainFromChat && chatScreen) {
         hideChatUserModal();
         hideGroupModal();
         hideGroupAddModal();
+        clearReply();
         await reloadChatList();
     });
 }
@@ -803,6 +974,7 @@ if (navHomeBtn && mainScreen) {
         hideChatUserModal();
         hideGroupModal();
         hideGroupAddModal();
+        clearReply();
         await reloadChatList();
     });
 }
@@ -856,7 +1028,6 @@ if (changePhotoBtn && profilePhotoInput) {
     });
 }
 
-// клик по шапке (пользователь / группа)
 document.addEventListener('click', function (e) {
     var header = e.target.closest('.chat-header');
     if (!header) return;
@@ -882,14 +1053,12 @@ if (groupModalBackdrop && groupModal) {
     });
 }
 
-// модал "Добавить участника" — клик по фону
 if (groupAddBackdrop && groupAddModal) {
     groupAddBackdrop.addEventListener('click', function () {
         hideGroupAddModal();
     });
 }
 
-// открыть модал добавления по кнопке "Добавить участника"
 if (groupAddMemberBtn) {
     groupAddMemberBtn.addEventListener('click', function () {
         var roleLower = (currentUser && currentUser.role ? currentUser.role.toLowerCase() : '');
@@ -906,11 +1075,14 @@ if (groupAddMemberBtn) {
     });
 }
 
-// только цифры в поле ID
 if (groupAddUserIdInput) {
     groupAddUserIdInput.addEventListener('input', function () {
         this.value = this.value.replace(/\D/g, '').slice(0, 7);
     });
+}
+
+if (replyCancelBtn) {
+    replyCancelBtn.addEventListener('click', clearReply);
 }
 
 // редактирование аватара группы
@@ -1570,10 +1742,26 @@ if (chatInputForm && chatInput) {
         var text = chatInput.value.trim();
         if (!text || !currentChat || !currentUser) return;
 
+        var finalText = text;
+
+        if (currentReplyTarget) {
+            var sName = currentReplyTarget.senderName || currentReplyTarget.senderLogin || '';
+            var sLogin = currentReplyTarget.senderLogin || '';
+
+            var quoted = String(currentReplyTarget.text || '').replace(/\s+/g, ' ').trim();
+            if (quoted.length > 80) {
+                quoted = quoted.slice(0, 77) + '…';
+            }
+            quoted = quoted.replace(/\n/g, ' ');
+
+            // оборачиваем текст в метаданные ответа
+            finalText = '[r]' + sName + '\n' + sLogin + '\n' + quoted + '\n[/r]\n' + text;
+        }
+
         var payload = {
             chatId: currentChat.id,
             senderLogin: currentUser.login,
-            text: text
+            text: finalText
         };
 
         try {
@@ -1590,6 +1778,7 @@ if (chatInputForm && chatInput) {
             }
 
             chatInput.value = '';
+            clearReply();
 
             if (data.message) {
                 renderMessage(data.message);
@@ -1597,9 +1786,10 @@ if (chatInputForm && chatInput) {
             } else {
                 var nowIso = new Date().toISOString();
                 renderMessage({
+                    id:           Date.now(),
                     sender_login: currentUser.login,
-                    sender_name:  currentUser.firstName + ' ' + currentUser.lastName,
-                    text:         text,
+                    sender_name:  (currentUser.firstName || '') + ' ' + (currentUser.lastName || ''),
+                    text:         finalText,
                     created_at:   nowIso
                 });
                 if (chatContent) chatContent.scrollTop = chatContent.scrollHeight;

@@ -118,6 +118,17 @@ msgDb.run(
   )`
 );
 
+// таблица "прочтений" чатов
+msgDb.run(
+  `CREATE TABLE IF NOT EXISTS chat_reads (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_id TEXT NOT NULL,
+    user_login TEXT NOT NULL,
+    last_read_msg_id INTEGER,
+    last_read_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  )`
+);
+
 // ---------- MIDDLEWARE ----------
 
 app.use(express.json());
@@ -230,6 +241,40 @@ async function generateUniquePublicId() {
     tries++;
   }
   throw new Error('Не удалось сгенерировать уникальный public_id');
+}
+
+// ---------- HELPERS: unread + сортировка ----------
+
+async function enrichChatsWithUnreadAndSort(userLogin, chats) {
+  if (!chats || !chats.length) return chats;
+
+  const reads = await allMsg(
+    'SELECT chat_id, last_read_msg_id FROM chat_reads WHERE LOWER(user_login) = LOWER(?)',
+    [userLogin]
+  );
+
+  const readMap = {};
+  for (const r of reads) {
+    readMap[r.chat_id] = r.last_read_msg_id || 0;
+  }
+
+  for (const chat of chats) {
+    const lastReadId = readMap[chat.id] || 0;
+    const row = await getMsg(
+      'SELECT COUNT(*) AS cnt FROM messages WHERE chat_id = ? AND id > ?',
+      [chat.id, lastReadId]
+    );
+    chat.unreadCount = row ? row.cnt : 0;
+  }
+
+  chats.sort((a, b) => {
+    const ad = a.lastMessageCreatedAt || '';
+    const bd = b.lastMessageCreatedAt || '';
+    if (ad === bd) return 0;
+    return ad > bd ? -1 : 1; // новые сверху
+  });
+
+  return chats;
 }
 
 // ---------- ROUTES ----------
@@ -497,6 +542,7 @@ app.post('/api/chats', async (req, res) => {
         chats.push(chat);
       }
 
+      await enrichChatsWithUnreadAndSort(login, chats);
       return res.json({ ok: true, chats });
     }
 
@@ -630,7 +676,7 @@ app.post('/api/chats', async (req, res) => {
       }
     }
 
-    // КАСТОМНЫЕ ГРУППЫ, где пользователь является участником (group_custom_members)
+    // КАСТОМНЫЕ ГРУППЫ, где пользователь является участником
     const customMemberships = await all(
       db,
       'SELECT group_name FROM group_custom_members WHERE LOWER(user_login) = LOWER(?)',
@@ -696,6 +742,7 @@ app.post('/api/chats', async (req, res) => {
       chats.push(chat);
     }
 
+    await enrichChatsWithUnreadAndSort(login, chats);
     return res.json({ ok: true, chats });
   } catch (e) {
     console.error('CHATS ERROR:', e);
@@ -743,6 +790,27 @@ app.post('/api/messages/send', async (req, res) => {
         console.error('SEND MESSAGE sender_name error:', e2);
         row.sender_name = row.sender_login;
       }
+
+      // обновляем "прочитано" для отправителя
+      try {
+        const existing = await getMsg(
+          'SELECT id FROM chat_reads WHERE chat_id = ? AND user_login = ?',
+          [row.chat_id, row.sender_login]
+        );
+        if (existing) {
+          await runMsg(
+            'UPDATE chat_reads SET last_read_msg_id = ?, last_read_at = CURRENT_TIMESTAMP WHERE id = ?',
+            [row.id, existing.id]
+          );
+        } else {
+          await runMsg(
+            'INSERT INTO chat_reads (chat_id, user_login, last_read_msg_id, last_read_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)',
+            [row.chat_id, row.sender_login, row.id]
+          );
+        }
+      } catch (e3) {
+        console.error('SEND MESSAGE update chat_reads error:', e3);
+      }
     }
 
     res.json({ ok: true, message: row });
@@ -769,7 +837,6 @@ app.post('/api/messages/list', async (req, res) => {
       [chatId]
     );
 
-    // добавляем sender_name к сообщениям
     const uniqueLogins = [...new Set(rows.map(r => r.sender_login))];
     const nameMap = {};
 
@@ -796,6 +863,53 @@ app.post('/api/messages/list', async (req, res) => {
   } catch (e) {
     console.error('LIST MESSAGES ERROR:', e);
     res.status(500).json({ error: 'Ошибка сервера при загрузке сообщений' });
+  }
+});
+
+// /api/chat/mark-read
+app.post('/api/chat/mark-read', async (req, res) => {
+  try {
+    const { login, chatId } = req.body;
+    if (!login || !chatId) {
+      return res.status(400).json({ error: 'Нет логина или chatId' });
+    }
+
+    const user = await get(
+      db,
+      'SELECT id FROM users WHERE login = ?',
+      [login]
+    );
+    if (!user) {
+      return res.status(404).json({ error: 'Пользователь не найден' });
+    }
+
+    const last = await getMsg(
+      'SELECT id FROM messages WHERE chat_id = ? ORDER BY id DESC LIMIT 1',
+      [chatId]
+    );
+    const lastId = last ? last.id : null;
+
+    const existing = await getMsg(
+      'SELECT id FROM chat_reads WHERE chat_id = ? AND user_login = ?',
+      [chatId, login]
+    );
+
+    if (existing) {
+      await runMsg(
+        'UPDATE chat_reads SET last_read_msg_id = ?, last_read_at = CURRENT_TIMESTAMP WHERE id = ?',
+        [lastId, existing.id]
+      );
+    } else {
+      await runMsg(
+        'INSERT INTO chat_reads (chat_id, user_login, last_read_msg_id, last_read_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)',
+        [chatId, login, lastId]
+      );
+    }
+
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('CHAT MARK READ ERROR:', e);
+    res.status(500).json({ error: 'Ошибка сервера при отметке прочтения' });
   }
 });
 

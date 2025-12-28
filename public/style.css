@@ -791,3 +791,178 @@ body.welcome-active{background-color:#1C1C1C}
 .msg-item.msg-me .msg-sender-name{
     color:#000000;
 }
+
+.chat-meta{
+    display:flex;
+    flex-direction:column;
+    align-items:flex-end;
+    min-width:32px;
+}
+
+.chat-unread-badge{
+    min-width:20px;
+    height:20px;
+    border-radius:999px;
+    background-color:#3BA9FF;
+    color:#000000;
+    font-size:12px;
+    font-weight:600;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:0 5px;
+    margin-left:8px;
+}
+
+.reply-bar{
+    position:fixed;
+    left:0;
+    right:0;
+    bottom:72px; /* над панелью ввода */
+    padding:6px 16px;
+    display:none;
+    align-items:center;
+    justify-content:space-between;
+    background-color:rgba(0,0,0,0.7);
+    backdrop-filter:blur(6px);
+    z-index:9;
+}
+
+.reply-bar-content{
+    max-width:80%;
+}
+
+.reply-bar-title{
+    font-size:12px;
+    font-weight:600;
+    margin-bottom:2px;
+    color:#3BA9FF;
+}
+
+.reply-bar-text{
+    font-size:13px;
+    color:#FFFFFF;
+    opacity:0.9;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+}
+
+.reply-bar-cancel{
+    width:24px;
+    height:24px;
+    border-radius:50%;
+    border:none;
+    background:none;
+    color:#FFFFFF;
+    font-size:18px;
+    cursor:pointer;
+}
+
+/* пузырь сообщения — чуть больше */
+.msg-bubble{
+    max-width:75%;
+    padding:12px 14px 6px;
+    border-radius:18px;
+    font-size:15px;
+    background-color:#000000;
+    color:#FFFFFF;
+}
+.msg-item.msg-me .msg-bubble{
+    background-color:rgba(59,169,255,.9);
+    color:#000000;
+}
+
+/* имя отправителя (в группах) */
+.msg-sender-name{
+    font-size:12px;
+    font-weight:600;
+    margin-bottom:4px;
+}
+
+/* блок цитаты (ответа) внутри пузыря */
+.reply-block{
+    margin-bottom:4px;
+    padding:4px 8px;
+    border-radius:10px;
+    font-size:12px;
+}
+.msg-item.msg-other .reply-block{
+    background-color:rgba(255,255,255,0.08);
+}
+.msg-item.msg-me .reply-block{
+    background-color:rgba(0,0,0,0.12);
+}
+.reply-block-title{
+    font-weight:600;
+    margin-bottom:2px;
+    opacity:0.9;
+}
+.reply-block-text{
+    font-size:12px;
+    opacity:0.9;
+}
+
+/* панель ответа над полем ввода (если ещё не добавили) */
+.reply-bar{
+    position:fixed;
+    left:0;
+    right:0;
+    bottom:72px; /* над панелью ввода */
+    padding:6px 16px;
+    display:none;
+    align-items:center;
+    justify-content:space-between;
+    background-color:rgba(0,0,0,0.7);
+    backdrop-filter:blur(6px);
+    z-index:9;
+}
+.reply-bar-content{
+    max-width:80%;
+}
+.reply-bar-title{
+    font-size:12px;
+    font-weight:600;
+    margin-bottom:2px;
+    color:#3BA9FF;
+}
+.reply-bar-text{
+    font-size:13px;
+    color:#FFFFFF;
+    opacity:0.9;
+    white-space:nowrap;
+    overflow:hidden;
+    text-overflow:ellipsis;
+}
+.reply-bar-cancel{
+    width:24px;
+    height:24px;
+    border-radius:50%;
+    border:none;
+    background:none;
+    color:#FFFFFF;
+    font-size:18px;
+    cursor:pointer;
+}
+
+/* блок справа в списке чатов с количеством непрочитанных */
+.chat-meta{
+    display:flex;
+    flex-direction:column;
+    align-items:flex-end;
+    min-width:32px;
+}
+.chat-unread-badge{
+    min-width:20px;
+    height:20px;
+    border-radius:999px;
+    background-color:#3BA9FF;
+    color:#000000;
+    font-size:12px;
+    font-weight:600;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:0 5px;
+    margin-left:8px;
+}
