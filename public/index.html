@@ -214,9 +214,53 @@
             <button type="button" class="btn btn-primary" id="loginContinueBtn">Продолжить</button>
         </form>
     </main>
+    <!-- FEED: ЛЕНТА АКТИВНОСТИ -->
+    <main id="feedScreen" class="feed-screen">
 
+        <section class="feed-list" id="feedList"></section>
+
+        <button type="button" class="feed-create-btn" id="createPostBtn">
+            Создать пост
+        </button>
+    </main>
+        <!-- MODAL: СОЗДАНИЕ ПОСТА -->
+    <div id="postModal" class="post-modal">
+        <div class="post-modal-backdrop"></div>
+        <div class="post-modal-card">
+            <div class="post-modal-title">Новый пост</div>
+
+            <div class="post-modal-field">
+                <div class="post-modal-label">Фотография (по желанию)</div>
+                <button type="button" class="post-modal-upload-btn" id="postImageBtn">
+                    Загрузить фото
+                </button>
+                <input type="file" id="postImageInput" accept="image/*" style="display:none">
+
+                <div class="post-image-preview" id="postImagePreview" style="display:none">
+                    <img id="postImagePreviewImg" alt="Превью">
+                </div>
+            </div>
+
+            <div class="post-modal-field">
+                <div class="post-modal-label">Текст поста</div>
+<textarea id="postTextInput" maxlength="2000" placeholder="Напишите что-нибудь..."></textarea>
+            </div>
+
+            <div class="post-modal-actions">
+                <button type="button" class="post-modal-btn post-modal-cancel" id="postCancelBtn">
+                    Отмена
+                </button>
+                <button type="button" class="post-modal-btn post-modal-submit" id="postSubmitBtn">
+                    Опубликовать
+                </button>
+            </div>
+        </div>
+    </div>
     <!-- MAIN (LIST OF CHATS) -->
     <main id="mainScreen" class="main-screen">
+        <div class="chat-search-wrapper">
+            <input type="text" id="chatSearchInput" placeholder="Поиск по чатам">
+        </div>
         <section class="chat-list" id="chatList"></section>
     </main>
 
@@ -224,41 +268,108 @@
     <main id="chatScreen" class="chat-screen">
         <header class="chat-header">
             <button type="button" class="chat-back" id="backToMainFromChat">←</button>
-            <div class="chat-header-title" id="chatHeaderTitle">Чат</div>
+
+            <div class="chat-header-center">
+                <div class="chat-header-title" id="chatHeaderTitle">Чат</div>
+                <div class="chat-header-status" id="chatHeaderStatus"></div>
+            </div>
+
             <div class="chat-header-avatar">
                 <img id="chatHeaderAvatar" src="/img/default-avatar.png" alt="">
             </div>
         </header>
 
+        <div id="pinnedTopBar" class="pinned-top-bar"></div>
+
         <section class="chat-content"></section>
-        <div id="replyBar" class="reply-bar" style="display:none">
-            <div class="reply-bar-content">
-                <div class="reply-bar-title" id="replySender"></div>
-                <div class="reply-bar-text" id="replyText"></div>
-            </div>
-            <button type="button" class="reply-bar-cancel" id="replyCancelBtn">✕</button>
+
+        <div id="replyBar" class="reply-bar">
+        <div class="reply-bar-content">
+            <div id="replySender" class="reply-bar-title"></div>
+            <div id="replyText" class="reply-bar-text"></div>
         </div>
+        <button id="replyCancelBtn" type="button" class="reply-bar-cancel">✕</button>
+        </div>
+
+        <div id="attachPreviewBar" class="attach-preview-bar"></div>
+
         <form class="chat-input-bar" id="chatInputForm">
-            <input type="text" id="chatInput" placeholder="Сообщение">
-            <button type="submit" class="chat-send-btn"></button>
+            <button type="button" class="chat-attach-btn" id="chatAttachBtn"></button>
+            <input type="file" id="chatAttachInput" style="display:none">
+
+            <textarea id="chatInput" rows="1" placeholder="Сообщение"></textarea>
+
+            <!-- UI для записи голосового -->
+            <div class="voice-record-ui" id="voiceRecordUi">
+                <div class="voice-red-dot"></div>
+                <div class="voice-wave-live" id="voiceWaveLive"></div>
+                <div class="voice-record-hint">Свайп вправо — отмена</div>
+                <div class="voice-timer" id="voiceTimer">0:00</div>
+            </div>
+
+            <div class="chat-send-mic-wrapper">
+                <button type="button" class="chat-mic-btn" id="chatMicBtn"></button>
+                <button type="submit" class="chat-send-btn" id="chatSendBtn"></button>
+            </div>
         </form>
+            <!-- MODAL: ПЕРЕСЛАТЬ СООБЩЕНИЕ -->
+        <div id="forwardModal" class="forward-modal">
+            <div class="forward-backdrop"></div>
+            <div class="forward-card">
+                <div class="forward-title">Переслать сообщение</div>
+                <div class="forward-list" id="forwardList"></div>
+                <div class="forward-actions">
+                    <button type="button" id="forwardCancelBtn" class="forward-btn forward-btn-cancel">
+                        Отмена
+                    </button>
+                    <button type="button" id="forwardSubmitBtn" class="forward-btn forward-btn-submit" disabled>
+                        Отправить
+                    </button>
+                </div>
+            </div>
+        </div>
 
         <!-- MODAL WITH USER INFO -->
         <div id="chatUserModal" class="chat-user-modal">
             <div class="chat-user-modal-backdrop"></div>
-            <div class="chat-user-modal-card">
-                <button type="button" id="chatUserBackBtn" class="chat-user-back-btn" style="display:none">←</button>
-                <div class="chat-user-avatar-wrapper">
-                    <img id="chatUserAvatar" src="/img/default-avatar.png" alt="Аватар" class="chat-user-avatar">
+                <div class="chat-user-modal-card">
+                    <button type="button" id="chatUserBackBtn" class="chat-user-back-btn" style="display:none">←</button>
+
+                    <div class="chat-user-avatar-wrapper">
+                        <img id="chatUserAvatar" src="/img/default-avatar.png" alt="Аватар" class="chat-user-avatar">
+                    </div>
+                    <div class="chat-user-name" id="chatUserName"></div>
+                    <div class="chat-user-pill" id="chatUserId"></div>
+                    <div class="chat-user-pill" id="chatUserTeam"></div>
+                    <div class="chat-user-pill" id="chatUserDob"></div>
+                    
+                    <div class="chat-attachments" id="chatUserAttachments">
+                        <div class="chat-attachments-tabs">
+                            <button type="button" class="chat-attachments-tab chat-attachments-tab-active" id="chatUserMediaTab">
+                                Медиа
+                            </button>
+                            <button type="button" class="chat-attachments-tab" id="chatUserFilesTab">
+                                Файлы
+                            </button>
+                            <button type="button" class="chat-attachments-tab" id="chatUserAudioTab">
+                                Аудио
+                            </button>
+                        </div>
+                        <div class="chat-attachments-content">
+                            <div class="chat-attachments-media-grid" id="chatUserMediaGrid"></div>
+                            <div class="chat-attachments-files-list" id="chatUserFilesList"></div>
+                            <div class="chat-attachments-audio-list" id="chatUserAudioList"></div>
+                        </div>
+                    </div>
+
+                    <button type="button" class="chat-user-write-btn" id="chatUserWriteBtn">
+                        Написать
+                    </button>
+                    <button type="button" class="chat-user-remove-btn" id="chatUserRemoveBtn">
+                        Удалить из группы
+                    </button>
                 </div>
-                <div class="chat-user-name" id="chatUserName"></div>
-                <div class="chat-user-pill" id="chatUserId"></div>
-                <div class="chat-user-pill" id="chatUserTeam"></div>
-                <div class="chat-user-pill" id="chatUserDob"></div>
-                <button type="button" class="chat-user-write-btn" id="chatUserWriteBtn">
-                    Написать
-                </button>
-            </div>
+
         </div>
 
         <!-- MODAL WITH GROUP INFO -->
@@ -267,7 +378,7 @@
             <div class="group-modal-card">
                 <div class="group-avatar-row">
                     <div class="group-avatar-wrapper">
-                        <img id="groupAvatar" src="/logo.png" alt="Аватар группы" class="group-avatar">
+                        <img id="groupAvatar" src="/group avatar.png" alt="Аватар группы" class="group-avatar">
                     </div>
                     <button type="button" class="edit-icon" id="editGroupAvatarBtn"></button>
                 </div>
@@ -293,6 +404,25 @@
                 </button>
 
                 <div class="group-members-list" id="groupMembersList"></div>
+                <!-- БЛОК ВЛОЖЕНИЙ ДЛЯ ГРУППОВОГО ЧАТА -->
+                <div class="chat-attachments" id="groupAttachments">
+                    <div class="chat-attachments-tabs">
+                        <button type="button" class="chat-attachments-tab chat-attachments-tab-active" id="groupMediaTab">
+                            Медиа
+                        </button>
+                        <button type="button" class="chat-attachments-tab" id="groupFilesTab">
+                            Файлы
+                        </button>
+                        <button type="button" class="chat-attachments-tab" id="groupAudioTab">
+                            Аудио
+                        </button>
+                    </div>
+                    <div class="chat-attachments-content">
+                        <div class="chat-attachments-media-grid" id="groupMediaGrid"></div>
+                        <div class="chat-attachments-files-list" id="groupFilesList"></div>
+                        <div class="chat-attachments-audio-list" id="groupAudioList"></div>
+                    </div>
+                </div>
             </div>
         </div>
                 <!-- MODAL: ADD MEMBER BY ID -->
@@ -301,7 +431,7 @@
             <div class="group-add-modal-card">
                 <div class="group-avatar-row">
                     <div class="group-avatar-wrapper">
-                        <img id="groupAddAvatar" src="/logo.png" alt="Аватар группы" class="group-avatar">
+                        <img id="groupAddAvatar" src="/group avatar.png" alt="Аватар группы" class="group-avatar">
                     </div>
                 </div>
 
@@ -318,6 +448,13 @@
                 <button type="button" class="group-add-submit-btn" id="groupAddSubmitBtn">
                     Добавить
                 </button>
+            </div>
+        </div>
+        <div id="mediaViewer" class="media-viewer">
+            <div class="media-viewer-backdrop"></div>
+            <div class="media-viewer-content">
+                <img  id="mediaViewerImg"   class="media-viewer-img"   src="" alt="">
+                <video id="mediaViewerVideo" class="media-viewer-video" controls></video>
             </div>
         </div>
     </main>
@@ -339,6 +476,9 @@
             <div class="profile-pill" id="profileId"></div>
             <div class="profile-pill" id="profileTeam"></div>
             <div class="profile-pill" id="profileDob"></div>
+            <button type="button" class="profile-logout-btn" id="logoutBtn">
+                Выйти из аккаунта
+            </button>
         </div>
     </main>
 
@@ -395,6 +535,9 @@
         <button class="nav-btn nav-add" id="navAddBtn">
             <img id="navAddIcon" src="icons/plus.png" alt="Создать группу">
         </button>
+        <button class="nav-btn nav-list" id="navListBtn">
+            <img id="navListIcon" src="icons/list-gray.png" alt="Список">
+        </button>
         <button class="nav-btn nav-home" id="navHomeBtn">
             <img id="navHomeIcon" src="icons/home.png" alt="Главная">
         </button>
@@ -402,7 +545,7 @@
             <img id="navProfileIcon" src="icons/user.png" alt="Профиль">
         </button>
     </nav>
-
+    <div id="networkBanner" class="network-banner"></div>
     <script src="app.js"></script>
 </body>
 </html>

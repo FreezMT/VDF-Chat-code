@@ -1,17 +1,26 @@
+// server.js
+
 const express = require('express');
 const sqlite3 = require('sqlite3').verbose();
-const bcrypt = require('bcrypt');
-const path = require('path');
-const fs = require('fs');
-const multer = require('multer');
+const bcrypt  = require('bcrypt');
+const path    = require('path');
+const fs      = require('fs');
+const multer  = require('multer');
+const webPush = require('web-push');
+const ffmpeg  = require('fluent-ffmpeg');
+const ffmpegPath = require('@ffmpeg-installer/ffmpeg').path;
 
-const app = express();
+ffmpeg.setFfmpegPath(ffmpegPath);
 
-const db    = new sqlite3.Database(path.join(__dirname, 'db.sqlite'));
-const msgDb = new sqlite3.Database(path.join(__dirname, 'messages.sqlite'));
+const app  = express();
+const db   = new sqlite3.Database(path.join(__dirname, 'db.sqlite'));
+const msgDb= new sqlite3.Database(path.join(__dirname, 'messages.sqlite'));
 
 const PORT        = process.env.PORT || 3000;
 const SALT_ROUNDS = 10;
+
+const session = require('express-session');
+const crypto  = require('crypto');
 
 const ANGELINA_LOGIN = 'angelina';
 
@@ -38,6 +47,17 @@ const TEAMS = [
   'Вика 7+ Реутов'
 ];
 
+// ---------- VAPID ДЛЯ WEB-PUSH ----------
+
+const VAPID_PUBLIC_KEY  = 'BG3M55GRSlmaufWbQKN_ykIZmlY0oEqhKvBGMiQX-dwpOPiqpnjtcrEmmRT3kq36nJwWBg7KO-MeZjOKvkr_qSQ';
+const VAPID_PRIVATE_KEY = '2KuOe8UblZdGOTbpipoY3gao8HZRMJFuy8tJtrz39ZI';
+
+webPush.setVapidDetails(
+  'mailto:admin@example.com',
+  VAPID_PUBLIC_KEY,
+  VAPID_PRIVATE_KEY
+);
+
 // ---------- СХЕМЫ ОСНОВНОЙ БД ----------
 
 db.run(
@@ -52,13 +72,20 @@ db.run(
     team TEXT NOT NULL,
     dob TEXT,
     avatar TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    last_seen DATETIME
   )`
 );
 
+// на случай старых БД — добавляем столбцы, если их ещё нет
 db.run('ALTER TABLE users ADD COLUMN avatar TEXT', err => {
   if (err && !String(err).includes('duplicate column')) {
     console.error('ALTER TABLE users ADD avatar error:', err);
+  }
+});
+db.run('ALTER TABLE users ADD COLUMN last_seen DATETIME', err => {
+  if (err && !String(err).includes('duplicate column')) {
+    console.error('ALTER TABLE users ADD last_seen error:', err);
   }
 });
 
@@ -106,6 +133,44 @@ db.run(
   )`
 );
 
+db.run(
+  `CREATE TABLE IF NOT EXISTS push_subscriptions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    login TEXT NOT NULL,
+    endpoint TEXT NOT NULL,
+    auth TEXT NOT NULL,
+    p256dh TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(login, endpoint)
+  )`
+);
+
+db.run(
+  `CREATE TABLE IF NOT EXISTS chat_mutes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    login TEXT NOT NULL,
+    chat_id TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(login, chat_id)
+  )`
+);
+
+db.run(
+  `CREATE TABLE IF NOT EXISTS posts (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    author_login TEXT NOT NULL,
+    text TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    image TEXT
+  )`
+);
+
+db.run('ALTER TABLE posts ADD COLUMN image TEXT', err => {
+  if (err && !String(err).includes('duplicate column')) {
+    console.error('ALTER TABLE posts ADD image error:', err);
+  }
+});
+
 // ---------- СХЕМА messages.sqlite ----------
 
 msgDb.run(
@@ -118,7 +183,67 @@ msgDb.run(
   )`
 );
 
-// таблица прочтений чатов
+// дополнительные столбцы в messages
+msgDb.run('ALTER TABLE messages ADD COLUMN deleted INTEGER DEFAULT 0', err => {
+  if (err && !String(err).includes('duplicate column')) {
+    console.error('ALTER TABLE messages ADD deleted error:', err);
+  }
+});
+msgDb.run('ALTER TABLE messages ADD COLUMN edited_at DATETIME', err => {
+  if (err && !String(err).includes('duplicate column')) {
+    console.error('ALTER TABLE messages ADD edited_at error:', err);
+  }
+});
+msgDb.run('ALTER TABLE messages ADD COLUMN attachment_preview TEXT', err => {
+  if (err && !String(err).includes('duplicate column')) {
+    console.error('ALTER TABLE messages ADD attachment_preview error:', err);
+  }
+});
+msgDb.run('ALTER TABLE messages ADD COLUMN attachment_type TEXT', err => {
+  if (err && !String(err).includes('duplicate column')) {
+    console.error('ALTER TABLE messages ADD attachment_type error:', err);
+  }
+});
+msgDb.run('ALTER TABLE messages ADD COLUMN attachment_url TEXT', err => {
+  if (err && !String(err).includes('duplicate column')) {
+    console.error('ALTER TABLE messages ADD attachment_url error:', err);
+  }
+});
+msgDb.run('ALTER TABLE messages ADD COLUMN attachment_name TEXT', err => {
+  if (err && !String(err).includes('duplicate column')) {
+    console.error('ALTER TABLE messages ADD attachment_name error:', err);
+  }
+});
+msgDb.run('ALTER TABLE messages ADD COLUMN attachment_size REAL', err => {
+  if (err && !String(err).includes('duplicate column')) {
+    console.error('ALTER TABLE messages ADD attachment_size error:', err);
+  }
+});
+
+// индексы для ускорения поиска по chat_id и id
+msgDb.run(
+  'CREATE INDEX IF NOT EXISTS idx_messages_chat_id ON messages(chat_id)',
+  err => {
+    if (err) console.error('CREATE INDEX idx_messages_chat_id error:', err);
+  }
+);
+
+msgDb.run(
+  'CREATE INDEX IF NOT EXISTS idx_messages_chat_id_id ON messages(chat_id, id)',
+  err => {
+    if (err) console.error('CREATE INDEX idx_messages_chat_id_id error:', err);
+  }
+);
+
+// индекс по прочитанности
+msgDb.run(
+  'CREATE INDEX IF NOT EXISTS idx_chat_reads_user_chat ON chat_reads(user_login, chat_id)',
+  err => {
+    if (err) console.error('CREATE INDEX idx_chat_reads_user_chat error:', err);
+  }
+);
+
+// таблица прочитанности
 msgDb.run(
   `CREATE TABLE IF NOT EXISTS chat_reads (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -129,16 +254,57 @@ msgDb.run(
   )`
 );
 
+// реакции к сообщениям
+msgDb.run(
+  `CREATE TABLE IF NOT EXISTS message_reactions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    message_id INTEGER NOT NULL,
+    login TEXT NOT NULL,
+    emoji TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(message_id, login)
+  )`
+);
+
+// закреплённые сообщения (одно на чат)
+msgDb.run(
+  `CREATE TABLE IF NOT EXISTS chat_pins (
+    chat_id TEXT PRIMARY KEY,
+    message_id INTEGER NOT NULL
+  )`
+);
+
 // ---------- MIDDLEWARE ----------
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ---------- ХРАНИЛИЩЕ АВАТАРОВ ----------
+// ---------- СЕССИИ ----------
+
+const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
+
+app.use(session({
+  name: 'vdf_sid',
+  secret: SESSION_SECRET,
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    httpOnly: true,
+    sameSite: 'lax',
+    maxAge: 30 * 24 * 60 * 60 * 1000   // 30 дней
+  }
+}));
+
+// ---------- ХРАНИЛИЩЕ АВАТАРОВ / КАРТИНОК / ПРЕВЬЮ ----------
 
 const avatarsDir = path.join(__dirname, 'public', 'avatars');
 if (!fs.existsSync(avatarsDir)) {
   fs.mkdirSync(avatarsDir, { recursive: true });
+}
+
+const videoPreviewDir = path.join(__dirname, 'public', 'video-previews');
+if (!fs.existsSync(videoPreviewDir)) {
+  fs.mkdirSync(videoPreviewDir, { recursive: true });
 }
 
 const storage = multer.diskStorage({
@@ -152,6 +318,36 @@ const storage = multer.diskStorage({
   }
 });
 const upload = multer({ storage });
+
+// ---------- AUTH MIDDLEWARES ----------
+
+// Для большинства API: логин в теле должен совпадать с логином из сессии
+function requireAuth(req, res, next) {
+  const sessLogin = req.session && req.session.login;
+  if (!sessLogin) {
+    return res.status(401).json({ error: 'Не авторизован' });
+  }
+
+  const bodyLogin = req.body && req.body.login;
+  if (bodyLogin && bodyLogin !== sessLogin) {
+    return res.status(403).json({ error: 'Нельзя действовать от имени другого пользователя' });
+  }
+
+  // пробрасываем логин дальше
+  req.userLogin = sessLogin;
+  if (!bodyLogin && req.body) {
+    req.body.login = sessLogin;
+  }
+  next();
+}
+
+// Для эндпоинтов, где login в теле — другой пользователь (user/info, user/status)
+function requireLoggedIn(req, res, next) {
+  if (!req.session || !req.session.login) {
+    return res.status(401).json({ error: 'Не авторизован' });
+  }
+  next();
+}
 
 // ---------- HELPERS ОСНОВНОЙ БД ----------
 
@@ -211,6 +407,33 @@ function getMsg(sql, params = []) {
   });
 }
 
+// ---------- FFmpeg превью для видео ----------
+
+function generateVideoPreview(inputPath, outputPath) {
+  return new Promise((resolve, reject) => {
+    ffmpeg(inputPath)
+      .on('end', resolve)
+      .on('error', reject)
+      .screenshots({
+        timestamps: ['0.5'],
+        filename: path.basename(outputPath),
+        folder: path.dirname(outputPath),
+        size: '360x?'
+      });
+  });
+}
+
+// ---------- updateLastSeen ----------
+
+async function updateLastSeen(login) {
+  if (!login) return;
+  try {
+    await run(db, 'UPDATE users SET last_seen = CURRENT_TIMESTAMP WHERE login = ?', [login]);
+  } catch (e) {
+    console.error('updateLastSeen error:', e);
+  }
+}
+
 // ---------- ВАЛИДАЦИЯ ----------
 
 function isValidAsciiField(v, max) {
@@ -248,38 +471,373 @@ async function generateUniquePublicId() {
 async function enrichChatsWithUnreadAndSort(userLogin, chats) {
   if (!chats || !chats.length) return chats;
 
-  const reads = await allMsg(
-    'SELECT chat_id, last_read_msg_id FROM chat_reads WHERE LOWER(user_login) = LOWER(?)',
-    [userLogin]
+  const chatIds = chats.map(c => c.id);
+  const placeholders = chatIds.map(() => '?').join(',');
+
+  // один запрос на все чаты пользователя
+  const params = [userLogin].concat(chatIds);
+
+  const unreadRows = await allMsg(
+    `
+    SELECT m.chat_id, COUNT(*) AS cnt
+    FROM messages m
+    LEFT JOIN chat_reads r
+      ON r.chat_id = m.chat_id
+     AND LOWER(r.user_login) = LOWER(?)
+    WHERE m.chat_id IN (${placeholders})
+      AND (m.deleted IS NULL OR m.deleted = 0)
+      AND (r.last_read_msg_id IS NULL OR m.id > r.last_read_msg_id)
+    GROUP BY m.chat_id
+    `,
+    params
   );
 
-  const readMap = {};
-  for (const r of reads) {
-    readMap[r.chat_id] = r.last_read_msg_id || 0;
-  }
+  const unreadMap = {};
+  unreadRows.forEach(r => {
+    unreadMap[r.chat_id] = r.cnt || 0;
+  });
 
-  for (const chat of chats) {
-    const lastReadId = readMap[chat.id] || 0;
-    const row = await getMsg(
-      'SELECT COUNT(*) AS cnt FROM messages WHERE chat_id = ? AND id > ?',
-      [chat.id, lastReadId]
-    );
-    chat.unreadCount = row ? row.cnt : 0;
-  }
+  chats.forEach(chat => {
+    chat.unreadCount = unreadMap[chat.id] || 0;
+  });
 
+  // сортировка как раньше
   chats.sort((a, b) => {
     const ad = a.lastMessageCreatedAt || '';
     const bd = b.lastMessageCreatedAt || '';
     if (ad === bd) return 0;
-    return ad > bd ? -1 : 1; // новые сверху
+    return ad > bd ? -1 : 1;
   });
 
   return chats;
 }
 
+async function appendPersonalChatsForUser(user, chats) {
+  if (!user || !user.id || !chats) return;
+  const userId = user.id;
+
+  const pattern1 = `pm-${userId}-%`;
+  const pattern2 = `pm-%-${userId}`;
+
+  // берём только те pm‑чаты, где участвует этот userId
+  const rows = await allMsg(
+    'SELECT DISTINCT chat_id FROM messages WHERE chat_id LIKE ? OR chat_id LIKE ?',
+    [pattern1, pattern2]
+  );
+
+  const existingIds = new Set(chats.map(c => c.id));
+
+  for (const row of rows) {
+    const chatId = row.chat_id;
+    if (existingIds.has(chatId)) continue;
+
+    const parts = String(chatId).split('-');
+    if (parts.length !== 3) continue;
+
+    const a = parseInt(parts[1], 10);
+    const b = parseInt(parts[2], 10);
+    if (Number.isNaN(a) || Number.isNaN(b)) continue;
+
+    if (a !== userId && b !== userId) continue;
+    const otherId = (a === userId) ? b : a;
+
+    const otherUser = await get(
+      db,
+      'SELECT first_name, last_name, login, avatar FROM users WHERE id = ?',
+      [otherId]
+    );
+    if (!otherUser) continue;
+
+    const chat = {
+      id:           chatId,
+      type:         'personal',
+      title:        (otherUser.first_name + ' ' + otherUser.last_name).trim(),
+      subtitle:     '',
+      avatar:       otherUser.avatar || '/img/default-avatar.png',
+      partnerId:    otherId,
+      partnerLogin: otherUser.login
+    };
+
+    const last = await getMsg(
+      'SELECT sender_login, text, created_at, attachment_type ' +
+      'FROM messages ' +
+      'WHERE chat_id = ? AND (deleted IS NULL OR deleted = 0) ' +
+      'ORDER BY created_at DESC, id DESC LIMIT 1',
+      [chatId]
+    );
+
+    if (last) {
+      chat.lastMessageSenderLogin    = last.sender_login;
+      chat.lastMessageText           = last.text;
+      chat.lastMessageCreatedAt      = last.created_at;
+      chat.lastMessageAttachmentType = last.attachment_type;
+      try {
+        const lu = await get(
+          db,
+          'SELECT first_name, last_name FROM users WHERE login = ?',
+          [last.sender_login]
+        );
+        if (lu) {
+          chat.lastMessageSenderName = (lu.first_name + ' ' + lu.last_name).trim();
+        }
+      } catch (e2) {
+        console.error('CHATS last sender name error (personal):', e2);
+      }
+    }
+
+    chats.push(chat);
+    existingIds.add(chatId);
+  }
+}
+// кого уведомлять в чате
+async function getChatParticipantsLogins(chatId) {
+  if (chatId.startsWith('trainer-') || chatId.startsWith('angelina-') || chatId.startsWith('pm-')) {
+    const parts = chatId.split('-');
+    if (parts.length < 3) return [];
+    const id1 = parseInt(parts[1], 10);
+    const id2 = parseInt(parts[2], 10);
+    if (isNaN(id1) || isNaN(id2)) return [];
+    const rows = await all(
+      db,
+      'SELECT login FROM users WHERE id IN (?, ?)',
+      [id1, id2]
+    );
+    return rows.map(r => r.login);
+  }
+
+  if (chatId.startsWith('group-') && !chatId.startsWith('group-custom-')) {
+    const teamKey = chatId.substring('group-'.length);
+    const rows = await all(
+      db,
+      'SELECT u.login FROM group_members gm ' +
+      'JOIN users u ON u.id = gm.user_id ' +
+      'WHERE gm.team = ? ' +
+      'UNION ' +
+      'SELECT u.login FROM trainer_teams tt ' +
+      'JOIN users u ON u.id = tt.trainer_id ' +
+      'WHERE LOWER(tt.team) = LOWER(?)',
+      [teamKey, teamKey]
+    );
+    return rows.map(r => r.login);
+  }
+
+  const rows = await all(
+    db,
+    'SELECT user_login AS login FROM group_custom_members WHERE group_name = ?',
+    [chatId]
+  );
+  return rows.map(r => r.login);
+}
+
+async function sendPushForMessage(row) {
+  try {
+    if (!row) return;
+
+    const chatId      = row.chat_id;
+    const senderLogin = row.sender_login;
+    const text        = row.text || '';
+
+    const participants = await getChatParticipantsLogins(chatId);
+    if (!participants.length) return;
+
+    const muteRows = await all(
+      db,
+      'SELECT login FROM chat_mutes WHERE chat_id = ?',
+      [chatId]
+    );
+    const mutedSet = new Set(muteRows.map(r => (r.login || '').toLowerCase()));
+
+    // основной текст для пуша (без [r]...[/r])
+    let mainText = text;
+
+    if (typeof text === 'string' && text.startsWith('[r')) {
+      const endMarkerPos = text.indexOf('[/r]');
+      if (endMarkerPos !== -1) {
+        let after = text.substring(endMarkerPos + '[/r]'.length);
+        if (after.startsWith('\n')) {
+          after = after.slice(1);
+        }
+        mainText = after;
+      }
+    }
+
+    let cleanText = String(mainText || '').replace(/\s+/g, ' ').trim();
+
+    if (!cleanText) {
+      if (row.attachment_type === 'image') {
+        cleanText = '[Фото]';
+      } else if (row.attachment_type === 'video') {
+        cleanText = '[Видео]';
+      } else if (row.attachment_type === 'file') {
+        cleanText = '[Файл]';
+      } else if (row.attachment_type === 'audio') {
+        cleanText = 'Голосовое сообщение';
+      }
+    }
+
+    const shortText = cleanText.length > 80
+      ? cleanText.slice(0, 77) + '…'
+      : (cleanText || '[Сообщение]');
+
+    let senderName   = senderLogin;
+    let senderAvatar = '/img/default-avatar.png';
+
+    try {
+      const u = await get(
+        db,
+        'SELECT first_name, last_name, avatar FROM users WHERE login = ?',
+        [senderLogin]
+      );
+      if (u) {
+        const fn = (u.first_name || '') + ' ' + (u.last_name || '');
+        senderName   = fn.trim() || senderLogin;
+        senderAvatar = u.avatar || senderAvatar;
+      }
+    } catch (e) {
+      // ignore
+    }
+
+    const isTrainerChat =
+      chatId.startsWith('trainer-') ||
+      chatId.startsWith('angelina-');
+
+    const isPmChat = chatId.startsWith('pm-');
+    const isPersonal = isTrainerChat || isPmChat;
+
+    let chatTitle = 'Новое сообщение';
+
+    if (isPersonal) {
+      chatTitle = senderName;
+    } else if (chatId.startsWith('group-') && !chatId.startsWith('group-custom-')) {
+      const teamKey = chatId.substring('group-'.length);
+      chatTitle = 'Группа: ' + teamKey;
+    } else {
+      chatTitle = 'Группа: ' + chatId;
+    }
+
+    const bodyPersonal = shortText;
+    const bodyGroup    = (senderName ? senderName + ': ' : '') + shortText;
+
+    let groupAvatarCache = {};
+
+    for (const login of participants) {
+      if (!login) continue;
+
+      const lower = login.toLowerCase();
+      if (lower === (senderLogin || '').toLowerCase()) continue;
+      if (mutedSet.has(lower)) continue;
+
+      const subs = await all(
+        db,
+        'SELECT endpoint, auth, p256dh FROM push_subscriptions WHERE login = ?',
+        [login]
+      );
+      if (!subs.length) continue;
+
+      let icon = '/logo.png';
+
+      if (isPersonal) {
+        icon = senderAvatar || '/img/default-avatar.png';
+      } else if (chatId.startsWith('group-') && !chatId.startsWith('group-custom-')) {
+        icon = '/logo.png';
+      } else {
+        if (!groupAvatarCache[chatId]) {
+          try {
+            const g = await get(
+              db,
+              'SELECT avatar FROM created_groups WHERE name = ?',
+              [chatId]
+            );
+            groupAvatarCache[chatId] = (g && g.avatar) ? g.avatar : '/logo.png';
+          } catch (e) {
+            groupAvatarCache[chatId] = '/logo.png';
+          }
+        }
+        icon = groupAvatarCache[chatId];
+      }
+
+      for (const s of subs) {
+        const subscription = {
+          endpoint: s.endpoint,
+          keys: {
+            auth:  s.auth,
+            p256dh:s.p256dh
+          }
+        };
+
+        const payload = JSON.stringify({
+          title:  chatTitle,
+          body:   isPersonal ? bodyPersonal : bodyGroup,
+          icon:   icon,
+          tag:    chatId + '-' + (row.id || ''),
+          url:    '/',
+          chatId: chatId
+        });
+
+        try {
+          await webPush.sendNotification(subscription, payload);
+        } catch (err) {
+          if (err.statusCode === 404 || err.statusCode === 410) {
+            try {
+              await run(
+                db,
+                'DELETE FROM push_subscriptions WHERE endpoint = ?',
+                [s.endpoint]
+              );
+            } catch (delErr) {
+              console.error('DELETE SUB ERROR:', delErr);
+            }
+          } else {
+            console.error('WEBPUSH ERROR:', err);
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.error('sendPushForMessage error:', e);
+  }
+}
+
 // ---------- ROUTES ----------
 
-// Проверка логина
+// /api/push/subscribe
+app.post('/api/push/subscribe', requireAuth, async (req, res) => {
+  try {
+    const { login, subscription } = req.body;
+
+    if (!login || !subscription || !subscription.endpoint || !subscription.keys) {
+      return res.status(400).json({ error: 'Некорректная подписка' });
+    }
+
+    const user = await get(
+      db,
+      'SELECT id FROM users WHERE login = ?',
+      [login]
+    );
+    if (!user) {
+      return res.status(404).json({ error: 'Пользователь не найден' });
+    }
+
+    const endpoint = subscription.endpoint;
+    const auth     = subscription.keys.auth;
+    const p256dh   = subscription.keys.p256dh;
+
+    await run(
+      db,
+      `INSERT INTO push_subscriptions (login, endpoint, auth, p256dh)
+       VALUES (?, ?, ?, ?)
+       ON CONFLICT(login, endpoint) DO UPDATE SET auth = excluded.auth, p256dh = excluded.p256dh`,
+      [login, endpoint, auth, p256dh]
+    );
+
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('PUSH SUBSCRIBE ERROR:', e);
+    res.status(500).json({ error: 'Ошибка сервера при сохранении подписки' });
+  }
+});
+
+// /api/check-login
 app.post('/api/check-login', async (req, res) => {
   try {
     const { login } = req.body;
@@ -299,8 +857,42 @@ app.post('/api/check-login', async (req, res) => {
     res.status(500).json({ error: 'Ошибка сервера' });
   }
 });
+// /api/session/me — данные текущего залогиненного пользователя по сессии
+app.get('/api/session/me', requireLoggedIn, async (req, res) => {
+  try {
+    const login = req.session.login;
+    if (!login) {
+      return res.status(401).json({ ok: false, error: 'Не авторизован' });
+    }
 
-// Регистрация
+    const user = await get(
+      db,
+      'SELECT public_id, login, role, first_name, last_name, team, dob, avatar FROM users WHERE login = ?',
+      [login]
+    );
+
+    if (!user) {
+      return res.status(404).json({ ok: false, error: 'Пользователь не найден' });
+    }
+
+    res.json({
+      ok:        true,
+      login:     user.login,
+      publicId:  user.public_id,
+      role:      user.role,
+      team:      user.team,
+      firstName: user.first_name,
+      lastName:  user.last_name,
+      dob:       user.dob,
+      avatar:    user.avatar
+    });
+  } catch (e) {
+    console.error('SESSION ME ERROR:', e);
+    res.status(500).json({ ok: false, error: 'Ошибка сервера' });
+  }
+});
+
+// /api/register
 app.post('/api/register', async (req, res) => {
   try {
     const { login, password, role, firstName, lastName, team, dob } = req.body;
@@ -352,6 +944,9 @@ app.post('/api/register', async (req, res) => {
       [publicId, login, passwordHash, role, firstName, lastName, team, dobToSave, null]
     );
 
+    // сразу логиним нового пользователя в сессию
+    req.session.login = login;
+
     res.status(201).json({ ok: true, publicId });
   } catch (e) {
     console.error('REGISTER ERROR:', e);
@@ -359,7 +954,7 @@ app.post('/api/register', async (req, res) => {
   }
 });
 
-// Вход
+// /api/login
 app.post('/api/login', async (req, res) => {
   try {
     const { login, password } = req.body;
@@ -387,6 +982,11 @@ app.post('/api/login', async (req, res) => {
       return res.status(401).json({ error: 'Неверный логин или пароль' });
     }
 
+    await updateLastSeen(user.login);
+
+    // записываем логин в сессию
+    req.session.login = user.login;
+
     res.json({
       ok:        true,
       login:     user.login,
@@ -404,8 +1004,230 @@ app.post('/api/login', async (req, res) => {
   }
 });
 
-// Список чатов
-app.post('/api/chats', async (req, res) => {
+app.post('/api/logout', (req, res) => {
+  req.session.destroy(() => {
+    res.json({ ok: true });
+  });
+});
+
+// ---------- MESSAGES: edit / delete / react / pin ----------
+
+// /api/messages/edit
+app.post('/api/messages/edit', requireAuth, async (req, res) => {
+  try {
+    const { login, messageId, text } = req.body;
+    if (!login || !messageId) {
+      return res.status(400).json({ error: 'Нет логина или ID сообщения' });
+    }
+
+    const msg = await getMsg(
+      'SELECT id, chat_id, sender_login FROM messages WHERE id = ?',
+      [messageId]
+    );
+    if (!msg) {
+      return res.status(404).json({ error: 'Сообщение не найдено' });
+    }
+
+    if (String(msg.sender_login).toLowerCase() !== String(login).toLowerCase()) {
+      return res.status(403).json({ error: 'Редактировать можно только свои сообщения' });
+    }
+
+    const clean = (typeof text === 'string') ? text.trim() : '';
+
+    await runMsg(
+      'UPDATE messages SET text = ?, edited_at = CURRENT_TIMESTAMP WHERE id = ?',
+      [clean, messageId]
+    );
+
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('MESSAGE EDIT ERROR:', e);
+    res.status(500).json({ error: 'Ошибка сервера при редактировании сообщения' });
+  }
+});
+
+// /api/messages/delete (soft delete)
+app.post('/api/messages/delete', requireAuth, async (req, res) => {
+  try {
+    const { login, messageId } = req.body;
+    if (!login || !messageId) {
+      return res.status(400).json({ error: 'Нет логина или ID сообщения' });
+    }
+
+    const msg = await getMsg(
+      'SELECT id, sender_login FROM messages WHERE id = ?',
+      [messageId]
+    );
+    if (!msg) {
+      return res.status(404).json({ error: 'Сообщение не найдено' });
+    }
+
+    if (String(msg.sender_login).toLowerCase() !== String(login).toLowerCase()) {
+      return res.status(403).json({ error: 'Удалять можно только свои сообщения' });
+    }
+
+    await runMsg(
+      'UPDATE messages SET deleted = 1 WHERE id = ?',
+      [messageId]
+    );
+
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('MESSAGE DELETE ERROR:', e);
+    res.status(500).json({ error: 'Ошибка сервера при удалении сообщения' });
+  }
+});
+
+// /api/messages/react
+app.post('/api/messages/react', requireAuth, async (req, res) => {
+  try {
+    const { login, messageId, emoji } = req.body;
+    if (!login || !messageId || !emoji) {
+      return res.status(400).json({ error: 'Нет логина, ID сообщения или emoji' });
+    }
+
+    const msg = await getMsg(
+      'SELECT id FROM messages WHERE id = ? AND (deleted IS NULL OR deleted = 0)',
+      [messageId]
+    );
+    if (!msg) {
+      return res.status(404).json({ error: 'Сообщение не найдено' });
+    }
+
+    const existing = await getMsg(
+      'SELECT id, emoji FROM message_reactions WHERE message_id = ? AND login = ?',
+      [messageId, login]
+    );
+
+    if (existing && existing.emoji === emoji) {
+      await runMsg(
+        'DELETE FROM message_reactions WHERE id = ?',
+        [existing.id]
+      );
+    } else if (existing) {
+      await runMsg(
+        'UPDATE message_reactions SET emoji = ?, created_at = CURRENT_TIMESTAMP WHERE id = ?',
+        [emoji, existing.id]
+      );
+    } else {
+      await runMsg(
+        'INSERT INTO message_reactions (message_id, login, emoji) VALUES (?, ?, ?)',
+        [messageId, login, emoji]
+      );
+    }
+
+    const agg = await allMsg(
+      'SELECT emoji, COUNT(*) AS cnt FROM message_reactions WHERE message_id = ? GROUP BY emoji',
+      [messageId]
+    );
+
+    const reactions = agg.map(r => ({ emoji: r.emoji, count: r.cnt }));
+
+    const mine = await getMsg(
+      'SELECT emoji FROM message_reactions WHERE message_id = ? AND login = ?',
+      [messageId, login]
+    );
+
+    res.json({
+      ok: true,
+      reactions,
+      myReaction: mine ? mine.emoji : null
+    });
+  } catch (e) {
+    console.error('MESSAGE REACT ERROR:', e);
+    res.status(500).json({ error: 'Ошибка сервера при реакции на сообщение' });
+  }
+});
+
+// /api/messages/pin — с проверкой прав (тренер / создатель группы)
+app.post('/api/messages/pin', requireAuth, async (req, res) => {
+  try {
+    const { login, chatId, messageId, pinned } = req.body;
+    if (!login || !chatId || !messageId || typeof pinned !== 'boolean') {
+      return res.status(400).json({ error: 'Нет логина, chatId, messageId или флага pinned' });
+    }
+
+    const user = await get(
+      db,
+      'SELECT id, login, role FROM users WHERE login = ?',
+      [login]
+    );
+    if (!user) {
+      return res.status(404).json({ error: 'Пользователь не найден' });
+    }
+
+    const msg = await getMsg(
+      'SELECT chat_id FROM messages WHERE id = ? AND (deleted IS NULL OR deleted = 0)',
+      [messageId]
+    );
+    if (!msg) {
+      return res.status(404).json({ error: 'Сообщение не найдено' });
+    }
+    if (msg.chat_id !== chatId) {
+      return res.status(400).json({ error: 'Сообщение принадлежит другому чату' });
+    }
+
+    const chatIdLower = String(chatId).toLowerCase();
+
+    if (chatIdLower.startsWith('group-')) {
+      // официальная группа (по команде)
+      const teamKey = chatId.substring('group-'.length);
+
+      const trainerOfTeam = await get(
+        db,
+        'SELECT 1 FROM trainer_teams tt ' +
+        'JOIN users u ON u.id = tt.trainer_id ' +
+        'WHERE u.login = ? AND LOWER(tt.team) = LOWER(?) ' +
+        'LIMIT 1',
+        [login, teamKey]
+      );
+      if (!trainerOfTeam) {
+        return res.status(403).json({ error: 'Закреплять сообщения может только тренер этой группы' });
+      }
+    } else if (
+      !chatIdLower.startsWith('trainer-') &&
+      !chatIdLower.startsWith('angelina-') &&
+      !chatIdLower.startsWith('pm-')
+    ) {
+      // кастомная группа
+      const group = await get(
+        db,
+        'SELECT owner_login FROM created_groups WHERE name = ?',
+        [chatId]
+      );
+      if (!group) {
+        return res.status(404).json({ error: 'Группа не найдена' });
+      }
+      if (String(group.owner_login).toLowerCase() !== String(login).toLowerCase()) {
+        return res.status(403).json({ error: 'Закреплять сообщения может только создатель группы' });
+      }
+    }
+    // trainer-*, angelina-*, pm-* — без доп. ограничений
+
+    if (pinned) {
+      await runMsg(
+        `INSERT INTO chat_pins (chat_id, message_id)
+         VALUES (?, ?)
+         ON CONFLICT(chat_id) DO UPDATE SET message_id = excluded.message_id`,
+        [chatId, messageId]
+      );
+    } else {
+      await runMsg(
+        'DELETE FROM chat_pins WHERE chat_id = ? AND message_id = ?',
+        [chatId, messageId]
+      );
+    }
+
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('MESSAGE PIN ERROR:', e);
+    res.status(500).json({ error: 'Ошибка сервера при закреплении сообщения' });
+  }
+});
+
+// ---------- /api/chats ----------
+
+app.post('/api/chats', requireAuth, async (req, res) => {
   try {
     const { login } = req.body;
 
@@ -423,18 +1245,23 @@ app.post('/api/chats', async (req, res) => {
       return res.status(404).json({ error: 'Пользователь не найден' });
     }
 
+    await updateLastSeen(login);
+
     const userId    = user.id;
     const roleLower = (user.role || '').toLowerCase();
 
-    // тренер
+    // ---------- ТРЕНЕР ----------
     if (roleLower === 'trainer' || roleLower === 'тренер') {
       const chats = [];
 
+      // 1) личные чаты тренера (trainer-<trainerId>-<userId>, angelina-<trainerId>-<userId>)
       const pattern1 = `trainer-${userId}-%`;
       const pattern2 = `angelina-${userId}-%`;
 
       const rows = await allMsg(
-        'SELECT DISTINCT chat_id FROM messages WHERE chat_id LIKE ? OR chat_id LIKE ?',
+        'SELECT DISTINCT chat_id FROM messages ' +
+        'WHERE (deleted IS NULL OR deleted = 0) ' +
+        '  AND (chat_id LIKE ? OR chat_id LIKE ?)',
         [pattern1, pattern2]
       );
 
@@ -464,15 +1291,17 @@ app.post('/api/chats', async (req, res) => {
         };
 
         const last = await getMsg(
-          'SELECT sender_login, text, created_at FROM messages ' +
-          'WHERE chat_id = ? ORDER BY created_at DESC, id DESC LIMIT 1',
-          [chat.id]
+          'SELECT sender_login, text, created_at, attachment_type ' +
+          'FROM messages ' +
+          'WHERE chat_id = ? AND (deleted IS NULL OR deleted = 0) ' +
+          'ORDER BY created_at DESC, id DESC LIMIT 1',
+          [chatId]
         );
-
         if (last) {
-          chat.lastMessageSenderLogin = last.sender_login;
-          chat.lastMessageText        = last.text;
-          chat.lastMessageCreatedAt   = last.created_at;
+          chat.lastMessageSenderLogin    = last.sender_login;
+          chat.lastMessageText           = last.text;
+          chat.lastMessageCreatedAt      = last.created_at;
+          chat.lastMessageAttachmentType = last.attachment_type;
           try {
             const lu = await get(
               db,
@@ -490,6 +1319,7 @@ app.post('/api/chats', async (req, res) => {
         chats.push(chat);
       }
 
+      // 2) кастомные группы, созданные этим тренером
       const groups = await all(
         db,
         'SELECT id, name, audience, age, avatar FROM created_groups ' +
@@ -516,15 +1346,17 @@ app.post('/api/chats', async (req, res) => {
         };
 
         const last = await getMsg(
-          'SELECT sender_login, text, created_at FROM messages ' +
-          'WHERE chat_id = ? ORDER BY created_at DESC, id DESC LIMIT 1',
+          'SELECT sender_login, text, created_at, attachment_type ' +
+          'FROM messages ' +
+          'WHERE chat_id = ? AND (deleted IS NULL OR deleted = 0) ' +
+          'ORDER BY created_at DESC, id DESC LIMIT 1',
           [chatId]
         );
-
         if (last) {
-          chat.lastMessageSenderLogin = last.sender_login;
-          chat.lastMessageText        = last.text;
-          chat.lastMessageCreatedAt   = last.created_at;
+          chat.lastMessageSenderLogin    = last.sender_login;
+          chat.lastMessageText           = last.text;
+          chat.lastMessageCreatedAt      = last.created_at;
+          chat.lastMessageAttachmentType = last.attachment_type;
           try {
             const lu = await get(
               db,
@@ -542,13 +1374,17 @@ app.post('/api/chats', async (req, res) => {
         chats.push(chat);
       }
 
+      // 3) личные pm-чаты
+      await appendPersonalChatsForUser(user, chats);
+
       await enrichChatsWithUnreadAndSort(login, chats);
       return res.json({ ok: true, chats });
     }
 
-    // родитель / танцор
+    // ---------- РОДИТЕЛЬ / ТАНЦОР ----------
     const chats = [];
 
+    // 1) групповой чат по основной команде
     const memberRow = await get(
       db,
       'SELECT 1 FROM group_members WHERE user_id = ? AND team = ? LIMIT 1',
@@ -563,15 +1399,44 @@ app.post('/api/chats', async (req, res) => {
       );
       const membersCount = countRow ? countRow.cnt : 0;
 
-      chats.push({
+      const groupChat = {
         id:       'group-' + user.team,
         type:     'group',
         title:    user.team,
         subtitle: membersCount ? membersCount + ' участников' : 'Групповой чат',
         avatar:   '/logo.png'
-      });
+      };
+
+      const lastGroup = await getMsg(
+        'SELECT sender_login, text, created_at, attachment_type ' +
+        'FROM messages ' +
+        'WHERE chat_id = ? AND (deleted IS NULL OR deleted = 0) ' +
+        'ORDER BY created_at DESC, id DESC LIMIT 1',
+        [groupChat.id]
+      );
+      if (lastGroup) {
+        groupChat.lastMessageSenderLogin    = lastGroup.sender_login;
+        groupChat.lastMessageText           = lastGroup.text;
+        groupChat.lastMessageCreatedAt      = lastGroup.created_at;
+        groupChat.lastMessageAttachmentType = lastGroup.attachment_type;
+        try {
+          const lu = await get(
+            db,
+            'SELECT first_name, last_name FROM users WHERE login = ?',
+            [lastGroup.sender_login]
+          );
+          if (lu) {
+            groupChat.lastMessageSenderName = (lu.first_name + ' ' + lu.last_name).trim();
+          }
+        } catch (e2) {
+          console.error('CHATS last sender name error (user group):', e2);
+        }
+      }
+
+      chats.push(groupChat);
     }
 
+    // 2) чаты с тренерами по текущей команде
     const trainers = await all(
       db,
       'SELECT DISTINCT u.id, u.first_name, u.last_name, u.login, u.avatar ' +
@@ -600,15 +1465,17 @@ app.post('/api/chats', async (req, res) => {
       };
 
       const last = await getMsg(
-        'SELECT sender_login, text, created_at FROM messages ' +
-        'WHERE chat_id = ? ORDER BY created_at DESC, id DESC LIMIT 1',
+        'SELECT sender_login, text, created_at, attachment_type ' +
+        'FROM messages ' +
+        'WHERE chat_id = ? AND (deleted IS NULL OR deleted = 0) ' +
+        'ORDER BY created_at DESC, id DESC LIMIT 1',
         [chatId]
       );
-
       if (last) {
-        chat.lastMessageSenderLogin = last.sender_login;
-        chat.lastMessageText        = last.text;
-        chat.lastMessageCreatedAt   = last.created_at;
+        chat.lastMessageSenderLogin    = last.sender_login;
+        chat.lastMessageText           = last.text;
+        chat.lastMessageCreatedAt      = last.created_at;
+        chat.lastMessageAttachmentType = last.attachment_type;
         try {
           const lu = await get(
             db,
@@ -626,6 +1493,7 @@ app.post('/api/chats', async (req, res) => {
       chats.push(chat);
     }
 
+    // 3) отдельный чат с Ангелиной для родителей
     const roleLowerUser = (user.role || '').toLowerCase();
     if (roleLowerUser === 'parent') {
       const angelina = await get(
@@ -649,15 +1517,17 @@ app.post('/api/chats', async (req, res) => {
         };
 
         const last = await getMsg(
-          'SELECT sender_login, text, created_at FROM messages ' +
-          'WHERE chat_id = ? ORDER BY created_at DESC, id DESC LIMIT 1',
+          'SELECT sender_login, text, created_at, attachment_type ' +
+          'FROM messages ' +
+          'WHERE chat_id = ? AND (deleted IS NULL OR deleted = 0) ' +
+          'ORDER BY created_at DESC, id DESC LIMIT 1',
           [chatId]
         );
-
         if (last) {
-          chat.lastMessageSenderLogin = last.sender_login;
-          chat.lastMessageText        = last.text;
-          chat.lastMessageCreatedAt   = last.created_at;
+          chat.lastMessageSenderLogin    = last.sender_login;
+          chat.lastMessageText           = last.text;
+          chat.lastMessageCreatedAt      = last.created_at;
+          chat.lastMessageAttachmentType = last.attachment_type;
           try {
             const lu = await get(
               db,
@@ -676,7 +1546,7 @@ app.post('/api/chats', async (req, res) => {
       }
     }
 
-    // КАСТОМНЫЕ ГРУППЫ, где пользователь является участником
+    // 4) кастомные группы, где пользователь является участником
     const customMemberships = await all(
       db,
       'SELECT group_name FROM group_custom_members WHERE LOWER(user_login) = LOWER(?)',
@@ -692,11 +1562,11 @@ app.post('/api/chats', async (req, res) => {
         [groupName]
       );
 
-      const chatId  = groupName;
-      const title   = (g && g.name) || groupName;
-      const aud     = g && g.audience;
-      const age     = g && g.age;
-      const avatar  = g && g.avatar;
+      const chatId = groupName;
+      const title  = (g && g.name) || groupName;
+      const aud    = g && g.audience;
+      const age    = g && g.age;
+      const avatar = g && g.avatar;
 
       let subtitle;
       if (aud === 'parents') {
@@ -716,15 +1586,17 @@ app.post('/api/chats', async (req, res) => {
       };
 
       const last = await getMsg(
-        'SELECT sender_login, text, created_at FROM messages ' +
-        'WHERE chat_id = ? ORDER BY created_at DESC, id DESC LIMIT 1',
+        'SELECT sender_login, text, created_at, attachment_type ' +
+        'FROM messages ' +
+        'WHERE chat_id = ? AND (deleted IS NULL OR deleted = 0) ' +
+        'ORDER BY created_at DESC, id DESC LIMIT 1',
         [chatId]
       );
-
       if (last) {
-        chat.lastMessageSenderLogin = last.sender_login;
-        chat.lastMessageText        = last.text;
-        chat.lastMessageCreatedAt   = last.created_at;
+        chat.lastMessageSenderLogin    = last.sender_login;
+        chat.lastMessageText           = last.text;
+        chat.lastMessageCreatedAt      = last.created_at;
+        chat.lastMessageAttachmentType = last.attachment_type;
         try {
           const lu = await get(
             db,
@@ -742,6 +1614,9 @@ app.post('/api/chats', async (req, res) => {
       chats.push(chat);
     }
 
+    // 5) личные pm-чаты
+    await appendPersonalChatsForUser(user, chats);
+
     await enrichChatsWithUnreadAndSort(login, chats);
     return res.json({ ok: true, chats });
   } catch (e) {
@@ -750,8 +1625,8 @@ app.post('/api/chats', async (req, res) => {
   }
 });
 
-// /api/chat/personal — вернуть (и при необходимости "создать") личный чат между логином и targetLogin
-app.post('/api/chat/personal', async (req, res) => {
+// /api/chat/personal
+app.post('/api/chat/personal', requireAuth, async (req, res) => {
   try {
     const { login, targetLogin } = req.body;
 
@@ -774,48 +1649,76 @@ app.post('/api/chat/personal', async (req, res) => {
       return res.status(404).json({ error: 'Один из пользователей не найден' });
     }
 
+    await updateLastSeen(login);
+
     const r1 = (u1.role || '').toLowerCase();
     const r2 = (u2.role || '').toLowerCase();
 
-    let trainerUser, otherUser;
-
-    if (r1 === 'trainer' || r1 === 'тренер' || u1.login === ANGELINA_LOGIN) {
-      trainerUser = u1;
-      otherUser   = u2;
-    } else if (r2 === 'trainer' || r2 === 'тренер' || u2.login === ANGELINA_LOGIN) {
-      trainerUser = u2;
-      otherUser   = u1;
-    } else {
-      return res.status(400).json({ error: 'Личные чаты поддерживаются только с тренерами' });
-    }
-
-    // вычисляем chat_id по тем же правилам, что и в /api/chats
     let chatId;
-    if (trainerUser.login === ANGELINA_LOGIN && (otherUser.role || '').toLowerCase() === 'parent') {
-      chatId = 'angelina-' + trainerUser.id + '-' + otherUser.id;
+    let type;
+    let trainerUser = null;
+    let otherUser   = null;
+
+    if (r1 === 'trainer' || r1 === 'тренер' || u1.login === ANGELINA_LOGIN ||
+        r2 === 'trainer' || r2 === 'тренер' || u2.login === ANGELINA_LOGIN) {
+
+      if (r1 === 'trainer' || r1 === 'тренер' || u1.login === ANGELINA_LOGIN) {
+        trainerUser = u1;
+        otherUser   = u2;
+      } else {
+        trainerUser = u2;
+        otherUser   = u1;
+      }
+
+      if (trainerUser.login === ANGELINA_LOGIN && (otherUser.role || '').toLowerCase() === 'parent') {
+        chatId = 'angelina-' + trainerUser.id + '-' + otherUser.id;
+      } else {
+        chatId = 'trainer-' + trainerUser.id + '-' + otherUser.id;
+      }
+      type = 'trainer';
     } else {
-      chatId = 'trainer-' + trainerUser.id + '-' + otherUser.id;
+      const low  = Math.min(u1.id, u2.id);
+      const high = Math.max(u1.id, u2.id);
+      chatId = 'pm-' + low + '-' + high;
+      type   = 'personal';
     }
 
-    // строим объект чата с точки зрения текущего пользователя (login)
     const current = (u1.login === login) ? u1 : u2;
-    const other   = (current.login === trainerUser.login) ? otherUser : trainerUser;
+    let other;
+    let chat;
 
-    const chat = {
-      id:        chatId,
-      type:      'trainer',
-      title:     ((other.first_name || '') + ' ' + (other.last_name || '')).trim(),
-      subtitle:  '',
-      avatar:    other.avatar || '/img/default-avatar.png',
-      trainerId: trainerUser.id,
-      trainerLogin: trainerUser.login,
-      partnerId:    otherUser.id,
-      partnerLogin: otherUser.login
-    };
+    if (type === 'trainer') {
+      other = (current.login === trainerUser.login) ? otherUser : trainerUser;
+
+      chat = {
+        id:          chatId,
+        type:        'trainer',
+        title:       ((other.first_name || '') + ' ' + (other.last_name || '')).trim(),
+        subtitle:    '',
+        avatar:      other.avatar || '/img/default-avatar.png',
+        trainerId:   trainerUser.id,
+        trainerLogin: trainerUser.login,
+        partnerId:    otherUser.id,
+        partnerLogin: otherUser.login
+      };
+    } else {
+      other = (current.login === u1.login) ? u2 : u1;
+
+      chat = {
+        id:          chatId,
+        type:        'personal',
+        title:       ((other.first_name || '') + ' ' + (other.last_name || '')).trim(),
+        subtitle:    '',
+        avatar:      other.avatar || '/img/default-avatar.png',
+        partnerId:   other.id,
+        partnerLogin: other.login
+      };
+    }
 
     const last = await getMsg(
       'SELECT sender_login, text, created_at FROM messages ' +
-      'WHERE chat_id = ? ORDER BY created_at DESC, id DESC LIMIT 1',
+      'WHERE chat_id = ? AND (deleted IS NULL OR deleted = 0) ' +
+      'ORDER BY created_at DESC, id DESC LIMIT 1',
       [chatId]
     );
 
@@ -832,8 +1735,374 @@ app.post('/api/chat/personal', async (req, res) => {
   }
 });
 
-// /api/messages/send
-app.post('/api/messages/send', async (req, res) => {
+// ---------- MESSAGES: send-file / list / send / forward ----------
+
+// /api/messages/send-file — отправка файла (c превью для видео)
+app.post('/api/messages/send-file', requireAuth, upload.single('file'), async (req, res) => {
+  try {
+    const chatId      = req.body.chatId;
+    const senderLogin = req.body.login;
+    const text        = req.body.text || '';
+
+    if (!chatId || !senderLogin) {
+      return res.status(400).json({ error: 'Нет chatId или логина отправителя' });
+    }
+    if (!req.file) {
+      return res.status(400).json({ error: 'Файл не загружен' });
+    }
+
+    const mime      = req.file.mimetype || '';
+    const sizeMB    = req.file.size / (1024 * 1024);
+    const origName  = req.file.originalname || null;
+    let attachmentType = 'file';
+
+    if (mime.startsWith('image/')) {
+      if (sizeMB > 25) {
+        return res.status(400).json({ error: 'Фото больше 25 МБ' });
+      }
+      attachmentType = 'image';
+    } else if (mime.startsWith('video/')) {
+      if (sizeMB > 150) {
+        return res.status(400).json({ error: 'Видео больше 150 МБ' });
+      }
+      attachmentType = 'video';
+    } else if (mime.startsWith('audio/')) {
+      if (sizeMB > 20) {
+        return res.status(400).json({ error: 'Аудио больше 20 МБ' });
+      }
+      attachmentType = 'audio';
+    } else {
+      if (sizeMB > 500) {
+        return res.status(400).json({ error: 'Файл больше 500 МБ' });
+      }
+      attachmentType = 'file';
+    }
+
+    const attachmentUrl = '/avatars/' + req.file.filename;
+    const cleanText     = String(text).trim();
+
+    await updateLastSeen(senderLogin);
+
+    // превью для видео
+    let previewUrl = null;
+    if (attachmentType === 'video') {
+      try {
+        const baseName   = path.basename(req.file.filename, path.extname(req.file.filename));
+        const previewName= baseName + '-preview.jpg';
+        const previewPath= path.join(videoPreviewDir, previewName);
+
+        await generateVideoPreview(req.file.path, previewPath);
+        previewUrl = '/video-previews/' + previewName;
+      } catch (e) {
+        console.error('VIDEO PREVIEW ERROR:', e);
+      }
+    }
+
+    const insert = await runMsg(
+      `INSERT INTO messages
+         (chat_id, sender_login, text,
+          attachment_type, attachment_url, attachment_name, attachment_size,
+          attachment_preview)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [chatId, senderLogin, cleanText, attachmentType, attachmentUrl, origName, sizeMB, previewUrl]
+    );
+
+    let row = await getMsg(
+      `SELECT id,
+              chat_id,
+              sender_login,
+              text,
+              created_at,
+              deleted,
+              edited_at,
+              attachment_type,
+              attachment_url,
+              attachment_name,
+              attachment_size,
+              attachment_preview
+       FROM messages
+       WHERE id = ?
+       LIMIT 1`,
+      [insert.lastID]
+    );
+
+    // для фото/видео — генерируем "общее" имя
+    if (row && (row.attachment_type === 'image' || row.attachment_type === 'video')) {
+      const id      = row.id;
+      const base    = 'file' + id;
+      const extSrc  = origName && origName.includes('.') ? origName.substring(origName.lastIndexOf('.')) : '';
+      const ext     = extSrc || (row.attachment_type === 'image' ? '.jpg' : '.mp4');
+      const genName = base + ext;
+
+      try {
+        await runMsg(
+          'UPDATE messages SET attachment_name = ? WHERE id = ?',
+          [genName, id]
+        );
+        row.attachment_name = genName;
+      } catch (e) {
+        console.error('UPDATE attachment_name error:', e);
+      }
+    }
+
+    if (row) {
+      try {
+        const u = await get(
+          db,
+          'SELECT first_name, last_name FROM users WHERE login = ?',
+          [row.sender_login]
+        );
+        if (u) {
+          row.sender_name = (u.first_name + ' ' + u.last_name).trim();
+        } else {
+          row.sender_name = row.sender_login;
+        }
+      } catch (e2) {
+        console.error('SEND FILE sender_name error:', e2);
+        row.sender_name = row.sender_login;
+      }
+
+      // обновляем прочтение для отправителя
+      try {
+        const existing = await getMsg(
+          'SELECT id FROM chat_reads WHERE chat_id = ? AND user_login = ?',
+          [row.chat_id, row.sender_login]
+        );
+        if (existing) {
+          await runMsg(
+            'UPDATE chat_reads SET last_read_msg_id = ?, last_read_at = CURRENT_TIMESTAMP WHERE id = ?',
+            [row.id, existing.id]
+          );
+        } else {
+          await runMsg(
+            'INSERT INTO chat_reads (chat_id, user_login, last_read_msg_id, last_read_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)',
+            [row.chat_id, row.sender_login, row.id]
+          );
+        }
+      } catch (e3) {
+        console.error('SEND FILE update chat_reads error:', e3);
+      }
+
+      row.read_by_all = false;
+      row.edited      = false;
+
+      sendPushForMessage(row).catch(err => {
+        console.error('sendPushForMessage (file) error:', err);
+      });
+    }
+
+    res.json({ ok: true, message: row });
+  } catch (e) {
+    console.error('SEND FILE MESSAGE ERROR:', e);
+    res.status(500).json({ error: 'Ошибка сервера при отправке файла' });
+  }
+});
+
+// /api/messages/list — список сообщений чата
+app.post('/api/messages/list', requireAuth, async (req, res) => {
+  try {
+    const { chatId, login } = req.body;
+
+    if (!chatId) {
+      return res.status(400).json({ ok: false, error: 'Нет chatId' });
+    }
+
+    const rows = await allMsg(
+      `SELECT id,
+              chat_id,
+              sender_login,
+              text,
+              created_at,
+              deleted,
+              edited_at,
+              attachment_type,
+              attachment_url,
+              attachment_name,
+              attachment_size,
+              attachment_preview
+       FROM messages
+       WHERE chat_id = ?
+         AND (deleted IS NULL OR deleted = 0)
+       ORDER BY created_at ASC, id ASC`,
+      [chatId]
+    );
+
+    const ids = rows.map(r => r.id);
+
+    // Сопоставление логина → ФИО одним запросом
+    const uniqueLogins = [...new Set(rows.map(r => r.sender_login))];
+    const nameMap = {};
+
+    if (uniqueLogins.length) {
+      const placeholders = uniqueLogins.map(() => '?').join(',');
+      try {
+        const uRows = await all(
+          db,
+          `SELECT login, first_name, last_name
+           FROM users
+           WHERE login IN (${placeholders})`,
+          uniqueLogins
+        );
+        uRows.forEach(u => {
+          const fn = (u.first_name || '') + ' ' + (u.last_name || '');
+          nameMap[u.login] = fn.trim() || u.login;
+        });
+      } catch (e2) {
+        console.error('LIST MESSAGES sender_name batch error:', e2);
+      }
+    }
+
+    // прочитанность
+    const reads = await allMsg(
+      'SELECT user_login, last_read_msg_id FROM chat_reads WHERE chat_id = ?',
+      [chatId]
+    );
+
+    let myLastReadId = 0;
+    if (login && reads && reads.length) {
+      const me = reads.find(r => r.user_login === login);
+      if (me && me.last_read_msg_id) {
+        myLastReadId = me.last_read_msg_id;
+      }
+    }
+
+    // закреплённое сообщение
+    const pinRow = await getMsg(
+      'SELECT message_id FROM chat_pins WHERE chat_id = ?',
+      [chatId]
+    );
+    const pinnedId = pinRow ? pinRow.message_id : null;
+
+    // реакции
+    let reactionsByMsg = {};
+    let myReactionByMsg = {};
+
+    if (ids.length) {
+      const placeholders = ids.map(() => '?').join(',');
+      const aggRows = await allMsg(
+        `SELECT message_id, emoji, COUNT(*) AS cnt
+         FROM message_reactions
+         WHERE message_id IN (${placeholders})
+         GROUP BY message_id, emoji`,
+        ids
+      );
+      aggRows.forEach(r => {
+        if (!reactionsByMsg[r.message_id]) reactionsByMsg[r.message_id] = [];
+        reactionsByMsg[r.message_id].push({ emoji: r.emoji, count: r.cnt });
+      });
+
+      if (login) {
+        const myRows = await allMsg(
+          `SELECT message_id, emoji
+           FROM message_reactions
+           WHERE message_id IN (${placeholders}) AND login = ?`,
+          ids.concat(login)
+        );
+        myRows.forEach(r => {
+          myReactionByMsg[r.message_id] = r.emoji;
+        });
+      }
+    }
+
+    // обогащаем сообщения
+    rows.forEach(r => {
+      r.sender_name = nameMap[r.sender_login] || r.sender_login;
+      r.read_by_all = false;
+      r.edited      = !!r.edited_at;
+      r.is_pinned   = !!(pinnedId && pinnedId === r.id);
+      r.reactions   = reactionsByMsg[r.id] || [];
+      r.myReaction  = myReactionByMsg[r.id] || null;
+
+      if (!login) return;
+      if (r.sender_login !== login) return;
+      if (!reads.length) return;
+
+      let allRead = true;
+      let hasOthers = false;
+
+      for (const rd of reads) {
+        if (rd.user_login === r.sender_login) continue;
+        hasOthers = true;
+        if (!rd.last_read_msg_id || rd.last_read_msg_id < r.id) {
+          allRead = false;
+          break;
+        }
+      }
+
+      r.read_by_all = allRead && hasOthers;
+    });
+
+    res.json({ ok: true, messages: rows, myLastReadId });
+  } catch (e) {
+    console.error('LIST MESSAGES ERROR:', e);
+    res.status(500).json({ ok: false, error: 'Ошибка сервера при загрузке сообщений' });
+  }
+});
+
+
+// /api/chat/attachments — список медиа, файлов и аудио чата
+app.post('/api/chat/attachments', requireAuth, async (req, res) => {
+  try {
+    const sessLogin = req.session.login;
+    const { chatId } = req.body;
+
+    if (!sessLogin || !chatId) {
+      return res.status(400).json({ ok: false, error: 'Нет логина или chatId' });
+    }
+
+    // Маршрут вызывается только для текущего открытого чата;
+    // дополнительную проверку участия можно не делать, чтобы не было лишних запросов.
+
+    const rows = await allMsg(
+      `SELECT id,
+              attachment_type,
+              attachment_url,
+              attachment_name,
+              attachment_size,
+              attachment_preview,
+              created_at
+       FROM messages
+       WHERE chat_id = ?
+         AND (deleted IS NULL OR deleted = 0)
+         AND attachment_type IS NOT NULL
+       ORDER BY created_at DESC, id DESC
+       LIMIT 300`,
+      [chatId]
+    );
+
+    const media  = [];
+    const files  = [];
+    const audios = [];
+
+    rows.forEach(r => {
+      const base = {
+        id:        r.id,
+        type:      r.attachment_type,
+        url:       r.attachment_url,
+        preview:   r.attachment_preview,
+        name:      r.attachment_name,
+        sizeMB:    r.attachment_size,
+        createdAt: r.created_at
+      };
+
+      if (r.attachment_type === 'image' || r.attachment_type === 'video') {
+        media.push(base);
+      } else if (r.attachment_type === 'file') {
+        files.push(base);
+      } else if (r.attachment_type === 'audio') {
+        audios.push(base);
+      }
+    });
+
+    res.json({ ok: true, media, files, audios });
+  } catch (e) {
+    console.error('CHAT ATTACHMENTS ERROR:', e);
+    res.status(500).json({ ok: false, error: 'Ошибка сервера при загрузке вложений чата' });
+  }
+});
+
+// /api/messages/send — текстовое сообщение
+app.post('/api/messages/send', requireAuth, async (req, res) => {
   try {
     const { chatId, senderLogin, text } = req.body;
 
@@ -843,13 +2112,23 @@ app.post('/api/messages/send', async (req, res) => {
 
     const cleanText = String(text).trim();
 
+    await updateLastSeen(senderLogin);
+
     const result = await runMsg(
       `INSERT INTO messages (chat_id, sender_login, text) VALUES (?, ?, ?)`,
       [chatId, senderLogin, cleanText]
     );
 
     let row = await getMsg(
-      `SELECT id, chat_id, sender_login, text, created_at
+      `SELECT id,
+              chat_id,
+              sender_login,
+              text,
+              created_at,
+              deleted,
+              edited_at,
+              attachment_type,
+              attachment_url
        FROM messages
        WHERE id = ?
        LIMIT 1`,
@@ -873,7 +2152,6 @@ app.post('/api/messages/send', async (req, res) => {
         row.sender_name = row.sender_login;
       }
 
-      // обновляем прочтение для отправителя
       try {
         const existing = await getMsg(
           'SELECT id FROM chat_reads WHERE chat_id = ? AND user_login = ?',
@@ -893,6 +2171,12 @@ app.post('/api/messages/send', async (req, res) => {
       } catch (e3) {
         console.error('SEND MESSAGE update chat_reads error:', e3);
       }
+
+      row.read_by_all = false;
+
+      sendPushForMessage(row).catch(err => {
+        console.error('sendPushForMessage error (top-level):', err);
+      });
     }
 
     res.json({ ok: true, message: row });
@@ -902,54 +2186,159 @@ app.post('/api/messages/send', async (req, res) => {
   }
 });
 
-// /api/messages/list
-app.post('/api/messages/list', async (req, res) => {
+// /api/messages/forward — пересылка сообщения (включая вложения, имя файла и превью)
+app.post('/api/messages/forward', requireAuth, async (req, res) => {
   try {
-    const { chatId } = req.body;
+    const { login, messageId, targetChatIds } = req.body;
 
-    if (!chatId) {
-      return res.status(400).json({ error: 'Нет chatId' });
+    if (!login || !messageId || !Array.isArray(targetChatIds) || !targetChatIds.length) {
+      return res.status(400).json({ ok: false, error: 'Нет логина, ID сообщения или списка чатов' });
     }
 
-    const rows = await allMsg(
-      `SELECT id, chat_id, sender_login, text, created_at
-       FROM messages
-       WHERE chat_id = ?
-       ORDER BY created_at ASC, id ASC`,
-      [chatId]
+    const user = await get(
+      db,
+      'SELECT id FROM users WHERE login = ?',
+      [login]
     );
+    if (!user) {
+      return res.status(404).json({ ok: false, error: 'Пользователь не найден' });
+    }
 
-    const uniqueLogins = [...new Set(rows.map(r => r.sender_login))];
-    const nameMap = {};
+    // исходное сообщение
+    const src = await getMsg(
+      `SELECT id,
+              chat_id,
+              sender_login,
+              text,
+              attachment_type,
+              attachment_url,
+              attachment_name,
+              attachment_size,
+              attachment_preview
+       FROM messages
+       WHERE id = ? AND (deleted IS NULL OR deleted = 0)`,
+      [messageId]
+    );
+    if (!src) {
+      return res.status(404).json({ ok: false, error: 'Исходное сообщение не найдено' });
+    }
 
-    for (const lg of uniqueLogins) {
+    // убеждаемся, что пользователь вообще состоит в исходном чате
+    const srcParticipants = await getChatParticipantsLogins(src.chat_id);
+    const lowerLogin = login.toLowerCase();
+    const inSourceChat = srcParticipants.some(l => String(l || '').toLowerCase() === lowerLogin);
+    if (!inSourceChat) {
+      return res.status(403).json({ ok: false, error: 'Вы не состоите в чате исходного сообщения' });
+    }
+
+    await updateLastSeen(login);
+
+    // проверяем, что пользователь состоит во всех целевых чатах
+    for (const cid of targetChatIds) {
+      if (!cid) continue;
+      const parts = await getChatParticipantsLogins(cid);
+      const inTarget = parts.some(l => String(l || '').toLowerCase() === lowerLogin);
+      if (!inTarget) {
+        return res.status(403).json({
+          ok: false,
+          error: 'Вы не состоите в одном из выбранных чатов'
+        });
+      }
+    }
+
+    // пересылка
+    for (const cid of targetChatIds) {
+      if (!cid) continue;
+
+      const ins = await runMsg(
+        `INSERT INTO messages
+           (chat_id, sender_login, text,
+            attachment_type, attachment_url, attachment_name, attachment_size,
+            attachment_preview)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          cid,
+          login,
+          src.text || '',
+          src.attachment_type || null,
+          src.attachment_url || null,
+          src.attachment_name || null,
+          src.attachment_size || null,
+          src.attachment_preview || null
+        ]
+      );
+
+      const row = await getMsg(
+        `SELECT id,
+                chat_id,
+                sender_login,
+                text,
+                created_at,
+                attachment_type,
+                attachment_url,
+                attachment_name,
+                attachment_size,
+                attachment_preview
+         FROM messages
+         WHERE id = ?`,
+        [ins.lastID]
+      );
+      if (!row) continue;
+
+      // отмечаем прочитанным у отправителя
+      try {
+        const existing = await getMsg(
+          'SELECT id FROM chat_reads WHERE chat_id = ? AND user_login = ?',
+          [row.chat_id, login]
+        );
+        if (existing) {
+          await runMsg(
+            'UPDATE chat_reads SET last_read_msg_id = ?, last_read_at = CURRENT_TIMESTAMP WHERE id = ?',
+            [row.id, existing.id]
+          );
+        } else {
+          await runMsg(
+            'INSERT INTO chat_reads (chat_id, user_login, last_read_msg_id, last_read_at) VALUES (?, ?, ?, CURRENT_TIMESTAMP)',
+            [row.chat_id, login, row.id]
+          );
+        }
+      } catch (e2) {
+        console.error('FORWARD update chat_reads error:', e2);
+      }
+
+      // имя отправителя для пушей
+      row.sender_name = login;
       try {
         const u = await get(
           db,
           'SELECT first_name, last_name FROM users WHERE login = ?',
-          [lg]
+          [login]
         );
         if (u) {
-          nameMap[lg] = (u.first_name + ' ' + u.last_name).trim();
+          const fn = (u.first_name || '') + ' ' + (u.last_name || '');
+          row.sender_name = fn.trim() || login;
         }
-      } catch (e2) {
-        console.error('LIST MESSAGES sender_name error:', e2);
+      } catch (e3) {
+        // ignore
       }
+
+      // пуш-уведомление
+      sendPushForMessage(row).catch(err => {
+        console.error('sendPushForMessage (forward) error:', err);
+      });
     }
 
-    rows.forEach(r => {
-      r.sender_name = nameMap[r.sender_login] || r.sender_login;
-    });
-
-    res.json({ ok: true, messages: rows });
+    res.json({ ok: true });
   } catch (e) {
-    console.error('LIST MESSAGES ERROR:', e);
-    res.status(500).json({ error: 'Ошибка сервера при загрузке сообщений' });
+    console.error('MESSAGE FORWARD ERROR:', e);
+    res.status(500).json({ ok: false, error: 'Ошибка сервера при пересылке сообщения' });
   }
 });
 
+// ---------- ПРОЧТЕНИЕ / ПРОФИЛЬ / СТАТУС ----------
+
 // /api/chat/mark-read
-app.post('/api/chat/mark-read', async (req, res) => {
+app.post('/api/chat/mark-read', requireAuth, async (req, res) => {
   try {
     const { login, chatId } = req.body;
     if (!login || !chatId) {
@@ -964,6 +2353,8 @@ app.post('/api/chat/mark-read', async (req, res) => {
     if (!user) {
       return res.status(404).json({ error: 'Пользователь не найден' });
     }
+
+    await updateLastSeen(login);
 
     const last = await getMsg(
       'SELECT id FROM messages WHERE chat_id = ? ORDER BY id DESC LIMIT 1',
@@ -996,7 +2387,7 @@ app.post('/api/chat/mark-read', async (req, res) => {
 });
 
 // /api/user/info
-app.post('/api/user/info', async (req, res) => {
+app.post('/api/user/info', requireLoggedIn, async (req, res) => {
   try {
     const { login } = req.body;
 
@@ -1031,8 +2422,66 @@ app.post('/api/user/info', async (req, res) => {
   }
 });
 
+// /api/user/status
+app.post('/api/user/status', requireLoggedIn, async (req, res) => {
+  try {
+    const { login } = req.body;
+
+    if (!login) {
+      return res.status(400).json({ error: 'Нет логина' });
+    }
+
+    const user = await get(
+      db,
+      'SELECT last_seen FROM users WHERE login = ?',
+      [login]
+    );
+
+    if (!user) {
+      return res.status(404).json({ error: 'Пользователь не найден' });
+    }
+
+    const lastSeen = user.last_seen;
+    let online = false;
+
+    if (lastSeen) {
+      const d = new Date(lastSeen.replace(' ', 'T') + 'Z');
+      if (!isNaN(d.getTime())) {
+        const diffMs = Date.now() - d.getTime();
+        if (diffMs < 15 * 1000) online = true;
+      }
+    }
+
+    res.json({ ok: true, online, lastSeen });
+  } catch (e) {
+    console.error('USER STATUS ERROR:', e);
+    res.status(500).json({ error: 'Ошибка сервера' });
+  }
+});
+
+// /api/profile/avatar
+app.post('/api/profile/avatar', requireAuth, upload.single('avatar'), async (req, res) => {
+  try {
+    const login = req.body.login;
+    if (!login || !req.file) {
+      return res.status(400).json({ error: 'Нет логина или файла' });
+    }
+
+    const avatarPath = '/avatars/' + req.file.filename;
+
+    await run(db, 'UPDATE users SET avatar = ? WHERE login = ?', [avatarPath, login]);
+
+    res.json({ ok: true, avatar: avatarPath });
+  } catch (e) {
+    console.error('AVATAR UPLOAD ERROR:', e);
+    res.status(500).json({ error: 'Ошибка сервера при сохранении аватара' });
+  }
+});
+
+// ---------- ГРУППЫ / ЧАТЫ ГРУПП ----------
+
 // /api/groups/create
-app.post('/api/groups/create', async (req, res) => {
+app.post('/api/groups/create', requireAuth, async (req, res) => {
   try {
     const { login, name, audience, age } = req.body;
 
@@ -1111,7 +2560,7 @@ app.post('/api/groups/create', async (req, res) => {
 });
 
 // /api/group/info
-app.post('/api/group/info', async (req, res) => {
+app.post('/api/group/info', requireAuth, async (req, res) => {
   try {
     const { chatId } = req.body;
 
@@ -1195,7 +2644,7 @@ app.post('/api/group/info', async (req, res) => {
 });
 
 // /api/group/add-member
-app.post('/api/group/add-member', async (req, res) => {
+app.post('/api/group/add-member', requireAuth, async (req, res) => {
   try {
     const { login, chatId, publicId } = req.body;
 
@@ -1315,8 +2764,113 @@ app.post('/api/group/add-member', async (req, res) => {
   }
 });
 
+// /api/group/remove-member
+app.post('/api/group/remove-member', requireAuth, async (req, res) => {
+  try {
+    const { login, chatId, targetLogin } = req.body;
+
+    if (!login || !chatId || !targetLogin) {
+      return res.status(400).json({ error: 'Нет логина, chatId или логина участника' });
+    }
+
+    const actor = await get(
+      db,
+      'SELECT id, role, login FROM users WHERE login = ?',
+      [login]
+    );
+    if (!actor) {
+      return res.status(404).json({ error: 'Пользователь не найден' });
+    }
+
+    const roleLower = (actor.role || '').toLowerCase();
+    if (roleLower !== 'trainer' && roleLower !== 'тренер') {
+      return res.status(403).json({ error: 'Удалять участников могут только тренера' });
+    }
+
+    let teamKey;
+    let isCustom = false;
+
+    if (chatId.startsWith('group-') && !chatId.startsWith('group-custom-')) {
+      teamKey = chatId.substring('group-'.length);
+    } else {
+      teamKey = chatId;
+      isCustom = true;
+    }
+
+    if (isCustom) {
+      const group = await get(
+        db,
+        'SELECT id, owner_login FROM created_groups WHERE name = ?',
+        [teamKey]
+      );
+      if (!group) {
+        return res.status(404).json({ error: 'Группа не найдена' });
+      }
+      if (String(group.owner_login).toLowerCase() !== String(actor.login).toLowerCase()) {
+        return res.status(403).json({ error: 'Удалять участников из этой группы может только её создатель' });
+      }
+
+      const membership = await get(
+        db,
+        'SELECT id FROM group_custom_members WHERE group_name = ? AND user_login = ?',
+        [teamKey, targetLogin]
+      );
+      if (!membership) {
+        return res.status(404).json({ error: 'Участник не найден в этой группе' });
+      }
+
+      await run(
+        db,
+        'DELETE FROM group_custom_members WHERE id = ?',
+        [membership.id]
+      );
+    } else {
+      const isTrainerOfTeam = await get(
+        db,
+        'SELECT 1 FROM trainer_teams tt ' +
+        'JOIN users u ON u.id = tt.trainer_id ' +
+        'WHERE u.login = ? AND LOWER(tt.team) = LOWER(?) ' +
+        'LIMIT 1',
+        [actor.login, teamKey]
+      );
+      if (!isTrainerOfTeam) {
+        return res.status(403).json({ error: 'Вы не являетесь тренером этой группы' });
+      }
+
+      const targetUser = await get(
+        db,
+        'SELECT id FROM users WHERE login = ?',
+        [targetLogin]
+      );
+      if (!targetUser) {
+        return res.status(404).json({ error: 'Пользователь не найден' });
+      }
+
+      const membership = await get(
+        db,
+        'SELECT id FROM group_members WHERE user_id = ? AND team = ?',
+        [targetUser.id, teamKey]
+      );
+      if (!membership) {
+        return res.status(404).json({ error: 'Участник не найден в этой группе' });
+      }
+
+      await run(
+        db,
+        'DELETE FROM group_members WHERE id = ?',
+        [membership.id]
+      );
+    }
+
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('GROUP REMOVE MEMBER ERROR:', e);
+    res.status(500).json({ error: 'Ошибка сервера при удалении участника' });
+  }
+});
+
 // /api/group/avatar
-app.post('/api/group/avatar', upload.single('avatar'), async (req, res) => {
+app.post('/api/group/avatar', requireAuth, upload.single('avatar'), async (req, res) => {
   try {
     const { login, groupName } = req.body;
 
@@ -1358,12 +2912,12 @@ app.post('/api/group/avatar', upload.single('avatar'), async (req, res) => {
     res.json({ ok: true, avatar: avatarPath });
   } catch (e) {
     console.error('GROUP AVATAR ERROR:', e);
-    res.status(500).json({ error: 'Ошибка сервера при сохранении аватара группы' });
+    res.status(500).json({ error: 'Ошибка сервера при сохранении аватара' });
   }
 });
 
 // /api/group/rename
-app.post('/api/group/rename', async (req, res) => {
+app.post('/api/group/rename', requireAuth, async (req, res) => {
   try {
     const { login, oldName, newName } = req.body;
 
@@ -1411,20 +2965,35 @@ app.post('/api/group/rename', async (req, res) => {
       return res.status(409).json({ error: 'Группа с таким названием уже существует' });
     }
 
+    // 1) переименовываем группу
     await run(
       db,
       'UPDATE created_groups SET name = ? WHERE id = ?',
       [cleanNew, group.id]
     );
 
+    // 2) обновляем участников кастомной группы
     await run(
       db,
       'UPDATE group_custom_members SET group_name = ? WHERE group_name = ?',
       [cleanNew, oldName]
     );
 
+    // 3) переносим мьюты на новый chatId
+    await run(
+      db,
+      'UPDATE chat_mutes SET chat_id = ? WHERE chat_id = ?',
+      [cleanNew, oldName]
+    );
+
+    // 4) обновляем chat_id в сообщениях и прочитанности
     await runMsg(
       'UPDATE messages SET chat_id = ? WHERE chat_id = ?',
+      [cleanNew, oldName]
+    );
+
+    await runMsg(
+      'UPDATE chat_reads SET chat_id = ? WHERE chat_id = ?',
       [cleanNew, oldName]
     );
 
@@ -1435,27 +3004,249 @@ app.post('/api/group/rename', async (req, res) => {
   }
 });
 
-// /api/profile/avatar
-app.post('/api/profile/avatar', upload.single('avatar'), async (req, res) => {
+// /api/group/leave
+app.post('/api/group/leave', requireAuth, async (req, res) => {
   try {
-    const login = req.body.login;
-    if (!login || !req.file) {
-      return res.status(400).json({ error: 'Нет логина или файла' });
+    const { login, chatId } = req.body;
+
+    if (!login || !chatId) {
+      return res.status(400).json({ error: 'Нет логина или chatId' });
     }
 
-    const avatarPath = '/avatars/' + req.file.filename;
+    const user = await get(
+      db,
+      'SELECT id, role FROM users WHERE login = ?',
+      [login]
+    );
+    if (!user) {
+      return res.status(404).json({ error: 'Пользователь не найден' });
+    }
 
-    await run(db, 'UPDATE users SET avatar = ? WHERE login = ?', [avatarPath, login]);
+    let key;
+    let isCustom = false;
 
-    res.json({ ok: true, avatar: avatarPath });
+    if (chatId.startsWith('group-') && !chatId.startsWith('group-custom-')) {
+      key = chatId.substring('group-'.length);
+    } else {
+      key = chatId;
+      isCustom = true;
+    }
+
+    if (isCustom) {
+      const membership = await get(
+        db,
+        'SELECT id FROM group_custom_members WHERE group_name = ? AND user_login = ?',
+        [key, login]
+      );
+      if (!membership) {
+        return res.status(404).json({ error: 'Вы не являетесь участником этой группы' });
+      }
+
+      await run(
+        db,
+        'DELETE FROM group_custom_members WHERE id = ?',
+        [membership.id]
+      );
+
+      return res.json({ ok: true });
+    } else {
+      const roleLower = (user.role || '').toLowerCase();
+      if (roleLower === 'trainer' || roleLower === 'тренер') {
+        return res.status(403).json({ error: 'Тренер не может выйти из официальной группы' });
+      }
+
+      await run(
+        db,
+        'DELETE FROM group_members WHERE user_id = ? AND team = ?',
+        [user.id, key]
+      );
+
+      return res.json({ ok: true });
+    }
   } catch (e) {
-    console.error('AVATAR UPLOAD ERROR:', e);
-    res.status(500).json({ error: 'Ошибка сервера при сохранении аватара' });
+    console.error('GROUP LEAVE ERROR:', e);
+    res.status(500).json({ error: 'Ошибка сервера при выходе из группы' });
   }
 });
 
-// DEBUG: кастомные группы пользователя
-app.post('/api/debug/user-custom-groups', async (req, res) => {
+// ---------- MUTE ЧАТОВ ----------
+
+// /api/chat/mute/list
+app.post('/api/chat/mute/list', requireAuth, async (req, res) => {
+  try {
+    const login = req.session.login;
+    if (!login) {
+      return res.status(401).json({ error: 'Не авторизован' });
+    }
+
+    const rows = await all(
+      db,
+      'SELECT chat_id FROM chat_mutes WHERE login = ?',
+      [login]
+    );
+
+    res.json({
+      ok: true,
+      mutes: rows.map(r => r.chat_id)
+    });
+  } catch (e) {
+    console.error('CHAT MUTE LIST ERROR:', e);
+    res.status(500).json({ error: 'Ошибка сервера при загрузке мьютов' });
+  }
+});
+
+// /api/chat/mute/set
+app.post('/api/chat/mute/set', requireAuth, async (req, res) => {
+  try {
+    const sessLogin = req.session.login;
+    const { chatId, muted } = req.body;
+
+    if (!sessLogin || !chatId || typeof muted !== 'boolean') {
+      return res.status(400).json({ error: 'Нет логина в сессии, chatId или флага muted' });
+    }
+
+    const user = await get(
+      db,
+      'SELECT id FROM users WHERE login = ?',
+      [sessLogin]
+    );
+    if (!user) {
+      return res.status(404).json({ error: 'Пользователь не найден' });
+    }
+
+    if (muted) {
+      await run(
+        db,
+        `INSERT INTO chat_mutes (login, chat_id)
+         VALUES (?, ?)
+         ON CONFLICT(login, chat_id) DO NOTHING`,
+        [sessLogin, chatId]
+      );
+    } else {
+      await run(
+        db,
+        'DELETE FROM chat_mutes WHERE login = ? AND chat_id = ?',
+        [sessLogin, chatId]
+      );
+    }
+
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('CHAT MUTE SET ERROR:', e);
+    res.status(500).json({ error: 'Ошибка сервера при изменении мьюта' });
+  }
+});
+
+// ---------- FEED / ЛЕНТА ----------
+
+// /api/feed/edit
+app.post('/api/feed/edit', requireAuth, async (req, res) => {
+  try {
+    const { login, postId, text } = req.body;
+
+    if (!login || !postId || typeof text !== 'string') {
+      return res.status(400).json({ ok: false, error: 'Нет логина, ID поста или текста' });
+    }
+
+    const user = await get(
+      db,
+      'SELECT role FROM users WHERE login = ?',
+      [login]
+    );
+    if (!user) {
+      return res.status(404).json({ ok: false, error: 'Пользователь не найден' });
+    }
+
+    const roleLower = (user.role || '').toLowerCase();
+    if (roleLower !== 'trainer' && roleLower !== 'тренер') {
+      return res.status(403).json({ ok: false, error: 'Редактировать посты могут только тренеры' });
+    }
+
+    const post = await get(
+      db,
+      'SELECT id, author_login FROM posts WHERE id = ?',
+      [postId]
+    );
+    if (!post) {
+      return res.status(404).json({ ok: false, error: 'Пост не найден' });
+    }
+
+    if (String(post.author_login).toLowerCase() !== String(login).toLowerCase()) {
+      return res.status(403).json({ ok: false, error: 'Вы не являетесь автором этого поста' });
+    }
+
+    const clean = String(text).trim();
+    if (!clean) {
+      return res.status(400).json({ ok: false, error: 'Текст поста не может быть пустым' });
+    }
+    if (clean.length > 2000) {
+      return res.status(400).json({ ok: false, error: 'Текст поста слишком длинный' });
+    }
+
+    await run(
+      db,
+      'UPDATE posts SET text = ? WHERE id = ?',
+      [clean, postId]
+    );
+
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('FEED EDIT ERROR:', e);
+    res.status(500).json({ ok: false, error: 'Ошибка сервера при редактировании поста' });
+  }
+});
+
+// /api/feed/delete
+app.post('/api/feed/delete', requireAuth, async (req, res) => {
+  try {
+    const { login, postId } = req.body;
+
+    if (!login || !postId) {
+      return res.status(400).json({ ok: false, error: 'Нет логина или ID поста' });
+    }
+
+    const user = await get(
+      db,
+      'SELECT role FROM users WHERE login = ?',
+      [login]
+    );
+    if (!user) {
+      return res.status(404).json({ ok: false, error: 'Пользователь не найден' });
+    }
+
+    const roleLower = (user.role || '').toLowerCase();
+    if (roleLower !== 'trainer' && roleLower !== 'тренер') {
+      return res.status(403).json({ ok: false, error: 'Удалять посты могут только тренеры' });
+    }
+
+    const post = await get(
+      db,
+      'SELECT id, author_login FROM posts WHERE id = ?',
+      [postId]
+    );
+    if (!post) {
+      return res.status(404).json({ ok: false, error: 'Пост не найден' });
+    }
+
+    if (String(post.author_login).toLowerCase() !== String(login).toLowerCase()) {
+      return res.status(403).json({ ok: false, error: 'Вы не являетесь автором этого поста' });
+    }
+
+    await run(
+      db,
+      'DELETE FROM posts WHERE id = ?',
+      [postId]
+    );
+
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('FEED DELETE ERROR:', e);
+    res.status(500).json({ ok: false, error: 'Ошибка сервера при удалении поста' });
+  }
+});
+
+// /api/feed/list
+app.post('/api/feed/list', requireAuth, async (req, res) => {
   try {
     const { login } = req.body;
     if (!login) {
@@ -1464,25 +3255,107 @@ app.post('/api/debug/user-custom-groups', async (req, res) => {
 
     const user = await get(
       db,
-      'SELECT id, login FROM users WHERE login = ?',
+      'SELECT id FROM users WHERE login = ?',
       [login]
     );
     if (!user) {
       return res.status(404).json({ error: 'Пользователь не найден' });
     }
 
+    await updateLastSeen(login);
+
     const rows = await all(
       db,
-      'SELECT gcm.group_name, gcm.user_login ' +
-      'FROM group_custom_members gcm ' +
-      'WHERE LOWER(gcm.user_login) = LOWER(?)',
-      [login]
+      `SELECT p.id,
+              p.author_login,
+              p.text,
+              p.created_at,
+              p.image
+       FROM posts p
+       ORDER BY p.created_at DESC, p.id DESC
+       LIMIT 100`
     );
 
-    return res.json({ ok: true, login, groups: rows });
+    const posts = rows.map(r => ({
+      id:           r.id,
+      text:         r.text,
+      createdAt:    r.created_at,
+      authorLogin:  r.author_login,
+      authorName:   'Vinyl Dance Family',
+      authorAvatar: '/logo.png',
+      imageUrl:     r.image || null
+    }));
+
+    res.json({ ok: true, posts });
   } catch (e) {
-    console.error('DEBUG USER CUSTOM GROUPS ERROR:', e);
-    res.status(500).json({ error: 'Ошибка сервера' });
+    console.error('FEED LIST ERROR:', e);
+    res.status(500).json({ error: 'Ошибка сервера при загрузке ленты' });
+  }
+});
+
+// /api/feed/create
+app.post('/api/feed/create', requireAuth, upload.single('image'), async (req, res) => {
+  try {
+    const login = req.body.login;
+    const text  = req.body.text;
+
+    if (!login || !text || !String(text).trim()) {
+      return res.status(400).json({ error: 'Пустой текст поста или нет логина' });
+    }
+
+    const user = await get(
+      db,
+      'SELECT role FROM users WHERE login = ?',
+      [login]
+    );
+    if (!user) {
+      return res.status(404).json({ error: 'Пользователь не найден' });
+    }
+
+    const roleLower = (user.role || '').toLowerCase();
+    if (roleLower !== 'trainer' && roleLower !== 'тренер') {
+      return res.status(403).json({ error: 'Создавать посты могут только тренера' });
+    }
+
+    const clean = String(text).trim();
+    if (clean.length > 2000) {
+      return res.status(400).json({ error: 'Текст поста слишком длинный' });
+    }
+
+    await updateLastSeen(login);
+
+    let imagePath = null;
+    if (req.file) {
+      imagePath = '/avatars/' + req.file.filename;
+    }
+
+    const result = await run(
+      db,
+      'INSERT INTO posts (author_login, text, image) VALUES (?, ?, ?)',
+      [login, clean, imagePath]
+    );
+
+    const row = await get(
+      db,
+      'SELECT id, author_login, text, created_at, image FROM posts WHERE id = ?',
+      [result.lastID]
+    );
+
+    res.status(201).json({
+      ok: true,
+      post: {
+        id:           row.id,
+        text:         row.text,
+        createdAt:    row.created_at,
+        authorLogin:  row.author_login,
+        authorName:   'Vinyl Dance Family',
+        authorAvatar: '/logo.png',
+        imageUrl:     row.image || null
+      }
+    });
+  } catch (e) {
+    console.error('FEED CREATE ERROR:', e);
+    res.status(500).json({ error: 'Ошибка сервера при создании поста' });
   }
 });
 
