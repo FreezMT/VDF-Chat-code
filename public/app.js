@@ -244,12 +244,18 @@ var ageText         = document.getElementById('ageText');
 var ageValue        = document.getElementById('ageValue');
 var createGroupBtn  = document.getElementById('createGroupBtn');
 
-// голосовые
+var hasMediaDevices      = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+var mediaRecorderSupport = typeof window.MediaRecorder !== 'undefined';
+var canUseLiveVoiceRecording = hasMediaDevices && mediaRecorderSupport;
+
 var chatSendBtn   = document.getElementById('chatSendBtn');
 var chatMicBtn    = document.getElementById('chatMicBtn');
 var voiceRecordUi = document.getElementById('voiceRecordUi');
 var voiceWaveLive = document.getElementById('voiceWaveLive');
 var voiceTimerEl  = document.getElementById('voiceTimer');
+
+// добавь, если ещё нет:
+var voiceFileInput = document.getElementById('voiceFileInput');
 
 var mediaRecorder      = null;
 var mediaStream        = null;
@@ -356,6 +362,133 @@ var currentMsgContextItem = null;
 // инициализируем обработчики вложений в чате
 initChatAttachments();
 initAttachmentTabs();
+
+// --- управление микрофоном: удержание + свайп влево для отмены ---
+
+var micTouchStartX = null;
+var micTouchStartY = null;
+var micGestureActive = false;
+
+// Fallback через системный аудиорекордер (на случай отсутствия MediaRecorder)
+function startSystemVoiceFileChooser() {
+    if (!currentChat || !currentUser || !currentUser.login) {
+        alert('Сначала выберите чат');
+        return;
+    }
+    if (voiceFileInput) {
+        voiceFileInput.click();
+    } else {
+        alert('Голосовые на этом устройстве недоступны.');
+    }
+}
+
+// Обработка файла из системного рекордера (если используется)
+if (voiceFileInput) {
+    voiceFileInput.addEventListener('change', async function () {
+        var file = this.files && this.files[0];
+        this.value = '';
+        if (!file || !currentChat || !currentUser || !currentUser.login) return;
+
+        var sizeMB = file.size / (1024 * 1024);
+        if (sizeMB > 20) {
+            alert('Аудио больше 20 МБ и не будет отправлено.');
+            return;
+        }
+
+        var formData = new FormData();
+        formData.append('file',  file);
+        formData.append('login', currentUser.login);
+        formData.append('chatId', currentChat.id);
+        formData.append('text',  '');
+
+        try {
+            var resp = await fetch('/api/messages/send-file', {
+                method: 'POST',
+                body: formData
+            });
+            var data = await resp.json();
+            if (!resp.ok || !data.ok) {
+                alert(data.error || 'Ошибка отправки голосового сообщения');
+                return;
+            }
+            await refreshMessages(false);
+            if (chatContent) chatContent.scrollTop = chatContent.scrollHeight;
+        } catch (e) {
+            alert('Сетевая ошибка при отправке голосового сообщения');
+        }
+    });
+}
+
+if (chatMicBtn) {
+    // ТАЧ-УСТРОЙСТВА: удержание кнопки микрофона
+    chatMicBtn.addEventListener('touchstart', function (e) {
+        // если нет live‑записи — открываем системный рекордер
+        if (!canUseLiveVoiceRecording) {
+            startSystemVoiceFileChooser();
+            return;
+        }
+        if (isRecordingVoice) return;
+
+        var t = e.touches[0];
+        micTouchStartX = t.clientX;
+        micTouchStartY = t.clientY;
+        micGestureActive = true;
+
+        startVoiceRecording();
+    }, { passive: true });
+
+    chatMicBtn.addEventListener('touchmove', function (e) {
+        if (!micGestureActive || !isRecordingVoice) return;
+        var t  = e.touches[0];
+        var dx = t.clientX - micTouchStartX;
+        var dy = t.clientY - micTouchStartY;
+
+        // свайп ВЛЕВО (dx < -60) и преимущественно по горизонтали — отмена записи
+        if (dx < -60 && Math.abs(dx) > Math.abs(dy)) {
+            micGestureActive = false;
+            stopVoiceRecording(false);
+            if (voiceTimerEl) voiceTimerEl.textContent = 'Отменено';
+        }
+    }, { passive: true });
+
+    chatMicBtn.addEventListener('touchend', function () {
+        if (!micGestureActive) return;
+        micGestureActive = false;
+
+        // если запись ещё идёт — отправляем голосовое
+        if (isRecordingVoice) {
+            stopVoiceRecording(true);
+        }
+    });
+
+    chatMicBtn.addEventListener('touchcancel', function () {
+        micGestureActive = false;
+        if (isRecordingVoice) {
+            stopVoiceRecording(false);
+            if (voiceTimerEl) voiceTimerEl.textContent = 'Отменено';
+        }
+    });
+
+    // ДЕСКТОП (мышь): клик = начать, отпускание = отправить
+    chatMicBtn.addEventListener('mousedown', function (e) {
+        if (e.button !== 0) return;
+
+        if (!canUseLiveVoiceRecording) {
+            startSystemVoiceFileChooser();
+            return;
+        }
+        if (!isRecordingVoice) {
+            startVoiceRecording();
+        }
+    });
+
+    chatMicBtn.addEventListener('mouseup', function (e) {
+        if (e.button !== 0) return;
+        if (isRecordingVoice) {
+            stopVoiceRecording(true);
+        }
+    });
+}
 
 
 // свайп от левого края вправо для закрытия чата
@@ -5221,10 +5354,12 @@ var dancerDobBtn   = document.getElementById('dancerDobBtn');
 
 if (dancerDobField && dancerDobInput && dancerDobText && dancerDobBtn) {
     function openDobPicker() {
-        if (dancerDobInput.showPicker) {
+        if (typeof dancerDobInput.showPicker === 'function') {
+            // современные браузеры (Chrome и т.п.)
             dancerDobInput.showPicker();
         } else {
-            dancerDobInput.focus();
+            // универсальный вариант: программный клик по input[type=date]
+            dancerDobInput.click();
         }
     }
 
@@ -5854,42 +5989,4 @@ if ('serviceWorker' in navigator) {
     } catch (e) {}
 })();
 
-// ---------- ОБРАБОТЧИКИ МИКРОФОНА / СВАЙП ЗАПИСИ ----------
 
-// Кнопка микрофона
-if (chatMicBtn) {
-    chatMicBtn.onclick = function () {
-        if (!isRecordingVoice) {
-            startVoiceRecording();
-        } else {
-            stopVoiceRecording(true);
-        }
-    };
-}
-
-// свайп вправо по input‑бару во время записи = отмена
-if (chatInputForm) {
-    chatInputForm.addEventListener('touchstart', function (e) {
-        if (!isRecordingVoice) return;
-        var t = e.touches[0];
-        recordTouchStartX = t.clientX;
-    }, { passive: true });
-
-    chatInputForm.addEventListener('touchmove', function (e) {
-        if (!isRecordingVoice || recordTouchStartX == null) return;
-        var t  = e.touches[0];
-        var dx = t.clientX - recordTouchStartX;
-        if (dx > 60) {
-            stopVoiceRecording(false);
-            recordTouchStartX = null;
-            if (voiceTimerEl) voiceTimerEl.textContent = 'Отменено';
-        }
-    }, { passive: true });
-
-    chatInputForm.addEventListener('touchend', function () {
-        recordTouchStartX = null;
-    });
-    chatInputForm.addEventListener('touchcancel', function () {
-        recordTouchStartX = null;
-    });
-}
