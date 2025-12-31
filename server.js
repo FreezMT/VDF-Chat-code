@@ -1,20 +1,22 @@
 // server.js
 
-const express = require('express');
-const sqlite3 = require('sqlite3').verbose();
-const bcrypt  = require('bcrypt');
-const path    = require('path');
-const fs      = require('fs');
-const multer  = require('multer');
-const webPush = require('web-push');
-const ffmpeg  = require('fluent-ffmpeg');
+const express  = require('express');
+const sqlite3  = require('sqlite3').verbose();
+const bcrypt   = require('bcrypt');
+const path     = require('path');
+const fs       = require('fs');
+const multer   = require('multer');
+const webPush  = require('web-push');
+const ffmpeg   = require('fluent-ffmpeg');
 const ffmpegPath = require('@ffmpeg-installer/ffmpeg').path;
 
 ffmpeg.setFfmpegPath(ffmpegPath);
 
-const app  = express();
-const db   = new sqlite3.Database(path.join(__dirname, 'db.sqlite'));
-const msgDb= new sqlite3.Database(path.join(__dirname, 'messages.sqlite'));
+const https = require('https');
+
+const app   = express();
+const db    = new sqlite3.Database(path.join(__dirname, 'db.sqlite'));
+const msgDb = new sqlite3.Database(path.join(__dirname, 'messages.sqlite'));
 
 const PORT        = process.env.PORT || 3000;
 const SALT_ROUNDS = 10;
@@ -235,14 +237,6 @@ msgDb.run(
   }
 );
 
-// индекс по прочитанности
-msgDb.run(
-  'CREATE INDEX IF NOT EXISTS idx_chat_reads_user_chat ON chat_reads(user_login, chat_id)',
-  err => {
-    if (err) console.error('CREATE INDEX idx_chat_reads_user_chat error:', err);
-  }
-);
-
 // таблица прочитанности
 msgDb.run(
   `CREATE TABLE IF NOT EXISTS chat_reads (
@@ -252,6 +246,14 @@ msgDb.run(
     last_read_msg_id INTEGER,
     last_read_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )`
+);
+
+// индекс по прочитанности
+msgDb.run(
+  'CREATE INDEX IF NOT EXISTS idx_chat_reads_user_chat ON chat_reads(user_login, chat_id)',
+  err => {
+    if (err) console.error('CREATE INDEX idx_chat_reads_user_chat error:', err);
+  }
 );
 
 // реакции к сообщениям
@@ -333,7 +335,6 @@ function requireAuth(req, res, next) {
     return res.status(403).json({ error: 'Нельзя действовать от имени другого пользователя' });
   }
 
-  // пробрасываем логин дальше
   req.userLogin = sessLogin;
   if (!bodyLogin && req.body) {
     req.body.login = sessLogin;
@@ -441,7 +442,12 @@ function isValidAsciiField(v, max) {
 }
 
 function isValidCyrillicField(v, max) {
-  return typeof v === 'string' && /^[А-Яа-яЁё]+$/.test(v) && v.length <= max;
+  // Разрешаем русские буквы, пробелы и дефис
+  if (typeof v !== 'string') return false;
+  if (v.length === 0 || v.length > max) return false;
+  // хотя бы одна буква, остальное — буквы / пробелы / дефисы
+  if (!/^[А-Яа-яЁё][А-Яа-яЁё\s-]*$/.test(v)) return false;
+  return true;
 }
 
 function isValidTeam(team) {
@@ -474,7 +480,6 @@ async function enrichChatsWithUnreadAndSort(userLogin, chats) {
   const chatIds = chats.map(c => c.id);
   const placeholders = chatIds.map(() => '?').join(',');
 
-  // один запрос на все чаты пользователя
   const params = [userLogin].concat(chatIds);
 
   const unreadRows = await allMsg(
@@ -501,7 +506,6 @@ async function enrichChatsWithUnreadAndSort(userLogin, chats) {
     chat.unreadCount = unreadMap[chat.id] || 0;
   });
 
-  // сортировка как раньше
   chats.sort((a, b) => {
     const ad = a.lastMessageCreatedAt || '';
     const bd = b.lastMessageCreatedAt || '';
@@ -519,7 +523,6 @@ async function appendPersonalChatsForUser(user, chats) {
   const pattern1 = `pm-${userId}-%`;
   const pattern2 = `pm-%-${userId}`;
 
-  // берём только те pm‑чаты, где участвует этот userId
   const rows = await allMsg(
     'SELECT DISTINCT chat_id FROM messages WHERE chat_id LIKE ? OR chat_id LIKE ?',
     [pattern1, pattern2]
@@ -589,6 +592,7 @@ async function appendPersonalChatsForUser(user, chats) {
     existingIds.add(chatId);
   }
 }
+
 // кого уведомлять в чате
 async function getChatParticipantsLogins(chatId) {
   if (chatId.startsWith('trainer-') || chatId.startsWith('angelina-') || chatId.startsWith('pm-')) {
@@ -647,7 +651,6 @@ async function sendPushForMessage(row) {
     );
     const mutedSet = new Set(muteRows.map(r => (r.login || '').toLowerCase()));
 
-    // основной текст для пуша (без [r]...[/r])
     let mainText = text;
 
     if (typeof text === 'string' && text.startsWith('[r')) {
@@ -857,6 +860,7 @@ app.post('/api/check-login', async (req, res) => {
     res.status(500).json({ error: 'Ошибка сервера' });
   }
 });
+
 // /api/session/me — данные текущего залогиненного пользователя по сессии
 app.get('/api/session/me', requireLoggedIn, async (req, res) => {
   try {
@@ -984,7 +988,6 @@ app.post('/api/login', async (req, res) => {
 
     await updateLastSeen(user.login);
 
-    // записываем логин в сессию
     req.session.login = user.login;
 
     res.json({
@@ -1170,7 +1173,6 @@ app.post('/api/messages/pin', requireAuth, async (req, res) => {
     const chatIdLower = String(chatId).toLowerCase();
 
     if (chatIdLower.startsWith('group-')) {
-      // официальная группа (по команде)
       const teamKey = chatId.substring('group-'.length);
 
       const trainerOfTeam = await get(
@@ -1189,7 +1191,6 @@ app.post('/api/messages/pin', requireAuth, async (req, res) => {
       !chatIdLower.startsWith('angelina-') &&
       !chatIdLower.startsWith('pm-')
     ) {
-      // кастомная группа
       const group = await get(
         db,
         'SELECT owner_login FROM created_groups WHERE name = ?',
@@ -1254,7 +1255,7 @@ app.post('/api/chats', requireAuth, async (req, res) => {
     if (roleLower === 'trainer' || roleLower === 'тренер') {
       const chats = [];
 
-      // 1) личные чаты тренера (trainer-<trainerId>-<userId>, angelina-<trainerId>-<userId>)
+      // 1) личные чаты тренера
       const pattern1 = `trainer-${userId}-%`;
       const pattern2 = `angelina-${userId}-%`;
 
@@ -1747,6 +1748,15 @@ app.post('/api/messages/send-file', requireAuth, upload.single('file'), async (r
     if (!chatId || !senderLogin) {
       return res.status(400).json({ error: 'Нет chatId или логина отправителя' });
     }
+
+    // Проверяем, что отправитель действительно состоит в этом чате
+    const participants = await getChatParticipantsLogins(chatId);
+    const lowerSender  = String(senderLogin || '').toLowerCase();
+    const inChat = participants.some(l => String(l || '').toLowerCase() === lowerSender);
+    if (!inChat) {
+      return res.status(403).json({ error: 'Вы не состоите в этом чате' });
+    }
+
     if (!req.file) {
       return res.status(400).json({ error: 'Файл не загружен' });
     }
@@ -1862,7 +1872,7 @@ app.post('/api/messages/send-file', requireAuth, upload.single('file'), async (r
         row.sender_name = row.sender_login;
       }
 
-      // обновляем прочтение для отправителя
+      // обновляем прочитанное для отправителя
       try {
         const existing = await getMsg(
           'SELECT id FROM chat_reads WHERE chat_id = ? AND user_login = ?',
@@ -1906,6 +1916,17 @@ app.post('/api/messages/list', requireAuth, async (req, res) => {
     if (!chatId) {
       return res.status(400).json({ ok: false, error: 'Нет chatId' });
     }
+    if (!login) {
+      return res.status(400).json({ ok: false, error: 'Нет логина' });
+    }
+
+    // Проверяем, что запрашивающий состоит в этом чате
+    const participants = await getChatParticipantsLogins(chatId);
+    const lowerLogin   = String(login || '').toLowerCase();
+    const inChat = participants.some(l => String(l || '').toLowerCase() === lowerLogin);
+    if (!inChat) {
+      return res.status(403).json({ ok: false, error: 'Вы не состоите в этом чате' });
+    }
 
     const rows = await allMsg(
       `SELECT id,
@@ -1929,7 +1950,6 @@ app.post('/api/messages/list', requireAuth, async (req, res) => {
 
     const ids = rows.map(r => r.id);
 
-    // Сопоставление логина → ФИО одним запросом
     const uniqueLogins = [...new Set(rows.map(r => r.sender_login))];
     const nameMap = {};
 
@@ -1952,7 +1972,6 @@ app.post('/api/messages/list', requireAuth, async (req, res) => {
       }
     }
 
-    // прочитанность
     const reads = await allMsg(
       'SELECT user_login, last_read_msg_id FROM chat_reads WHERE chat_id = ?',
       [chatId]
@@ -1966,14 +1985,12 @@ app.post('/api/messages/list', requireAuth, async (req, res) => {
       }
     }
 
-    // закреплённое сообщение
     const pinRow = await getMsg(
       'SELECT message_id FROM chat_pins WHERE chat_id = ?',
       [chatId]
     );
     const pinnedId = pinRow ? pinRow.message_id : null;
 
-    // реакции
     let reactionsByMsg = {};
     let myReactionByMsg = {};
 
@@ -2004,7 +2021,6 @@ app.post('/api/messages/list', requireAuth, async (req, res) => {
       }
     }
 
-    // обогащаем сообщения
     rows.forEach(r => {
       r.sender_name = nameMap[r.sender_login] || r.sender_login;
       r.read_by_all = false;
@@ -2039,7 +2055,6 @@ app.post('/api/messages/list', requireAuth, async (req, res) => {
   }
 });
 
-
 // /api/chat/attachments — список медиа, файлов и аудио чата
 app.post('/api/chat/attachments', requireAuth, async (req, res) => {
   try {
@@ -2050,8 +2065,13 @@ app.post('/api/chat/attachments', requireAuth, async (req, res) => {
       return res.status(400).json({ ok: false, error: 'Нет логина или chatId' });
     }
 
-    // Маршрут вызывается только для текущего открытого чата;
-    // дополнительную проверку участия можно не делать, чтобы не было лишних запросов.
+    // Проверяем, что пользователь состоит в этом чате
+    const participants = await getChatParticipantsLogins(chatId);
+    const lowerLogin   = String(sessLogin || '').toLowerCase();
+    const inChat = participants.some(l => String(l || '').toLowerCase() === lowerLogin);
+    if (!inChat) {
+      return res.status(403).json({ ok: false, error: 'Вы не состоите в этом чате' });
+    }
 
     const rows = await allMsg(
       `SELECT id,
@@ -2064,7 +2084,7 @@ app.post('/api/chat/attachments', requireAuth, async (req, res) => {
        FROM messages
        WHERE chat_id = ?
          AND (deleted IS NULL OR deleted = 0)
-         AND attachment_type IS NOT NULL
+         AND attachment_url IS NOT NULL
        ORDER BY created_at DESC, id DESC
        LIMIT 300`,
       [chatId]
@@ -2075,9 +2095,28 @@ app.post('/api/chat/attachments', requireAuth, async (req, res) => {
     const audios = [];
 
     rows.forEach(r => {
+      if (!r.attachment_url) return;
+
+      let type = r.attachment_type;
+      const url  = r.attachment_url || '';
+      const name = r.attachment_name || '';
+
+      if (!type) {
+        const src = (name || url).toLowerCase();
+        if (/\.(jpg|jpeg|png|gif|heic|webp)$/i.test(src)) {
+          type = 'image';
+        } else if (/\.(mp4|mov|m4v|webm)$/i.test(src)) {
+          type = 'video';
+        } else if (/\.(mp3|wav|ogg|m4a)$/i.test(src)) {
+          type = 'audio';
+        } else {
+          type = 'file';
+        }
+      }
+
       const base = {
         id:        r.id,
-        type:      r.attachment_type,
+        type:      type,
         url:       r.attachment_url,
         preview:   r.attachment_preview,
         name:      r.attachment_name,
@@ -2085,11 +2124,11 @@ app.post('/api/chat/attachments', requireAuth, async (req, res) => {
         createdAt: r.created_at
       };
 
-      if (r.attachment_type === 'image' || r.attachment_type === 'video') {
+      if (type === 'image' || type === 'video') {
         media.push(base);
-      } else if (r.attachment_type === 'file') {
+      } else if (type === 'file') {
         files.push(base);
-      } else if (r.attachment_type === 'audio') {
+      } else if (type === 'audio') {
         audios.push(base);
       }
     });
@@ -2111,6 +2150,14 @@ app.post('/api/messages/send', requireAuth, async (req, res) => {
     }
 
     const cleanText = String(text).trim();
+
+    // Проверяем, что отправитель состоит в этом чате
+    const participants = await getChatParticipantsLogins(chatId);
+    const lowerSender  = String(senderLogin || '').toLowerCase();
+    const inChat = participants.some(l => String(l || '').toLowerCase() === lowerSender);
+    if (!inChat) {
+      return res.status(403).json({ error: 'Вы не состоите в этом чате' });
+    }
 
     await updateLastSeen(senderLogin);
 
@@ -2186,7 +2233,7 @@ app.post('/api/messages/send', requireAuth, async (req, res) => {
   }
 });
 
-// /api/messages/forward — пересылка сообщения (включая вложения, имя файла и превью)
+// /api/messages/forward — пересылка сообщения
 app.post('/api/messages/forward', requireAuth, async (req, res) => {
   try {
     const { login, messageId, targetChatIds } = req.body;
@@ -2204,7 +2251,6 @@ app.post('/api/messages/forward', requireAuth, async (req, res) => {
       return res.status(404).json({ ok: false, error: 'Пользователь не найден' });
     }
 
-    // исходное сообщение
     const src = await getMsg(
       `SELECT id,
               chat_id,
@@ -2223,7 +2269,6 @@ app.post('/api/messages/forward', requireAuth, async (req, res) => {
       return res.status(404).json({ ok: false, error: 'Исходное сообщение не найдено' });
     }
 
-    // убеждаемся, что пользователь вообще состоит в исходном чате
     const srcParticipants = await getChatParticipantsLogins(src.chat_id);
     const lowerLogin = login.toLowerCase();
     const inSourceChat = srcParticipants.some(l => String(l || '').toLowerCase() === lowerLogin);
@@ -2233,7 +2278,6 @@ app.post('/api/messages/forward', requireAuth, async (req, res) => {
 
     await updateLastSeen(login);
 
-    // проверяем, что пользователь состоит во всех целевых чатах
     for (const cid of targetChatIds) {
       if (!cid) continue;
       const parts = await getChatParticipantsLogins(cid);
@@ -2246,7 +2290,6 @@ app.post('/api/messages/forward', requireAuth, async (req, res) => {
       }
     }
 
-    // пересылка
     for (const cid of targetChatIds) {
       if (!cid) continue;
 
@@ -2285,7 +2328,6 @@ app.post('/api/messages/forward', requireAuth, async (req, res) => {
       );
       if (!row) continue;
 
-      // отмечаем прочитанным у отправителя
       try {
         const existing = await getMsg(
           'SELECT id FROM chat_reads WHERE chat_id = ? AND user_login = ?',
@@ -2306,7 +2348,6 @@ app.post('/api/messages/forward', requireAuth, async (req, res) => {
         console.error('FORWARD update chat_reads error:', e2);
       }
 
-      // имя отправителя для пушей
       row.sender_name = login;
       try {
         const u = await get(
@@ -2322,7 +2363,6 @@ app.post('/api/messages/forward', requireAuth, async (req, res) => {
         // ignore
       }
 
-      // пуш-уведомление
       sendPushForMessage(row).catch(err => {
         console.error('sendPushForMessage (forward) error:', err);
       });
@@ -2986,7 +3026,13 @@ app.post('/api/group/rename', requireAuth, async (req, res) => {
       [cleanNew, oldName]
     );
 
-    // 4) обновляем chat_id в сообщениях и прочитанности
+    // 4) переносим закреплённые сообщения на новый chatId
+    await runMsg(
+      'UPDATE chat_pins SET chat_id = ? WHERE chat_id = ?',
+      [cleanNew, oldName]
+    );
+
+    // 5) обновляем chat_id в сообщениях и прочитанности
     await runMsg(
       'UPDATE messages SET chat_id = ? WHERE chat_id = ?',
       [cleanNew, oldName]
@@ -3361,6 +3407,20 @@ app.post('/api/feed/create', requireAuth, upload.single('image'), async (req, re
 
 // ---------- START ----------
 
-app.listen(PORT, () => {
-  console.log('API listening on port ' + PORT);
+const HTTP_PORT  = PORT;   // 3000, как и раньше
+const HTTPS_PORT = 3443;   // новый порт под https
+
+// HTTP — чтобы с ноутбука всё работало, как раньше: http://localhost:3000
+app.listen(HTTP_PORT, () => {
+  console.log('HTTP API listening on port ' + HTTP_PORT);
+});
+
+// HTTPS — для айфона / secure context
+const httpsOptions = {
+  key:  fs.readFileSync(path.join(__dirname, 'certs', 'dev-key.pem')),
+  cert: fs.readFileSync(path.join(__dirname, 'certs', 'dev-cert.pem'))
+};
+
+https.createServer(httpsOptions, app).listen(HTTPS_PORT, () => {
+  console.log('HTTPS API listening on port ' + HTTPS_PORT);
 });

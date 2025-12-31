@@ -25,7 +25,7 @@ self.addEventListener('push', function (event) {
       icon,
       tag,
       data: notifData
-      // renotify можно не указывать, т.к. tag уже уникальный
+      // renotify не обязателен, tag уже группирует уведомления
     })
   );
 });
@@ -37,28 +37,44 @@ self.addEventListener('notificationclick', function (event) {
   const chatId = data.chatId || null;
 
   event.waitUntil((async () => {
-    const allClients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    const allClients = await self.clients.matchAll({
+      type: 'window',
+      includeUncontrolled: true
+    });
 
+    // Если есть chatId — пробуем открыть/фокусировать окно приложения и сообщить ему нужный чат
     if (chatId) {
-      // если есть окно — фокусируем и шлём команду открыть чат
       if (allClients.length > 0) {
         const client = allClients[0];
-        if ('focus' in client) {
-          await client.focus();
+        try {
+          if ('focus' in client) {
+            await client.focus();
+          }
+        } catch (e) {
+          // ignore focus error
         }
-        client.postMessage({ type: 'OPEN_CHAT', chatId });
+        try {
+          client.postMessage({ type: 'OPEN_CHAT', chatId });
+        } catch (e) {
+          // ignore postMessage error
+        }
         return;
       }
 
-      // если окон нет — открываем новое с параметром chatId
+      // Если окон нет — открываем новое с параметром chatId
       await self.clients.openWindow('/?chatId=' + encodeURIComponent(chatId));
       return;
     }
 
-    // без chatId: фокусируем видимое окно или открываем url
+    // Без chatId: фокусируем видимое окно или открываем url
     for (const client of allClients) {
+      // visibilityState есть только у контролируемых клиентов, но includeUncontrolled:true это покрывает
       if (client.visibilityState === 'visible') {
-        await client.focus();
+        try {
+          await client.focus();
+        } catch (e) {
+          // ignore
+        }
         return;
       }
     }
