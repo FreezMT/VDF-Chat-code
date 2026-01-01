@@ -2311,7 +2311,7 @@ body.welcome-active {
     transform:translate(-50%,-50%);
     width:14px;
     height:14px;
-    background-image:url("icons/download.png");
+    background-image:url("icons/upload.png");
     background-repeat:no-repeat;
     background-position:center;
     background-size:14px 14px;
