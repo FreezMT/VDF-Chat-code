@@ -2143,15 +2143,15 @@ app.post('/api/chat/attachments', requireAuth, async (req, res) => {
 // /api/messages/send — текстовое сообщение
 app.post('/api/messages/send', requireAuth, async (req, res) => {
   try {
-    const { chatId, senderLogin, text } = req.body;
+    const senderLogin = req.session.login;   // единственный источник истины
+    const { chatId, text } = req.body;
 
-    if (!chatId || !senderLogin || !text || !String(text).trim()) {
+    if (!chatId || !text || !String(text).trim()) {
       return res.status(400).json({ error: 'Пустое сообщение или нет данных чата' });
     }
 
     const cleanText = String(text).trim();
 
-    // Проверяем, что отправитель состоит в этом чате
     const participants = await getChatParticipantsLogins(chatId);
     const lowerSender  = String(senderLogin || '').toLowerCase();
     const inChat = participants.some(l => String(l || '').toLowerCase() === lowerSender);
@@ -2601,6 +2601,14 @@ app.post('/api/groups/create', requireAuth, async (req, res) => {
 
 // /api/group/info
 app.post('/api/group/info', requireAuth, async (req, res) => {
+    // Проверяем, что пользователь состоит в этом чате
+  const sessLogin = req.session.login;
+  const participants = await getChatParticipantsLogins(chatId);
+  const lowerLogin = String(sessLogin || '').toLowerCase();
+  const inChat = participants.some(l => String(l || '').toLowerCase() === lowerLogin);
+  if (!inChat) {
+    return res.status(403).json({ error: 'Вы не состоите в этом чате' });
+  }
   try {
     const { chatId } = req.body;
 

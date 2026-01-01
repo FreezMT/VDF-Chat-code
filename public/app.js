@@ -4918,6 +4918,49 @@ function createChatContextMenu() {
     };
 }
 
+function showChatContextMenu(chat, item) {
+    if (!chat || !item) return;
+    createChatContextMenu();
+
+    contextMenuTargetChat = chat;
+    contextMenuTargetChatItem = item;
+
+    // тексты кнопок
+    if (ctxPinBtn) {
+        ctxPinBtn.textContent = isChatPinned(chat.id) ? 'Открепить чат' : 'Закрепить чат';
+    }
+    if (ctxMuteBtn) {
+        ctxMuteBtn.textContent = isChatMuted(chat.id) ? 'Включить уведомления' : 'Выключить уведомления';
+    }
+
+    // показать оверлей
+    chatContextOverlay.classList.add('visible');
+    chatContextMenu.classList.remove('open');
+
+    // позиционирование около элемента
+    var rect = item.getBoundingClientRect();
+    var menuW = chatContextMenu.offsetWidth || 240;
+    var menuH = chatContextMenu.offsetHeight || 120;
+    var margin = 8;
+
+    var vw = window.innerWidth || 375;
+    var vh = window.innerHeight || 667;
+
+    // по умолчанию справа от элемента
+    var left = Math.min(vw - menuW - 12, rect.right - menuW);
+    if (left < 12) left = 12;
+
+    var top = rect.top + rect.height / 2 - menuH / 2;
+    top = Math.max(12, Math.min(vh - menuH - 12, top));
+
+    chatContextMenu.style.left = left + 'px';
+    chatContextMenu.style.top  = top  + 'px';
+
+    requestAnimationFrame(function () {
+        chatContextMenu.classList.add('open');
+    });
+}
+
 function hideChatContextMenu() {
     if (!chatContextOverlay || !chatContextMenu) return;
 

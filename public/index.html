@@ -302,6 +302,13 @@
         <form class="chat-input-bar" id="chatInputForm">
             <button type="button" class="chat-attach-btn" id="chatAttachBtn"></button>
             <input type="file" id="chatAttachInput" style="display:none">
+            <input
+                type="file"
+                id="voiceFileInput"
+                accept="audio/*"
+                capture="microphone"
+                style="display:none"
+                />
 
             <textarea id="chatInput" rows="1" placeholder="Сообщение"></textarea>
 
