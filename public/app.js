@@ -162,6 +162,11 @@ var mediaViewer      = document.getElementById('mediaViewer');
 var mediaViewerImg   = document.getElementById('mediaViewerImg');
 var mediaViewerVideo = document.getElementById('mediaViewerVideo');
 
+var mediaViewerContent = mediaViewer ? mediaViewer.querySelector('.media-viewer-content') : null;
+var currentMediaSourceRect = null;
+var mediaSwipeStartY = null;
+var mediaSwipeDy     = 0;
+
 // интервалы
 var chatStatusInterval   = null;
 var messagePollInterval  = null;
@@ -391,6 +396,9 @@ var mediaRecorderSupport = typeof window.MediaRecorder !== 'undefined';
 var canUseLiveVoiceRecording = hasMediaDevices && mediaRecorderSupport;
 
 var chatLoadingOverlay = document.getElementById('chatLoadingOverlay');
+
+
+
 
 // инициализируем обработчики вложений в чате
 initChatAttachments();
@@ -1439,13 +1447,45 @@ function allowOnlyCyrillic(value) {
     return value.replace(/[^А-Яа-яЁё\s-]/g, '').slice(0, 30);
 }
 
-function openMediaViewer(url, type){
-    if (!mediaViewer || !mediaViewerImg || !mediaViewerVideo) return;
+function openMediaViewer(url, type, sourceEl) {
+    if (!mediaViewer || !mediaViewerContent || !mediaViewerImg || !mediaViewerVideo) return;
 
+    currentMediaSourceRect = sourceEl && sourceEl.getBoundingClientRect ? sourceEl.getBoundingClientRect() : null;
+
+    // показываем оверлей
     mediaViewer.classList.add('visible');
 
+    // сбрасываем содержимое
     mediaViewerImg.style.display   = 'none';
     mediaViewerVideo.style.display = 'none';
+    mediaViewerContent.style.transform = 'translate3d(0,0,0) scale(1)';
+
+    // начальное состояние (для анимации "увеличения")
+    if (currentMediaSourceRect) {
+        var rect = currentMediaSourceRect;
+        var vw   = window.innerWidth  || 375;
+        var vh   = window.innerHeight || 667;
+
+        var srcCenterX = rect.left + rect.width  / 2;
+        var srcCenterY = rect.top  + rect.height / 2;
+        var dstCenterX = vw / 2;
+        var dstCenterY = vh / 2;
+
+        var translateX = srcCenterX - dstCenterX;
+        var translateY = srcCenterY - dstCenterY;
+
+        var scaleX = rect.width  / vw;
+        var scaleY = rect.height / vh;
+        var scale  = Math.max(scaleX, scaleY);
+        if (!isFinite(scale) || scale <= 0) scale = 0.3;
+
+        mediaViewerContent.style.transform =
+            'translate3d(' + translateX + 'px,' + translateY + 'px,0) scale(' + scale + ')';
+
+        requestAnimationFrame(function () {
+            mediaViewerContent.style.transform = 'translate3d(0,0,0) scale(1)';
+        });
+    }
 
     if (type === 'image') {
         mediaViewerImg.src = url;
@@ -1464,13 +1504,48 @@ function openMediaViewer(url, type){
     }
 }
 
-function closeMediaViewer(){
-    if (!mediaViewer || !mediaViewerImg || !mediaViewerVideo) return;
+function closeMediaViewer() {
+    if (!mediaViewer || !mediaViewerContent || !mediaViewerImg || !mediaViewerVideo) return;
 
-    mediaViewer.classList.remove('visible');
-    mediaViewerImg.src = '';
-    mediaViewerVideo.pause();
-    mediaViewerVideo.src = '';
+    // если есть исходный rect — анимируем обратно в "кирпич"
+    if (currentMediaSourceRect) {
+        var rect = currentMediaSourceRect;
+        var vw   = window.innerWidth  || 375;
+        var vh   = window.innerHeight || 667;
+
+        var srcCenterX = rect.left + rect.width  / 2;
+        var srcCenterY = rect.top  + rect.height / 2;
+        var dstCenterX = vw / 2;
+        var dstCenterY = vh / 2;
+
+        var translateX = srcCenterX - dstCenterX;
+        var translateY = srcCenterY - dstCenterY;
+
+        var scaleX = rect.width  / vw;
+        var scaleY = rect.height / vh;
+        var scale  = Math.max(scaleX, scaleY);
+        if (!isFinite(scale) || scale <= 0) scale = 0.3;
+
+        mediaViewerContent.style.transform =
+            'translate3d(' + translateX + 'px,' + translateY + 'px,0) scale(' + scale + ')';
+
+        setTimeout(function () {
+            mediaViewer.classList.remove('visible');
+            mediaViewerContent.style.transform = 'translate3d(0,0,0) scale(1)';
+            mediaViewerImg.src = '';
+            mediaViewerVideo.pause();
+            mediaViewerVideo.src = '';
+
+            currentMediaSourceRect = null;
+        }, 220);
+    } else {
+        mediaViewer.classList.remove('visible');
+        mediaViewerImg.src = '';
+        mediaViewerVideo.pause();
+        mediaViewerVideo.src = '';
+        mediaViewerContent.style.transform = 'translate3d(0,0,0) scale(1)';
+        currentMediaSourceRect = null;
+    }
 }
 
 // закрытие mediaViewer по фону
@@ -1484,6 +1559,76 @@ function closeMediaViewer(){
         if (e.target === mediaViewer) {
             closeMediaViewer();
         }
+    });
+
+    // свайп вниз для закрытия (контролируемый, порог ~1/5 экрана)
+    mediaViewer.addEventListener('touchstart', function (e) {
+        if (!mediaViewer.classList.contains('visible')) return;
+        if (e.touches.length !== 1) return;
+        var t = e.touches[0];
+        mediaSwipeStartY = t.clientY;
+        mediaSwipeDy     = 0;
+        if (mediaViewerContent) mediaViewerContent.style.transition = 'none';
+    }, { passive:true });
+
+    mediaViewer.addEventListener('touchmove', function (e) {
+        if (mediaSwipeStartY == null) return;
+        var t  = e.touches[0];
+        var dy = t.clientY - mediaSwipeStartY;
+        mediaSwipeDy = dy;
+
+        if (dy <= 0) {
+            if (mediaViewerContent) mediaViewerContent.style.transform = 'translate3d(0,0,0) scale(1)';
+            return;
+        }
+
+        var vh = window.innerHeight || 667;
+        var p  = Math.min(dy / vh, 1); // 0..1
+        var translateY = dy;
+        var scale      = 1 - 0.15 * p;
+
+        if (mediaViewerContent) {
+            mediaViewerContent.style.transform =
+                'translate3d(0,' + translateY + 'px,0) scale(' + scale + ')';
+        }
+    }, { passive:true });
+
+    function finishMediaSwipe() {
+        if (!mediaViewerContent) return;
+        var vh        = window.innerHeight || 667;
+        var threshold = vh * 0.2; // 1/5 экрана
+
+        mediaViewerContent.style.transition = 'transform 0.2s ease-out';
+
+        if (mediaSwipeDy > threshold) {
+            // закрываем viewer
+            mediaViewerContent.style.transform =
+                'translate3d(0,' + vh + 'px,0) scale(0.85)';
+            setTimeout(function () {
+                mediaViewerContent.style.transition = '';
+                mediaViewerContent.style.transform  = 'translate3d(0,0,0) scale(1)';
+                closeMediaViewer();
+            }, 180);
+        } else {
+            // откат вверх
+            mediaViewerContent.style.transform = 'translate3d(0,0,0) scale(1)';
+            setTimeout(function () {
+                mediaViewerContent.style.transition = '';
+            }, 180);
+        }
+
+        mediaSwipeStartY = null;
+        mediaSwipeDy     = 0;
+    }
+
+    mediaViewer.addEventListener('touchend', function () {
+        if (mediaSwipeStartY == null) return;
+        finishMediaSwipe();
+    });
+
+    mediaViewer.addEventListener('touchcancel', function () {
+        if (mediaSwipeStartY == null) return;
+        finishMediaSwipe();
     });
 })();
 
@@ -2144,8 +2289,10 @@ function renderMessage(msg) {
             imgAtt.className = 'msg-attachment-image';
             imgAtt.src = msg.attachment_url;
             imgAtt.onerror = function () { this.style.display = 'none'; };
-            imgAtt.addEventListener('click', function () {
-                openMediaViewer(msg.attachment_url, 'image');
+            imgAtt.addEventListener('click', function (e) {
+                e.preventDefault();
+                e.stopPropagation();
+                openMediaViewer(msg.attachment_url, 'image', imgAtt);
             });
             mediaWrapper.appendChild(imgAtt);
         } else if (msg.attachment_type === 'video') {
@@ -2173,13 +2320,24 @@ function renderMessage(msg) {
             videoAtt.addEventListener('canplay', function () {
                 videoAtt.play().catch(function(){});
             });
-
             videoAtt.addEventListener('click', function (e) {
+                e.preventDefault();  // не даём Safari открыть свой плеер
                 e.stopPropagation();
-                openMediaViewer(msg.attachment_url, 'video');
+                openMediaViewer(msg.attachment_url, 'video', videoAtt);
             });
 
             mediaWrapper.appendChild(videoAtt);
+
+            var durationBadge = document.createElement('div');
+            durationBadge.className = 'msg-video-duration';
+            durationBadge.textContent = ''; // заполним после metadata
+            mediaWrapper.appendChild(durationBadge);
+
+            videoAtt.addEventListener('loadedmetadata', function () {
+                if (!isNaN(videoAtt.duration)) {
+                    durationBadge.textContent = formatSecondsToMMSS(videoAtt.duration);
+                }
+            });
         }
 
         col.appendChild(mediaWrapper);
@@ -2243,34 +2401,35 @@ function renderMessage(msg) {
         timeLabel.textContent = '0:00';
         voiceWrap.appendChild(timeLabel);
 
-        bubble.appendChild(voiceWrap);
-
         var audio = new Audio(msg.attachment_url);
         audio.preload = 'metadata';
 
+        var totalDuration = 0;
+
         audio.addEventListener('loadedmetadata', function () {
             if (!isNaN(audio.duration)) {
-                timeLabel.textContent = formatSecondsToMMSS(audio.duration);
+                totalDuration = audio.duration;
+                timeLabel.textContent = formatSecondsToMMSS(totalDuration); // показываем общее время
             }
         });
 
         audio.addEventListener('timeupdate', function () {
-            if (!audio.duration || isNaN(audio.duration)) return;
-            var ratio = audio.currentTime / audio.duration;
+            if (!totalDuration || isNaN(totalDuration)) return;
+            var ratio = audio.currentTime / totalDuration;
             var playedCount = Math.round(bars.length * ratio);
             bars.forEach(function(b, idx){
                 if (idx < playedCount) b.classList.add('played');
                 else b.classList.remove('played');
             });
-            timeLabel.textContent = formatSecondsToMMSS(audio.currentTime);
+
+            var remaining = Math.max(totalDuration - audio.currentTime, 0);
+            timeLabel.textContent = formatSecondsToMMSS(remaining); // обратный таймер
         });
 
         audio.addEventListener('ended', function () {
             playBtn.classList.remove('playing');
             bars.forEach(function(b){ b.classList.remove('played'); });
-            if (!isNaN(audio.duration)) {
-                timeLabel.textContent = formatSecondsToMMSS(audio.duration);
-            }
+            timeLabel.textContent = '0:00';
             if (currentVoiceAudio === audio) {
                 currentVoiceAudio   = null;
                 currentVoicePlayBtn = null;
@@ -3207,7 +3366,7 @@ async function loadMessages(chatId) {
             lastId:                   0,
             pinnedId:                 null,
             firstUnreadId:            null,
-            needScrollToFirstUnread:  true
+            needScrollToFirstUnread:  false   // ВСЕГДА просто скроллим в самый низ
         };
     }
     await refreshMessages(false);
@@ -4806,50 +4965,153 @@ function hideChatContextMenu() {
 /**
  * Показать контекст-меню чата около конкретного chat-item.
  */
-function showChatContextMenu(chat, item) {
-    if (!chat || !item) return;
-    createChatContextMenu();
+function showMsgContextMenu(msgInfo, item) {
+    if (!msgInfo || !currentUser || !item) return;
+    createMsgContextMenu();
 
-    contextMenuTargetChat     = chat;
-    contextMenuTargetChatItem = item;
-    suppressChatClick         = true;
+    currentMsgContext     = msgInfo;
+    currentMsgContextItem = item;
 
-    // лёгкое уменьшение выбранного чата
-    item.classList.add('chat-item-pressed');
+    // визуальное выделение
+    item.classList.add('msg-item-pressed');
 
-    ctxPinBtn.textContent  = isChatPinned(chat.id) ? 'Открепить чат' : 'Закрепить чат';
-    ctxMuteBtn.textContent = isChatMuted(chat.id) ? 'Включить уведомления' : 'Выключить уведомления';
+    // запоминаем старый z-index и поднимаем сообщение над оверлеем
+    if (item._oldZIndex === undefined) {
+        item._oldZIndex = item.style.zIndex || '';
+    }
+    item.style.zIndex = '9999';
 
-    chatContextOverlay.classList.add('visible');
-    chatContextMenu.classList.remove('open');
+    var isMe          = String(msgInfo.senderLogin).toLowerCase() === String(currentUser.login).toLowerCase();
+    var hasText       = msgInfo.text && String(msgInfo.text).trim().length > 0;
+    var hasAttachment = !!msgInfo.attachmentType;
 
-    requestAnimationFrame(function () {
-        if (!chatContextMenu || !contextMenuTargetChatItem) return;
+    msgCtxEditBtn.style.display   = (isMe && (hasText || hasAttachment)) ? '' : 'none';
+    msgCtxDeleteBtn.style.display = isMe ? '' : 'none';
 
-        var rect   = contextMenuTargetChatItem.getBoundingClientRect();
-        var vh     = window.innerHeight;
-        var menuH  = chatContextMenu.offsetHeight || 120;
-        var safeTop    = 12;
-        var safeBottom = 16;
+    msgCtxPinBtn.textContent = msgInfo.isPinned ? 'Открепить сообщение' : 'Закрепить сообщение';
 
-        // по умолчанию — ПОД чатом
-        var top = rect.bottom + 8;
+    if (hasAttachment && msgInfo.attachmentUrl) {
+        msgCtxDownloadBtn.style.display = '';
+    } else {
+        msgCtxDownloadBtn.style.display = 'none';
+    }
 
-        // если снизу не помещается — над чатом
-        if (top + menuH + safeBottom > vh) {
-            top = rect.top - menuH - 8;
-            if (top < safeTop) top = safeTop;
+    msgContextOverlay.classList.add('visible');
+    msgContextMenu.classList.remove('open');
+
+    /**
+     * Позиционирование меню.
+     * allowScroll = true — можно один раз прокрутить чат, чтобы меню влезло.
+     */
+    function positionMenu(allowScroll) {
+        if (!msgContextMenu || !currentMsgContextItem) return;
+
+        // ориентируемся на всю колонку сообщения (с медиа и reply), а не только bubble
+        var refEl = currentMsgContextItem.querySelector('.msg-col') ||
+                    currentMsgContextItem.querySelector('.msg-bubble') ||
+                    currentMsgContextItem;
+
+        var rect = refEl.getBoundingClientRect();
+        var vh   = window.innerHeight;
+
+        var menuH  = msgContextMenu.offsetHeight || 160;
+        var margin = 8;
+
+        // Верхняя безопасная зона: шапка + закреплённая панель
+        var headerH = 64;
+        var pinnedH = 0;
+        if (pinnedTopBar && pinnedTopBar.style.display !== 'none') {
+            var pr = pinnedTopBar.getBoundingClientRect();
+            pinnedH = pr.height || 0;
+        }
+        var safeTop = headerH + pinnedH + 8;
+
+        // Нижняя безопасная зона: инпут + reply‑bar + attach‑preview
+        var bottomReserve = 8;
+        if (chatInputForm) {
+            var ir = chatInputForm.getBoundingClientRect();
+            bottomReserve += ir.height || 0;
+        }
+        if (attachPreviewBar && attachPreviewBar.style.display !== 'none') {
+            var ar = attachPreviewBar.getBoundingClientRect();
+            bottomReserve += ar.height || 0;
+        }
+        if (replyBar && replyBar.style.display !== 'none') {
+            var rr = replyBar.getBoundingClientRect();
+            bottomReserve += rr.height || 0;
+        }
+        var safeBottom = bottomReserve;
+
+        var spaceAbove = rect.top    - safeTop;
+        var spaceBelow = vh - safeBottom - rect.bottom;
+
+        var top;
+
+        // 1) если нормально влезает СНИЗУ — ставим под сообщением
+        if (spaceBelow >= menuH + margin) {
+            top = rect.bottom + margin;
+        }
+        // 2) иначе, если влезает СВЕРХУ — ставим над сообщением
+        else if (spaceAbove >= menuH + margin) {
+            top = rect.top - menuH - margin;
+        }
+        // 3) ни сверху, ни снизу не хватает — пробуем прокрутить чат
+        else if (allowScroll && chatContent) {
+            // хотим, чтобы над сообщением появилось достаточно места для меню
+            // сколько ещё нужно "пространства сверху"
+            var needExtraAbove = (menuH + margin) - Math.max(spaceAbove, 0);
+            var newScrollTop   = chatContent.scrollTop + needExtraAbove;
+            if (newScrollTop < 0) newScrollTop = 0;
+
+            if (typeof chatContent.scrollTo === 'function') {
+                chatContent.scrollTo({ top: newScrollTop, behavior: 'smooth' });
+            } else {
+                chatContent.scrollTop = newScrollTop;
+            }
+
+            // после прокрутки один раз перепозиционируем без нового скролла
+            setTimeout(function () {
+                positionMenu(false);
+            }, 260);
+            return;
+        }
+        // 4) крайний случай — втискиваем между safeTop и нижней границей
+        else {
+            top = rect.top - menuH - margin; // пробуем над
+            if (top < safeTop) {
+                top = rect.bottom + margin; // иначе под
+            }
         }
 
-        chatContextMenu.style.top   = top + 'px';
-        chatContextMenu.style.right = '12px';
-        chatContextMenu.style.left  = 'auto';
-        chatContextMenu.style.transformOrigin = 'top right';
+        // финальный clamp в безопасную область
+        if (top + menuH + safeBottom > vh) {
+            top = vh - safeBottom - menuH;
+        }
+        if (top < safeTop) {
+            top = safeTop;
+        }
 
-        // запуск анимации выезда
+        msgContextMenu.style.top = top + 'px';
+
+        // горизонтальное выравнивание: справа для "моих" сообщений
+        if (isMe) {
+            msgContextMenu.style.right = '12px';
+            msgContextMenu.style.left  = 'auto';
+            msgContextMenu.style.transformOrigin = 'top right';
+        } else {
+            msgContextMenu.style.left  = '12px';
+            msgContextMenu.style.right = 'auto';
+            msgContextMenu.style.transformOrigin = 'top left';
+        }
+
         requestAnimationFrame(function () {
-            chatContextMenu.classList.add('open');
+            msgContextMenu.classList.add('open');
         });
+    }
+
+    // Ждём layout и позиционируем с возможностью одного скролла
+    requestAnimationFrame(function () {
+        positionMenu(true);
     });
 }
 
