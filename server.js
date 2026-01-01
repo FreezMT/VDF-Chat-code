@@ -1,4 +1,4 @@
-// server.js 
+// server.js — PART 1/2
 
 const express  = require('express');
 const sqlite3  = require('sqlite3').verbose();
@@ -453,7 +453,7 @@ async function updateLastSeen(login) {
   }
 }
 
-// ---------- ВАЛИДАЦИЯ ----------
+// ---------- ВАЛИДАЦИЯ / САНИТИЗАЦИЯ ----------
 
 function isValidAsciiField(v, max) {
   return typeof v === 'string' && /^[\x20-\x7E]+$/.test(v) && v.length <= max;
@@ -486,6 +486,25 @@ async function generateUniquePublicId() {
     tries++;
   }
   throw new Error('Не удалось сгенерировать уникальный public_id');
+}
+
+// лёгкая защита от XSS в текстах сообщений / постов
+function sanitizeMessageText(text) {
+  if (typeof text !== 'string') return '';
+  let t = text;
+
+  // убираем управляющие символы
+  t = t.replace(/[\u0000-\u0008\u000B-\u001F\u007F]/g, '');
+  t = t.trim();
+
+  // режем очень длинный текст (на всякий случай)
+  const MAX_LEN = 5000;
+  if (t.length > MAX_LEN) t = t.slice(0, MAX_LEN);
+
+  // убираем прямые < и >, чтобы не было HTML‑тегов в местах, где innerHTML
+  t = t.replace(/[<>]/g, '');
+
+  return t;
 }
 
 // ---------- HELPERS: unread + сортировка ----------
@@ -1048,7 +1067,7 @@ app.post('/api/messages/edit', requireAuth, async (req, res) => {
       return res.status(403).json({ error: 'Редактировать можно только свои сообщения' });
     }
 
-    const clean = (typeof text === 'string') ? text.trim() : '';
+    const clean = sanitizeMessageText(text || '');
 
     await runMsg(
       'UPDATE messages SET text = ?, edited_at = CURRENT_TIMESTAMP WHERE id = ?',
@@ -1238,8 +1257,6 @@ app.post('/api/messages/pin', requireAuth, async (req, res) => {
   }
 });
 
-// server.js — PART 2/2
-
 // ---------- /api/chats ----------
 
 app.post('/api/chats', requireAuth, async (req, res) => {
@@ -1269,24 +1286,37 @@ app.post('/api/chats', requireAuth, async (req, res) => {
     if (roleLower === 'trainer' || roleLower === 'тренер') {
       const chats = [];
 
-      // 1) личные чаты тренера
-      const pattern1 = `trainer-${userId}-%`;
-      const pattern2 = `angelina-${userId}-%`;
+      // 1) личные "trainer/angelina" чаты тренера
+      const tPattern1 = `trainer-${userId}-%`;
+      const tPattern2 = `trainer-%-${userId}`;
+      const aPattern1 = `angelina-${userId}-%`;
+      const aPattern2 = `angelina-%-${userId}`;
 
       const rows = await allMsg(
         'SELECT DISTINCT chat_id FROM messages ' +
         'WHERE (deleted IS NULL OR deleted = 0) ' +
-        '  AND (chat_id LIKE ? OR chat_id LIKE ?)',
-        [pattern1, pattern2]
+        '  AND (chat_id LIKE ? OR chat_id LIKE ? OR chat_id LIKE ? OR chat_id LIKE ?)',
+        [tPattern1, tPattern2, aPattern1, aPattern2]
       );
+
+      const seenTrainerChatIds = new Set();
 
       for (const row of rows) {
         const chatId = row.chat_id;
-        const parts  = String(chatId).split('-');
+        if (!chatId) continue;
+        if (seenTrainerChatIds.has(chatId)) continue;
+
+        const parts = String(chatId).split('-');
         if (parts.length < 3) continue;
 
-        const otherUserId = parseInt(parts[2], 10);
-        if (!otherUserId || isNaN(otherUserId)) continue;
+        const prefix = parts[0];
+        let id1 = parseInt(parts[1], 10);
+        let id2 = parseInt(parts[2], 10);
+        if (Number.isNaN(id1) || Number.isNaN(id2)) continue;
+
+        if (id1 !== userId && id2 !== userId) continue;
+        const otherUserId = (id1 === userId) ? id2 : id1;
+        if (!otherUserId) continue;
 
         const otherUser = await get(
           db,
@@ -1332,6 +1362,7 @@ app.post('/api/chats', requireAuth, async (req, res) => {
         }
 
         chats.push(chat);
+        seenTrainerChatIds.add(chatId);
       }
 
       // 2) кастомные группы, созданные этим тренером
@@ -1671,11 +1702,13 @@ app.post('/api/chat/personal', requireAuth, async (req, res) => {
 
     let chatId;
     let type;
-    let trainerUser = null;
-    let otherUser   = null;
 
+    // trainer / angelina логика
     if (r1 === 'trainer' || r1 === 'тренер' || u1.login === ANGELINA_LOGIN ||
         r2 === 'trainer' || r2 === 'тренер' || u2.login === ANGELINA_LOGIN) {
+
+      let trainerUser = null;
+      let otherUser   = null;
 
       if (r1 === 'trainer' || r1 === 'тренер' || u1.login === ANGELINA_LOGIN) {
         trainerUser = u1;
@@ -1685,10 +1718,33 @@ app.post('/api/chat/personal', requireAuth, async (req, res) => {
         otherUser   = u1;
       }
 
+      // спец‑формат для Ангелины и родителя
       if (trainerUser.login === ANGELINA_LOGIN && (otherUser.role || '').toLowerCase() === 'parent') {
         chatId = 'angelina-' + trainerUser.id + '-' + otherUser.id;
       } else {
-        chatId = 'trainer-' + trainerUser.id + '-' + otherUser.id;
+        // для trainer + trainer или trainer + ученик: сначала ищем существующий чат
+        const legacy1 = 'trainer-' + trainerUser.id + '-' + otherUser.id;
+        const legacy2 = 'trainer-' + otherUser.id + '-' + trainerUser.id;
+
+        const existing = await getMsg(
+          'SELECT chat_id FROM messages WHERE chat_id IN (?, ?) LIMIT 1',
+          [legacy1, legacy2]
+        );
+
+        if (existing && existing.chat_id) {
+          chatId = existing.chat_id;
+        } else {
+          // для trainer + trainer делаем симметричный id (минимальный id первым),
+          // для trainer + не‑trainer — тренер всегда первым (как раньше)
+          if ((trainerUser.role || '').toLowerCase().startsWith('trainer') &&
+              (otherUser.role || '').toLowerCase().startsWith('trainer')) {
+            const low  = Math.min(trainerUser.id, otherUser.id);
+            const high = Math.max(trainerUser.id, otherUser.id);
+            chatId = 'trainer-' + low + '-' + high;
+          } else {
+            chatId = 'trainer-' + trainerUser.id + '-' + otherUser.id;
+          }
+        }
       }
       type = 'trainer';
     } else {
@@ -1703,7 +1759,7 @@ app.post('/api/chat/personal', requireAuth, async (req, res) => {
     let chat;
 
     if (type === 'trainer') {
-      other = (current.login === trainerUser.login) ? otherUser : trainerUser;
+      other = (current.login === u1.login) ? u2 : u1;
 
       chat = {
         id:          chatId,
@@ -1711,10 +1767,8 @@ app.post('/api/chat/personal', requireAuth, async (req, res) => {
         title:       ((other.first_name || '') + ' ' + (other.last_name || '')).trim(),
         subtitle:    '',
         avatar:      other.avatar || '/img/default-avatar.png',
-        trainerId:   trainerUser.id,
-        trainerLogin: trainerUser.login,
-        partnerId:    otherUser.id,
-        partnerLogin: otherUser.login
+        partnerId:   other.id,
+        partnerLogin: other.login
       };
     } else {
       other = (current.login === u1.login) ? u2 : u1;
@@ -1753,7 +1807,6 @@ app.post('/api/chat/personal', requireAuth, async (req, res) => {
 // ---------- MESSAGES: send-file / list / send / forward ----------
 
 // /api/messages/send-file
-// /api/messages/send-file
 app.post('/api/messages/send-file', requireAuth, upload.single('file'), async (req, res) => {
   try {
     const chatId      = req.body.chatId;
@@ -1791,7 +1844,7 @@ app.post('/api/messages/send-file', requireAuth, upload.single('file'), async (r
         const tmpPath = req.file.path + '.tmp';
 
         await sharp(req.file.path)
-          .rotate() // учитываем EXIF
+          .rotate()
           .resize({ width: 1600, withoutEnlargement: true })
           .jpeg({ quality: 80 })
           .toFile(tmpPath);
@@ -1802,7 +1855,6 @@ app.post('/api/messages/send-file', requireAuth, upload.single('file'), async (r
         sizeMB = st.size / (1024 * 1024);
       } catch (e) {
         console.error('IMAGE RESIZE ERROR (send-file):', e);
-        // при ошибке сжатия продолжаем с оригинальным файлом
       }
     } else if (mime.startsWith('video/')) {
       if (sizeMB > 150) {
@@ -1822,7 +1874,7 @@ app.post('/api/messages/send-file', requireAuth, upload.single('file'), async (r
     }
 
     const attachmentUrl = '/avatars/' + req.file.filename;
-    const cleanText     = String(text).trim();
+    const cleanText     = sanitizeMessageText(text || '');
 
     await updateLastSeen(senderLogin);
 
@@ -2177,7 +2229,7 @@ app.post('/api/messages/send', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'Пустое сообщение или нет данных чата' });
     }
 
-    const cleanText = String(text).trim();
+    const cleanText = sanitizeMessageText(text);
 
     const participants = await getChatParticipantsLogins(chatId);
     const lowerSender  = String(senderLogin || '').toLowerCase();
@@ -2524,6 +2576,7 @@ app.post('/api/user/status', requireLoggedIn, async (req, res) => {
   }
 });
 
+// server.js — PART 2/2
 
 // /api/profile/avatar
 app.post('/api/profile/avatar', requireAuth, upload.single('avatar'), async (req, res) => {
@@ -2558,6 +2611,7 @@ app.post('/api/profile/avatar', requireAuth, upload.single('avatar'), async (req
     res.status(500).json({ error: 'Ошибка сервера при сохранении аватара' });
   }
 });
+
 // ---------- ГРУППЫ / ЧАТЫ ГРУПП ----------
 
 // /api/groups/create
@@ -3265,7 +3319,7 @@ app.post('/api/feed/edit', requireAuth, async (req, res) => {
       return res.status(403).json({ ok: false, error: 'Вы не являетесь автором этого поста' });
     }
 
-    const clean = String(text).trim();
+    const clean = sanitizeMessageText(text);
     if (!clean) {
       return res.status(400).json({ ok: false, error: 'Текст поста не может быть пустым' });
     }
@@ -3384,7 +3438,6 @@ app.post('/api/feed/list', requireAuth, async (req, res) => {
 });
 
 // /api/feed/create
-// /api/feed/create
 app.post('/api/feed/create', requireAuth, upload.single('image'), async (req, res) => {
   try {
     const login = req.body.login;
@@ -3408,7 +3461,7 @@ app.post('/api/feed/create', requireAuth, upload.single('image'), async (req, re
       return res.status(403).json({ error: 'Создавать посты могут только тренера' });
     }
 
-    const clean = String(text).trim();
+    const clean = sanitizeMessageText(text);
     if (clean.length > 2000) {
       return res.status(400).json({ error: 'Текст поста слишком длинный' });
     }
@@ -3417,7 +3470,6 @@ app.post('/api/feed/create', requireAuth, upload.single('image'), async (req, re
 
     let imagePath = null;
     if (req.file) {
-      // Сжимаем картинку для ленты
       try {
         const tmpPath = req.file.path + '.tmp';
 

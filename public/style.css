@@ -32,6 +32,19 @@ textarea {
     -webkit-touch-callout: default;
 }
 
+/* Разрешаем копирование текста в важных местах (сообщения, посты, профиль) */
+.msg-text,
+.feed-post-text,
+.profile-name,
+.profile-pill,
+.chat-user-name,
+.chat-user-pill {
+    -webkit-user-select: text;
+    -moz-user-select: text;
+    -ms-user-select: text;
+    user-select: text;
+}
+
 /* ========== SPLASH ========== */
 .splash {
     min-height: 100vh;
@@ -91,7 +104,11 @@ textarea {
     font-size:16px;
     font-weight:700;
     cursor:pointer;
-    transition:transform 0.12s ease-out, box-shadow 0.12s ease-out, background-color 0.15s ease-out;
+    transition:
+        transform 0.16s cubic-bezier(.2,.8,.2,1),
+        box-shadow 0.16s ease-out,
+        background-color 0.18s ease-out,
+        opacity 0.14s ease-out;
 }
 .btn:last-child {
     margin-bottom:0;
@@ -149,6 +166,7 @@ textarea {
     padding:0 16px;
     border-radius:14px;
     background-color:#151515;
+    transition:border-radius 0.16s ease-out, background-color 0.16s ease-out, border-color 0.16s ease-out;
 }
 .register-form input,
 .parent-form input,
@@ -252,6 +270,9 @@ textarea {
     border-top:none;
     display:none;
     z-index:10;
+    border-bottom-left-radius:14px;
+    border-bottom-right-radius:14px;
+    overflow:hidden;
 }
 .select-option{
     padding:12px 16px;
@@ -265,6 +286,11 @@ textarea {
 }
 .field-select.open .select-arrow{
     transform:rotate(-135deg);
+}
+/* при открытом селекте закругление нижних углов как в iOS */
+.field.field-select.open{
+    border-bottom-left-radius:0;
+    border-bottom-right-radius:0;
 }
 
 /* DATE FIELD */
@@ -338,13 +364,18 @@ textarea {
     padding:12px 16px;
     border-bottom:1px solid rgba(255,255,255,.1);
     cursor:pointer;
-    transition:transform 0.14s ease-out, filter 0.14s ease-out, background-color 0.14s ease-out;
+    transition:
+        transform 0.14s ease-out,
+        filter 0.14s ease-out,
+        background-color 0.14s ease-out,
+        box-shadow 0.14s ease-out;
     position:relative;
 }
 .chat-item.chat-item-pressed{
     transform:scale(0.97);
     filter:brightness(1.03);
     z-index:101;
+    box-shadow:0 8px 22px rgba(0,0,0,0.7);
 }
 .chat-avatar{
     width:40px;
@@ -414,7 +445,7 @@ textarea {
     position:fixed;
     left:0;
     right:0;
-    bottom:10px;
+    bottom:0;
     height:64px;
     background-color:#111111;
     display:none;
@@ -422,13 +453,14 @@ textarea {
     justify-content:space-around;
     border-top-left-radius:24px;
     border-top-right-radius:24px;
-    padding:0;
+    padding:0 8px calc(8px + env(safe-area-inset-bottom, 0px));
     box-shadow:0 8px 30px rgba(0,0,0,0.7);
     transform:translateY(80px);
     opacity:0;
     transition:
         transform 0.3s cubic-bezier(.2,.8,.2,1),
         opacity 0.25s ease-out;
+    z-index:50;
 }
 .bottom-nav.bottom-nav-visible{
     transform:translateY(0);
@@ -465,13 +497,13 @@ textarea {
     color:#FFFFFF;
     padding-top:64px;
     padding-bottom:80px;
-
     transform:translateX(100%);
     opacity:0;
     pointer-events:none;
     transition:
         transform 0.25s cubic-bezier(.4,0,.2,1),
         opacity 0.2s ease-out;
+    z-index:40;
 }
 .chat-screen.chat-screen-visible{
     transform:translateX(0);
@@ -490,7 +522,7 @@ textarea {
     justify-content:space-between;
     padding:0 16px;
     background-color:#111111;
-    z-index:10;
+    z-index:41;
 }
 .chat-back{
     background:transparent;
@@ -539,20 +571,22 @@ textarea {
     right:0;
     bottom:80px;
     overflow-y:auto;
+    -webkit-overflow-scrolling:touch;
+    transition:opacity 0.18s ease-out, transform 0.18s ease-out;
 }
 
 /* LOADER поверх чата */
 .chat-loading-overlay{
     position:absolute;
-    top:64px;
+    top:0;
     left:0;
     right:0;
-    bottom:80px;
-    background:rgba(0,0,0,0.35);
+    bottom:0;
+    background:rgba(0,0,0,0.55);
     display:none;
     align-items:center;
     justify-content:center;
-    z-index:5;
+    z-index:45;
 }
 .chat-loading-overlay.show{
     display:flex;
@@ -575,11 +609,12 @@ textarea {
     left:0;
     right:0;
     bottom:0;
-    padding:8px 16px 24px;
+    padding:8px 16px calc(24px + env(safe-area-inset-bottom,0px));
     display:flex;
     align-items:center;
     gap:8px;
     background:transparent;
+    z-index:42;
 }
 
 /* textarea */
@@ -963,7 +998,6 @@ textarea {
     box-sizing:border-box;
     overflow:hidden;
     min-height:0;
-
     transform:translateX(100%);
     transition:transform 0.25s cubic-bezier(.4,0,.2,1);
 }
@@ -1541,6 +1575,7 @@ textarea {
     background:rgba(0,0,0,0.6);
     font-size:11px;
     color:#FFFFFF;
+    z-index:2; /* всегда поверх видео */
 }
 
 /* reply bar */
@@ -1555,7 +1590,8 @@ textarea {
     justify-content:space-between;
     background-color:rgba(0,0,0,0.7);
     backdrop-filter:blur(6px);
-    z-index:9;
+    z-index:39;
+    transition:transform 0.18s ease-out, opacity 0.18s ease-out;
 }
 .reply-bar-content{
     max-width:80%;
@@ -1597,7 +1633,7 @@ textarea {
     overflow-x:auto;
     background:rgba(0,0,0,0.6);
     backdrop-filter:blur(6px);
-    z-index:8;
+    z-index:38;
 }
 .attach-preview-item{
     position:relative;
@@ -1661,7 +1697,7 @@ textarea {
     padding:4px 12px 6px;
     background:rgba(0,0,0,0.7);
     backdrop-filter:blur(4px);
-    z-index:9;
+    z-index:39;
     display:none;
 }
 .pinned-top-label{
@@ -1746,7 +1782,6 @@ textarea {
     padding:8px 0;
     box-shadow:0 18px 60px rgba(0,0,0,0.7);
     z-index:102;
-
     transform:translate3d(0,8px,0) scale(0.96);
     transform-origin:top center;
     opacity:0;
@@ -1805,7 +1840,6 @@ textarea {
     padding:8px 0 4px;
     box-shadow:0 18px 60px rgba(0,0,0,0.7);
     z-index:102;
-
     transform:translate3d(0,8px,0) scale(0.96);
     transform-origin:top right;
     opacity:0;
@@ -1876,6 +1910,7 @@ textarea {
     display:flex;
     align-items:stretch;
     justify-content:center;
+    transition:transform 0.22s cubic-bezier(.4,0,.2,1);
 }
 .media-viewer-chrome{
     position:relative;
@@ -1933,29 +1968,33 @@ textarea {
     box-shadow:0 12px 40px rgba(0,0,0,0.7);
     background-color:#000000;
     object-fit:contain;
+    touch-action:none; /* подготовка для жестов увеличения */
 }
 
 /* кастомный контролбар как на iOS */
 .media-viewer-bottombar{
     height:80px;
-    padding:8px 16px 20px;
+    padding:8px 16px calc(20px + env(safe-area-inset-bottom,0px));
     display:flex;
     align-items:center;
     gap:10px;
     background:linear-gradient(to top, rgba(0,0,0,0.9), transparent);
     box-sizing:border-box;
+    opacity:1;
+    transition:opacity 0.22s ease-out;
 }
 .media-viewer-playpause{
-    width:32px;
-    height:32px;
-    border-radius:16px;
+    width:40px;
+    height:40px;
+    border-radius:20px;
     border:none;
     background-color:#FFFFFF;
     background-position:center;
     background-repeat:no-repeat;
-    background-size:16px 16px;
+    background-size:20px 20px;
     cursor:pointer;
     flex-shrink:0;
+    box-shadow:0 4px 14px rgba(0,0,0,0.5);
 }
 .media-viewer-playpause.play{
     background-image:url("icons/play-dark.png");
@@ -2117,7 +2156,11 @@ textarea {
     border-radius:16px;
     padding:12px 14px;
     margin:10px auto;
-    transition:transform 0.12s ease-out, box-shadow 0.12s ease-out, background-color 0.12s ease-out;
+    transition:
+        transform 0.12s ease-out,
+        box-shadow 0.12s ease-out,
+        background-color 0.12s ease-out,
+        opacity 0.12s ease-out;
 }
 .feed-post-header{
     display:flex;
@@ -2577,7 +2620,8 @@ textarea {
     display:block;
 }
 
-/* ГЛОБАЛЬНОЕ СКРЫТИЕ СКРОЛЛБАРОВ */
+/* ГЛОБАЛЬНОЕ СКРЫТИЕ СКРОЛЛБАРОВ ДЛЯ МОБИЛЬНЫХ ОБЛАСТЕЙ */
+/* при желании можно сузить только на основные скролл-контейнеры */
 * {
     scrollbar-width: none;
     -ms-overflow-style: none;
@@ -2601,7 +2645,7 @@ textarea {
 }
 
 /* На телефонах в landscape показываем заглушку */
-@media (orientation: landscape) {
+@media (max-width: 900px) and (orientation: landscape) {
     .orientation-overlay{
         display:flex;
     }
@@ -2638,4 +2682,3 @@ textarea {
         opacity: 0 !important;
     }
 }
-
