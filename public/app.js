@@ -4192,15 +4192,17 @@ function initModalSwipeClose(modalEl, hideFn, cardSelector) {
 
         dx = mx;
         var maxW     = window.innerWidth || 375;
-        var translate = Math.min(mx, maxW * 0.5); // до половины экрана
+        var translate = Math.min(mx, maxW);   // можно тянуть до полного экрана
         if (cardEl) cardEl.style.transform = 'translateX(' + translate + 'px)';
     }, { passive:true });
 
     function finishModalSwipe(shouldClose) {
         if (cardEl) {
             cardEl.style.transition = 'transform 0.2s ease-out';
+            var maxW = window.innerWidth || 375;
+
             if (shouldClose) {
-                cardEl.style.transform = 'translateX(100vw)';
+                cardEl.style.transform = 'translateX(' + maxW + 'px)';
                 setTimeout(function () {
                     cardEl.style.transform = '';
                     cardEl.style.transition = '';
@@ -4225,7 +4227,7 @@ function initModalSwipeClose(modalEl, hideFn, cardSelector) {
 
         var maxW     = window.innerWidth || 375;
         var current  = Math.min(Math.max(dx, 0), maxW);
-        var threshold = maxW * 0.25; // 1/4 ширины
+        var threshold = maxW * 0.25; // 1/4 ширины экрана
 
         var shouldClose = current >= threshold;
         finishModalSwipe(shouldClose);
@@ -4628,6 +4630,7 @@ async function openChat(chat) {
     if (chatContent) {
         chatContent.innerHTML = '';
         chatContent.scrollTop = 0;
+        chatContent.style.opacity = '0';   // прячем, чтобы не было видно скролла
     }
     clearReply();
 
@@ -4636,9 +4639,12 @@ async function openChat(chat) {
 
     setChatLoading(true);
     try {
-        await loadMessages(chat.id);
+        await loadMessages(chat.id);       // внутри вызовет refreshMessages
     } finally {
         setChatLoading(false);
+        if (chatContent) {
+            chatContent.style.opacity = '1';  // показываем уже готовое состояние
+        }
     }
 
     startMessagePolling();
