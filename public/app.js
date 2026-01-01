@@ -846,9 +846,7 @@ function formatSizeMBVal(v) {
     return val.toFixed(1) + ' МБ';
 }
 
-/**
- * Рендер вложений в грид/списки
- */
+
 function renderChatAttachmentsInto(mediaArr, filesArr, audioArr, mediaGrid, filesList, audioList) {
     if (mediaGrid) mediaGrid.innerHTML = '';
     if (filesList) filesList.innerHTML = '';
@@ -864,7 +862,10 @@ function renderChatAttachmentsInto(mediaArr, filesArr, audioArr, mediaGrid, file
 
             var img = document.createElement('img');
             img.className = 'chat-media-img';
-            img.src = m.type === 'video' && m.preview ? m.preview : m.url;
+            // важное: используем превью, если оно есть (для видео / в будущем для фото)
+            img.src = m.preview || m.url;
+            img.loading = 'lazy';
+            img.decoding = 'async';
             img.onerror = function () { this.style.display = 'none'; };
             cell.appendChild(img);
 
@@ -1774,6 +1775,8 @@ function renderAttachPreviewBar() {
             var imgThumb = document.createElement('img');
             imgThumb.className = 'attach-preview-thumb';
             imgThumb.src = att.url;
+            imgThumb.loading = 'lazy';
+            imgThumb.decoding = 'async';
             imgThumb.onerror = function () { this.style.display = 'none'; };
             imgThumb.addEventListener('click', function (e) {
                 e.stopPropagation();
@@ -2392,101 +2395,102 @@ function renderMessage(msg) {
     }
 
     var mediaWrapper = null;
-    if (hasAttachment && (msg.attachment_type === 'image' || msg.attachment_type === 'video')) {
-        mediaWrapper = document.createElement('div');
-        mediaWrapper.className = 'msg-media-wrapper';
+if (hasAttachment && (msg.attachment_type === 'image' || msg.attachment_type === 'video')) {
+    mediaWrapper = document.createElement('div');
+    mediaWrapper.className = 'msg-media-wrapper';
 
-        if (msg.attachment_type === 'image') {
-            var bg = document.createElement('div');
-            bg.className = 'msg-media-bg';
-            bg.style.backgroundImage = 'url("' + msg.attachment_url + '")';
-            mediaWrapper.appendChild(bg);
+    if (msg.attachment_type === 'image') {
+        var bg = document.createElement('div');
+        bg.className = 'msg-media-bg';
+        bg.style.backgroundImage = 'url("' + msg.attachment_url + '")';
+        mediaWrapper.appendChild(bg);
 
-            var imgAtt = document.createElement('img');
-            imgAtt.className = 'msg-attachment-image';
-            imgAtt.src = msg.attachment_url;
-            imgAtt.onerror = function () { this.style.display = 'none'; };
-            imgAtt.addEventListener('click', function (e) {
-                if (item && item._suppressNextMediaClick) {
-                    item._suppressNextMediaClick = false;
-                    e.preventDefault();
-                    e.stopPropagation();
-                    return;
-                }
+        var imgAtt = document.createElement('img');
+        imgAtt.className = 'msg-attachment-image';
+        imgAtt.src = msg.attachment_url;
+        imgAtt.loading = 'lazy';
+        imgAtt.decoding = 'async';
+        imgAtt.onerror = function () { this.style.display = 'none'; };
+        imgAtt.addEventListener('click', function (e) {
+            if (item && item._suppressNextMediaClick) {
+                item._suppressNextMediaClick = false;
                 e.preventDefault();
                 e.stopPropagation();
-                openMediaViewer(msg.attachment_url, 'image', imgAtt);
-            });
-            mediaWrapper.appendChild(imgAtt);
-        } else if (msg.attachment_type === 'video') {
-            var preview = msg.attachment_preview || null;
-            if (preview) {
-                var bg2 = document.createElement('div');
-                bg2.className = 'msg-media-bg';
-                bg2.style.backgroundImage = 'url("' + preview + '")';
-                mediaWrapper.appendChild(bg2);
+                return;
             }
-
-            var videoAtt = document.createElement('video');
-            videoAtt.className = 'msg-attachment-video';
-            videoAtt.src = msg.attachment_url;
-            if (preview) {
-                videoAtt.setAttribute('poster', preview);
-            }
-            videoAtt.muted       = true;
-            videoAtt.loop        = true;
-            videoAtt.playsInline = true;
-            videoAtt.setAttribute('playsinline','true');
-            videoAtt.setAttribute('webkit-playsinline','true');
-            videoAtt.preload     = 'metadata';
-            videoAtt.autoplay    = true;
-            videoAtt.controls    = false;
-
-            var durLabel = document.createElement('div');
-            durLabel.className = 'msg-video-duration';
-            durLabel.textContent = '';
-            mediaWrapper.appendChild(durLabel);
-
-            var totalDuration = 0;
-
-            videoAtt.addEventListener('loadedmetadata', function () {
-                if (!isNaN(videoAtt.duration) && isFinite(videoAtt.duration)) {
-                    totalDuration = videoAtt.duration;
-                    // показываем 0:00 / полная длительность
-                    durLabel.textContent = '0:00 / ' + formatSecondsToMMSS(totalDuration);
-                }
-                videoAtt.play().catch(function(){});
-            });
-
-            videoAtt.addEventListener('timeupdate', function () {
-                if (!totalDuration || isNaN(totalDuration)) return;
-                var cur = Math.max(0, videoAtt.currentTime);
-                durLabel.textContent = formatSecondsToMMSS(cur) + ' / ' + formatSecondsToMMSS(totalDuration);
-            });
-
-            videoAtt.addEventListener('ended', function () {
-                if (totalDuration) {
-                    durLabel.textContent = formatSecondsToMMSS(totalDuration);
-                }
-            });
-
-            videoAtt.addEventListener('click', function (e) {
-                if (item && item._suppressNextMediaClick) {
-                    item._suppressNextMediaClick = false;
-                    e.stopPropagation();
-                    e.preventDefault();
-                    return;
-                }
-                e.stopPropagation();
-                e.preventDefault();
-                openMediaViewer(msg.attachment_url, 'video', videoAtt);
-            });
-
-            mediaWrapper.appendChild(videoAtt);
+            e.preventDefault();
+            e.stopPropagation();
+            openMediaViewer(msg.attachment_url, 'image', imgAtt);
+        });
+        mediaWrapper.appendChild(imgAtt);
+    } else if (msg.attachment_type === 'video') {
+        var preview = msg.attachment_preview || null;
+        if (preview) {
+            var bg2 = document.createElement('div');
+            bg2.className = 'msg-media-bg';
+            bg2.style.backgroundImage = 'url("' + preview + '")';
+            mediaWrapper.appendChild(bg2);
         }
 
-        col.appendChild(mediaWrapper);
+        var videoAtt = document.createElement('video');
+        videoAtt.className = 'msg-attachment-video';
+        videoAtt.src = msg.attachment_url;
+        if (preview) {
+            videoAtt.setAttribute('poster', preview);
+        }
+        videoAtt.muted       = true;
+        videoAtt.loop        = true;
+        videoAtt.playsInline = true;
+        videoAtt.setAttribute('playsinline','true');
+        videoAtt.setAttribute('webkit-playsinline','true');
+        videoAtt.preload     = 'metadata';
+        videoAtt.autoplay    = true;
+        videoAtt.controls    = false;
+
+        var durLabel = document.createElement('div');
+        durLabel.className = 'msg-video-duration';
+        durLabel.textContent = '';
+        mediaWrapper.appendChild(durLabel);
+
+        var totalDuration = 0;
+
+        videoAtt.addEventListener('loadedmetadata', function () {
+            if (!isNaN(videoAtt.duration) && isFinite(videoAtt.duration)) {
+                totalDuration = videoAtt.duration;
+                durLabel.textContent = '0:00 / ' + formatSecondsToMMSS(totalDuration);
+            }
+            videoAtt.play().catch(function(){});
+        });
+
+        videoAtt.addEventListener('timeupdate', function () {
+            if (!totalDuration || isNaN(totalDuration)) return;
+            var cur = Math.max(0, videoAtt.currentTime);
+            durLabel.textContent = formatSecondsToMMSS(cur) + ' / ' + formatSecondsToMMSS(totalDuration);
+        });
+
+        videoAtt.addEventListener('ended', function () {
+            if (totalDuration) {
+                durLabel.textContent = formatSecondsToMMSS(totalDuration);
+            }
+        });
+
+        videoAtt.addEventListener('click', function (e) {
+            if (item && item._suppressNextMediaClick) {
+                item._suppressNextMediaClick = false;
+                e.stopPropagation();
+                e.preventDefault();
+                return;
+            }
+            e.stopPropagation();
+            e.preventDefault();
+            openMediaViewer(msg.attachment_url, 'video', videoAtt);
+        });
+
+        mediaWrapper.appendChild(videoAtt);
     }
+
+    col.appendChild(mediaWrapper);
+}
 
     var bubble = document.createElement('div');
     bubble.className = 'msg-bubble';
@@ -3930,6 +3934,8 @@ function renderOrCreateChatItem(chat) {
 
         var img = document.createElement('img');
         img.alt = chat.title || '';
+        img.loading = 'lazy';
+        img.decoding = 'async';
         avatarWrapper.appendChild(img);
 
         var body = document.createElement('div');
@@ -4483,6 +4489,8 @@ async function openGroupModal() {
                 var img = document.createElement('img');
                 img.className = 'group-member-avatar';
                 img.src = m.avatar || '/img/default-avatar.png';
+                img.loading = 'lazy';
+                img.decoding = 'async';
                 img.onerror = function () {
                     this.onerror = null;
                     this.src = '/img/default-avatar.png';
@@ -4655,6 +4663,8 @@ function renderFeedPost(post) {
     var img = document.createElement('img');
     img.className = 'feed-post-avatar';
     img.src = '/logo.png';
+    img.loading = 'lazy';
+    img.decoding = 'async';
     img.onerror = function () { this.onerror = null; this.src = '/logo.png'; };
     aw.appendChild(img);
 
@@ -4670,6 +4680,8 @@ function renderFeedPost(post) {
         imgPost = document.createElement('img');
         imgPost.className = 'feed-post-image';
         imgPost.src = post.imageUrl;
+        imgPost.loading = 'lazy';
+        imgPost.decoding = 'async';
         imgPost.onerror = function () { this.style.display = 'none'; };
     }
 
@@ -4691,6 +4703,7 @@ function renderFeedPost(post) {
     card.appendChild(textEl);
     card.appendChild(footer);
 
+    // дальше твой код про long-press для редактирования/удаления — оставляем без изменений
     var pressTimer = null;
 
     function startPressTimer() {

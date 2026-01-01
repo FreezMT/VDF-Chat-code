@@ -2639,10 +2639,3 @@ textarea {
     }
 }
 
-@media (max-width: 900px) {
-    .chat-screen{
-        background-image: none !important;
-        background-color: #000000 !important;
-        background-blend-mode: normal !important;
-    }
-}

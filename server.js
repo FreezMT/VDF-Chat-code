@@ -10,6 +10,9 @@ const webPush  = require('web-push');
 const ffmpeg   = require('fluent-ffmpeg');
 const ffmpegPath = require('@ffmpeg-installer/ffmpeg').path;
 
+const compression = require('compression');
+const sharp       = require('sharp');
+
 ffmpeg.setFfmpegPath(ffmpegPath);
 
 const https = require('https');
@@ -278,8 +281,8 @@ msgDb.run(
 
 // ---------- MIDDLEWARE ----------
 
+app.use(compression());
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
 
 // ---------- СЕССИИ ----------
 
@@ -320,6 +323,22 @@ const storage = multer.diskStorage({
   }
 });
 const upload = multer({ storage });
+
+// статика с кэшированием
+app.use('/avatars', express.static(avatarsDir, {
+  maxAge: '30d',
+  immutable: true
+}));
+
+app.use('/video-previews', express.static(videoPreviewDir, {
+  maxAge: '30d',
+  immutable: true
+}));
+
+// остальное из public — кэшируем чуть меньше
+app.use(express.static(path.join(__dirname, 'public'), {
+  maxAge: '1d'
+}));
 
 // ---------- AUTH MIDDLEWARES ----------
 
@@ -1734,6 +1753,7 @@ app.post('/api/chat/personal', requireAuth, async (req, res) => {
 // ---------- MESSAGES: send-file / list / send / forward ----------
 
 // /api/messages/send-file
+// /api/messages/send-file
 app.post('/api/messages/send-file', requireAuth, upload.single('file'), async (req, res) => {
   try {
     const chatId      = req.body.chatId;
@@ -1756,15 +1776,34 @@ app.post('/api/messages/send-file', requireAuth, upload.single('file'), async (r
     }
 
     const mime      = req.file.mimetype || '';
-    const sizeMB    = req.file.size / (1024 * 1024);
+    let   sizeMB    = req.file.size / (1024 * 1024);
     const origName  = req.file.originalname || null;
-    let attachmentType = 'file';
+    let   attachmentType = 'file';
 
     if (mime.startsWith('image/')) {
       if (sizeMB > 25) {
         return res.status(400).json({ error: 'Фото больше 25 МБ' });
       }
       attachmentType = 'image';
+
+      // Сжимаем и уменьшаем изображение перед сохранением
+      try {
+        const tmpPath = req.file.path + '.tmp';
+
+        await sharp(req.file.path)
+          .rotate() // учитываем EXIF
+          .resize({ width: 1600, withoutEnlargement: true })
+          .jpeg({ quality: 80 })
+          .toFile(tmpPath);
+
+        await fs.promises.rename(tmpPath, req.file.path);
+
+        const st = await fs.promises.stat(req.file.path);
+        sizeMB = st.size / (1024 * 1024);
+      } catch (e) {
+        console.error('IMAGE RESIZE ERROR (send-file):', e);
+        // при ошибке сжатия продолжаем с оригинальным файлом
+      }
     } else if (mime.startsWith('video/')) {
       if (sizeMB > 150) {
         return res.status(400).json({ error: 'Видео больше 150 МБ' });
@@ -1790,9 +1829,9 @@ app.post('/api/messages/send-file', requireAuth, upload.single('file'), async (r
     let previewUrl = null;
     if (attachmentType === 'video') {
       try {
-        const baseName   = path.basename(req.file.filename, path.extname(req.file.filename));
-        const previewName= baseName + '-preview.jpg';
-        const previewPath= path.join(videoPreviewDir, previewName);
+        const baseName    = path.basename(req.file.filename, path.extname(req.file.filename));
+        const previewName = baseName + '-preview.jpg';
+        const previewPath = path.join(videoPreviewDir, previewName);
 
         await generateVideoPreview(req.file.path, previewPath);
         previewUrl = '/video-previews/' + previewName;
@@ -2485,12 +2524,28 @@ app.post('/api/user/status', requireLoggedIn, async (req, res) => {
   }
 });
 
+
 // /api/profile/avatar
 app.post('/api/profile/avatar', requireAuth, upload.single('avatar'), async (req, res) => {
   try {
     const login = req.body.login;
     if (!login || !req.file) {
       return res.status(400).json({ error: 'Нет логина или файла' });
+    }
+
+    // уменьшаем и сжимаем аватар
+    try {
+      const tmpPath = req.file.path + '.tmp';
+
+      await sharp(req.file.path)
+        .rotate()
+        .resize({ width: 512, height: 512, fit: 'cover' })
+        .jpeg({ quality: 80 })
+        .toFile(tmpPath);
+
+      await fs.promises.rename(tmpPath, req.file.path);
+    } catch (e) {
+      console.error('AVATAR RESIZE ERROR:', e);
     }
 
     const avatarPath = '/avatars/' + req.file.filename;
@@ -2503,7 +2558,6 @@ app.post('/api/profile/avatar', requireAuth, upload.single('avatar'), async (req
     res.status(500).json({ error: 'Ошибка сервера при сохранении аватара' });
   }
 });
-
 // ---------- ГРУППЫ / ЧАТЫ ГРУПП ----------
 
 // /api/groups/create
@@ -3330,6 +3384,7 @@ app.post('/api/feed/list', requireAuth, async (req, res) => {
 });
 
 // /api/feed/create
+// /api/feed/create
 app.post('/api/feed/create', requireAuth, upload.single('image'), async (req, res) => {
   try {
     const login = req.body.login;
@@ -3362,6 +3417,21 @@ app.post('/api/feed/create', requireAuth, upload.single('image'), async (req, re
 
     let imagePath = null;
     if (req.file) {
+      // Сжимаем картинку для ленты
+      try {
+        const tmpPath = req.file.path + '.tmp';
+
+        await sharp(req.file.path)
+          .rotate()
+          .resize({ width: 1600, withoutEnlargement: true })
+          .jpeg({ quality: 80 })
+          .toFile(tmpPath);
+
+        await fs.promises.rename(tmpPath, req.file.path);
+      } catch (e) {
+        console.error('FEED IMAGE RESIZE ERROR:', e);
+      }
+
       imagePath = '/avatars/' + req.file.filename;
     }
 
