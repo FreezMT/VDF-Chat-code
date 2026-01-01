@@ -359,6 +359,39 @@ var contextMenuTargetChatItem  = null;
 var currentMsgContextItem = null;
 var currentMsgContextItem = null;
 
+var chatSendBtn   = document.getElementById('chatSendBtn');
+var chatMicBtn    = document.getElementById('chatMicBtn');
+var voiceRecordUi = document.getElementById('voiceRecordUi');
+var voiceWaveLive = document.getElementById('voiceWaveLive');
+var voiceTimerEl  = document.getElementById('voiceTimer');
+
+// НОВОЕ: системный рекордер на всякий случай
+var voiceFileInput = document.getElementById('voiceFileInput');
+
+var mediaRecorder      = null;
+var mediaStream        = null;
+var recordedChunks     = [];
+var isRecordingVoice   = false;
+var voiceTimerInterval = null;
+var voiceStartTime     = null;
+var voiceSendPlanned   = true;
+
+var voiceAudioCtx   = null;
+var voiceAnalyser   = null;
+var voiceDataArray  = null;
+var voiceWaveRaf    = null;
+var voiceWaveBars   = [];
+var recordTouchStartX = null;
+
+// поддержка API
+var hasMediaDevices      = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+var mediaRecorderSupport = typeof window.MediaRecorder !== 'undefined';
+
+// будем использовать лайв-запись, только если есть и микрофон, и MediaRecorder
+var canUseLiveVoiceRecording = hasMediaDevices && mediaRecorderSupport;
+
+var chatLoadingOverlay = document.getElementById('chatLoadingOverlay');
+
 // инициализируем обработчики вложений в чате
 initChatAttachments();
 initAttachmentTabs();
@@ -380,6 +413,164 @@ function startSystemVoiceFileChooser() {
     } else {
         alert('Голосовые на этом устройстве недоступны.');
     }
+}
+
+function setChatLoading(isLoading) {
+    if (!chatContent) return;
+    if (chatLoadingOverlay) {
+        if (isLoading) chatLoadingOverlay.classList.add('show');
+        else           chatLoadingOverlay.classList.remove('show');
+    }
+    // прячем содержимое на время отрисовки, чтобы не видеть "скачки"
+    chatContent.style.visibility = isLoading ? 'hidden' : 'visible';
+}
+
+
+// Fallback: системный аудиорекордер через input[type=file] (используем только если нет MediaRecorder)
+function startSystemVoiceFileChooser() {
+    if (!currentChat || !currentUser || !currentUser.login) {
+        alert('Сначала выберите чат');
+        return;
+    }
+    if (!voiceFileInput) {
+        alert('Голосовые на этом устройстве недоступны.');
+        return;
+    }
+    voiceFileInput.click();
+}
+
+// обработка файла из системного рекордера
+if (voiceFileInput) {
+    voiceFileInput.addEventListener('change', async function () {
+        var file = this.files && this.files[0];
+        this.value = '';
+        if (!file || !currentChat || !currentUser || !currentUser.login) return;
+
+        var sizeMB = file.size / (1024 * 1024);
+        if (sizeMB > 20) {
+            alert('Аудио больше 20 МБ и не будет отправлено.');
+            return;
+        }
+
+        var formData = new FormData();
+        formData.append('file',  file);
+        formData.append('login', currentUser.login);
+        formData.append('chatId', currentChat.id);
+        formData.append('text',  '');
+
+        try {
+            var resp = await fetch('/api/messages/send-file', {
+                method: 'POST',
+                body: formData
+            });
+            var data = await resp.json();
+            if (!resp.ok || !data.ok) {
+                alert(data.error || 'Ошибка отправки голосового сообщения');
+                return;
+            }
+            await refreshMessages(false);
+            if (chatContent) chatContent.scrollTop = chatContent.scrollHeight;
+        } catch (e) {
+            alert('Сетевая ошибка при отправке голосового сообщения');
+        }
+    });
+}
+
+// --- управление микрофоном: удержание + свайп влево для отмены ---
+
+var micTouchStartX = null;
+var micTouchStartY = null;
+var micGestureActive = false;
+
+if (chatMicBtn) {
+    // ТАЧ‑устройства: удержание
+    chatMicBtn.addEventListener('touchstart', function (e) {
+        if (!canUseLiveVoiceRecording) {
+            // fallback — системный рекордер (если нужен), иначе просто алерт
+            startSystemVoiceFileChooser();
+            return;
+        }
+        if (isRecordingVoice) return;
+
+        var t = e.touches[0];
+        micTouchStartX = t.clientX;
+        micTouchStartY = t.clientY;
+        micGestureActive = true;
+
+        chatMicBtn.classList.add('mic-pressed');
+        if (chatInputForm) chatInputForm.classList.add('recording');
+        startVoiceRecording();
+    }, { passive:true });
+
+    chatMicBtn.addEventListener('touchmove', function (e) {
+        if (!micGestureActive || !isRecordingVoice) return;
+        var t  = e.touches[0];
+        var dx = t.clientX - micTouchStartX;
+        var dy = t.clientY - micTouchStartY;
+
+        // Если жест в основном вертикальный — не считаем отменой, но даём двигать палец
+        if (Math.abs(dy) > Math.abs(dx)) {
+            updateVoiceCancelPreview(0);
+            return;
+        }
+
+        // контролируемая анимация превью отмены
+        updateVoiceCancelPreview(dx);
+
+        // окончательная отмена при сильном свайпе влево
+        if (dx < -80) {
+            micGestureActive = false;
+            stopVoiceRecording(false);
+            if (voiceTimerEl) voiceTimerEl.textContent = 'Отменено';
+        }
+    }, { passive:true });
+
+    chatMicBtn.addEventListener('touchend', function () {
+        if (!micGestureActive) return;
+        micGestureActive = false;
+
+        // свайп не достиг порога отмены — отправляем
+        if (isRecordingVoice) {
+            stopVoiceRecording(true);
+        } else {
+            updateVoiceCancelPreview(0);
+        }
+    });
+
+    chatMicBtn.addEventListener('touchcancel', function () {
+        micGestureActive = false;
+        if (isRecordingVoice) {
+            stopVoiceRecording(false);
+            if (voiceTimerEl) voiceTimerEl.textContent = 'Отменено';
+        } else {
+            updateVoiceCancelPreview(0);
+        }
+    });
+
+    // Десктоп (мышь): нажал — пишет, отпустил — отправил
+    chatMicBtn.addEventListener('mousedown', function (e) {
+        if (e.button !== 0) return;
+
+        if (!canUseLiveVoiceRecording) {
+            startSystemVoiceFileChooser();
+            return;
+        }
+        if (isRecordingVoice) return;
+
+        chatMicBtn.classList.add('mic-pressed');
+        if (chatInputForm) chatInputForm.classList.add('recording');
+        startVoiceRecording();
+    });
+
+    chatMicBtn.addEventListener('mouseup', function (e) {
+        if (e.button !== 0) return;
+
+        if (isRecordingVoice) {
+            stopVoiceRecording(true);
+        } else {
+            updateVoiceCancelPreview(0);
+        }
+    });
 }
 
 // Обработка файла из системного рекордера (если используется)
@@ -419,90 +610,35 @@ if (voiceFileInput) {
     });
 }
 
-if (chatMicBtn) {
-    // ТАЧ-УСТРОЙСТВА: удержание кнопки микрофона
-    chatMicBtn.addEventListener('touchstart', function (e) {
-        // если нет live‑записи — открываем системный рекордер
-        if (!canUseLiveVoiceRecording) {
-            startSystemVoiceFileChooser();
-            return;
-        }
-        if (isRecordingVoice) return;
 
-        var t = e.touches[0];
-        micTouchStartX = t.clientX;
-        micTouchStartY = t.clientY;
-        micGestureActive = true;
-
-        startVoiceRecording();
-    }, { passive: true });
-
-    chatMicBtn.addEventListener('touchmove', function (e) {
-        if (!micGestureActive || !isRecordingVoice) return;
-        var t  = e.touches[0];
-        var dx = t.clientX - micTouchStartX;
-        var dy = t.clientY - micTouchStartY;
-
-        // свайп ВЛЕВО (dx < -60) и преимущественно по горизонтали — отмена записи
-        if (dx < -60 && Math.abs(dx) > Math.abs(dy)) {
-            micGestureActive = false;
-            stopVoiceRecording(false);
-            if (voiceTimerEl) voiceTimerEl.textContent = 'Отменено';
-        }
-    }, { passive: true });
-
-    chatMicBtn.addEventListener('touchend', function () {
-        if (!micGestureActive) return;
-        micGestureActive = false;
-
-        // если запись ещё идёт — отправляем голосовое
-        if (isRecordingVoice) {
-            stopVoiceRecording(true);
-        }
-    });
-
-    chatMicBtn.addEventListener('touchcancel', function () {
-        micGestureActive = false;
-        if (isRecordingVoice) {
-            stopVoiceRecording(false);
-            if (voiceTimerEl) voiceTimerEl.textContent = 'Отменено';
-        }
-    });
-
-    // ДЕСКТОП (мышь): клик = начать, отпускание = отправить
-    chatMicBtn.addEventListener('mousedown', function (e) {
-        if (e.button !== 0) return;
-
-        if (!canUseLiveVoiceRecording) {
-            startSystemVoiceFileChooser();
-            return;
-        }
-        if (!isRecordingVoice) {
-            startVoiceRecording();
-        }
-    });
-
-    chatMicBtn.addEventListener('mouseup', function (e) {
-        if (e.button !== 0) return;
-        if (isRecordingVoice) {
-            stopVoiceRecording(true);
-        }
-    });
-}
-
-
-// свайп от левого края вправо для закрытия чата
+// свайп вправо для закрытия чата (контролируемый)
 var chatSwipeStartX = null;
 var chatSwipeStartY = null;
+var chatSwipeDx      = 0;
+
+function anyTopModalVisible() {
+    if (chatUserModal && chatUserModal.classList.contains('visible')) return true;
+    if (groupModal && groupModal.classList.contains('visible')) return true;
+    if (groupAddModal && groupAddModal.style.display === 'flex') return true;
+    if (forwardModal && forwardModal.classList.contains('visible')) return true;
+    if (postModal && postModal.classList.contains('visible')) return true;
+    return false;
+}
 
 if (chatScreen) {
     chatScreen.addEventListener('touchstart', function (e) {
         if (!chatScreen.classList.contains('chat-screen-visible')) return;
+        if (anyTopModalVisible()) return;
         if (e.touches.length !== 1) return;
+
         var t = e.touches[0];
         chatSwipeStartX = t.clientX;
         chatSwipeStartY = t.clientY;
-    }, { passive: true });
+        chatSwipeDx     = 0;
+
+        // на время жеста убираем переход, чтобы следовать за пальцем
+        chatScreen.style.transition = 'none';
+    }, { passive:true });
 
     chatScreen.addEventListener('touchmove', function (e) {
         if (chatSwipeStartX == null) return;
@@ -510,18 +646,44 @@ if (chatScreen) {
         var dx = t.clientX - chatSwipeStartX;
         var dy = t.clientY - chatSwipeStartY;
 
-        // жест от левого края вправо
-        if (dx > 60 && Math.abs(dx) > Math.abs(dy) && chatSwipeStartX < 40) {
-            chatSwipeStartX = chatSwipeStartY = null;
-            closeChatScreenToMain();
+        // интересует только свайп вправо, преимущественно по горизонтали
+        if (dx <= 0 || Math.abs(dy) > Math.abs(dx)) {
+            chatSwipeDx = 0;
+            chatScreen.style.transform = 'translateX(0px)';
+            return;
         }
-    }, { passive: true });
+
+        chatSwipeDx = dx;
+        var translate = Math.min(dx, 120); // максимум ~120px
+        chatScreen.style.transform = 'translateX(' + translate + 'px)';
+    }, { passive:true });
+
+    function finishChatSwipe(shouldClose) {
+        // возвращаем переход
+        chatScreen.style.transition = 'transform 0.25s cubic-bezier(.4,0,.2,1)';
+
+        if (shouldClose) {
+            // сбрасываем временный transform и запускаем обычное закрытие
+            chatScreen.style.transform = '';
+            closeChatScreenToMain();
+        } else {
+            // откат обратно
+            chatScreen.style.transform = 'translateX(0px)';
+        }
+
+        chatSwipeStartX = chatSwipeStartY = null;
+        chatSwipeDx     = 0;
+    }
 
     chatScreen.addEventListener('touchend', function () {
-        chatSwipeStartX = chatSwipeStartY = null;
+        if (chatSwipeStartX == null) return;
+        var shouldClose = chatSwipeDx > 80; // порог закрытия
+        finishChatSwipe(shouldClose);
     });
+
     chatScreen.addEventListener('touchcancel', function () {
-        chatSwipeStartX = chatSwipeStartY = null;
+        if (chatSwipeStartX == null) return;
+        finishChatSwipe(false);
     });
 }
 
@@ -1016,22 +1178,42 @@ function stopVoiceRecording(send) {
     isRecordingVoice = false;
     voiceSendPlanned = !!send;
 
-    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-        mediaRecorder.stop();
+    // UI
+    if (chatInputForm) {
+        chatInputForm.classList.remove('recording');
+        chatInputForm.classList.remove('recording-cancel-preview');
     }
+    if (chatMicBtn) {
+        chatMicBtn.classList.remove('mic-pressed');
+    }
+    updateVoiceCancelPreview(0);
+
+    // MediaRecorder
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        try { mediaRecorder.stop(); } catch (e) {}
+    }
+
+    // Поток микрофона
     if (mediaStream) {
-        mediaStream.getTracks().forEach(function(t){ t.stop(); });
+        try {
+            mediaStream.getTracks().forEach(function (t) {
+                try { t.stop(); } catch (e) {}
+            });
+        } catch (e) {}
         mediaStream = null;
     }
-    if (chatInputForm) chatInputForm.classList.remove('recording');
 
+    // Таймер
     if (voiceTimerInterval) {
         clearInterval(voiceTimerInterval);
         voiceTimerInterval = null;
     }
     voiceStartTime = null;
 
+    // Анимация волны
     stopVoiceWaveAnimation();
+
+    // AudioContext
     if (voiceAudioCtx) {
         voiceAudioCtx.close().catch(function(){});
         voiceAudioCtx = null;
@@ -1738,27 +1920,78 @@ function clearReply() {
     updateFloatingBarsPosition();
 }
 
+var swipeStartX = 0;
+var swipeStartY = 0;
+var swipeItem   = null;
+var swipeActive = false;
+var swipeLastDx = 0;
+
 function onMsgTouchStart(e) {
     var t = e.touches[0];
     swipeStartX = t.clientX;
     swipeStartY = t.clientY;
     swipeItem   = e.currentTarget;
+    swipeActive = true;
+    swipeLastDx = 0;
 }
 
 function onMsgTouchMove(e) {
-    if (!swipeItem) return;
-    var t = e.touches[0];
+    if (!swipeActive || !swipeItem) return;
+
+    var t  = e.touches[0];
     var dx = t.clientX - swipeStartX;
     var dy = t.clientY - swipeStartY;
 
-    if (dx < -40 && Math.abs(dy) < 30) {
-        startReplyFromElement(swipeItem);
-        swipeItem = null;
+    // если жест в основном вертикальный — не считаем это свайпом ответа
+    if (Math.abs(dy) > Math.abs(dx)) {
+        return;
     }
+
+    var col = swipeItem.querySelector('.msg-col');
+    if (!col) return;
+
+    if (dx >= 0) {
+        // двигаемся вправо или возвращаемся — сбрасываем анимацию
+        swipeLastDx = 0;
+        col.style.transition = 'transform 0.15s ease-out';
+        col.style.transform  = 'translateX(0)';
+        return;
+    }
+
+    // dx < 0 — тянем сообщение влево
+    swipeLastDx = dx;
+
+    // ограничиваем смещение, чтобы пузырь не уезжал слишком далеко
+    var translate = Math.max(dx, -80);
+    col.style.transition = 'none';
+    col.style.transform  = 'translateX(' + translate + 'px)';
 }
 
 function onMsgTouchEnd() {
-    swipeItem = null;
+    if (!swipeItem) {
+        swipeActive = false;
+        return;
+    }
+
+    var col = swipeItem.querySelector('.msg-col');
+
+    // плавно возвращаем пузырь на место
+    if (col) {
+        col.style.transition = 'transform 0.15s ease-out';
+        col.style.transform  = 'translateX(0)';
+        setTimeout(function () {
+            if (col) col.style.transition = '';
+        }, 200);
+    }
+
+    // если свайп был достаточно сильный влево — считаем это "ответом"
+    if (swipeLastDx < -40) {
+        startReplyFromElement(swipeItem);
+    }
+
+    swipeActive = false;
+    swipeItem   = null;
+    swipeLastDx = 0;
 }
 
 // ---------- ОНЛАЙН-СТАТУС В ШАПКЕ ----------
@@ -3919,45 +4152,87 @@ async function openGroupModal() {
     }
 }
 
-function initModalSwipeClose(modalEl, hideFn) {
+function initModalSwipeClose(modalEl, hideFn, cardSelector) {
     if (!modalEl || !hideFn) return;
 
     var startX = null;
     var startY = null;
+    var dx     = 0;
+
+    var cardEl = cardSelector ? modalEl.querySelector(cardSelector) : null;
 
     modalEl.addEventListener('touchstart', function (e) {
-        if (!modalEl.classList.contains('visible')) return;
+        var isVisible = modalEl.classList.contains('visible') || modalEl.style.display === 'flex';
+        if (!isVisible) return;
         if (e.touches.length !== 1) return;
+
         var t = e.touches[0];
         startX = t.clientX;
         startY = t.clientY;
+        dx     = 0;
+
+        if (cardEl) cardEl.style.transition = 'none';
+        e.stopPropagation();
     }, { passive:true });
 
     modalEl.addEventListener('touchmove', function (e) {
         if (startX == null) return;
         var t  = e.touches[0];
-        var dx = t.clientX - startX;
-        var dy = t.clientY - startY;
+        var mx = t.clientX - startX;
+        var my = t.clientY - startY;
+        e.stopPropagation();
 
-        // свайп от левого края вправо
-        if (dx > 60 && Math.abs(dx) > Math.abs(dy) && startX < 40) {
-            startX = startY = null;
-            hideFn();
+        if (mx <= 0 || Math.abs(my) > Math.abs(mx)) {
+            dx = 0;
+            if (cardEl) cardEl.style.transform = 'translateX(0px)';
+            return;
         }
+
+        dx = mx;
+        var translate = Math.min(mx, 120);
+        if (cardEl) cardEl.style.transform = 'translateX(' + translate + 'px)';
     }, { passive:true });
 
-    modalEl.addEventListener('touchend', function () {
+    function finishModalSwipe(shouldClose) {
+        if (cardEl) {
+            cardEl.style.transition = 'transform 0.2s ease-out';
+            if (shouldClose) {
+                cardEl.style.transform = 'translateX(120px)';
+                setTimeout(function () {
+                    cardEl.style.transform = '';
+                    cardEl.style.transition = '';
+                    hideFn();
+                }, 180);
+            } else {
+                cardEl.style.transform = 'translateX(0px)';
+                setTimeout(function () {
+                    cardEl.style.transition = '';
+                }, 180);
+            }
+        } else {
+            if (shouldClose) hideFn();
+        }
         startX = startY = null;
+        dx = 0;
+    }
+
+    modalEl.addEventListener('touchend', function (e) {
+        if (startX == null) return;
+        e.stopPropagation();
+        var shouldClose = dx > 80;
+        finishModalSwipe(shouldClose);
     });
-    modalEl.addEventListener('touchcancel', function () {
-        startX = startY = null;
+
+    modalEl.addEventListener('touchcancel', function (e) {
+        if (startX == null) return;
+        e.stopPropagation();
+        finishModalSwipe(false);
     });
 }
 
-// инициализация для модалок
-initModalSwipeClose(chatUserModal, hideChatUserModal);
-initModalSwipeClose(groupModal, hideGroupModal);
-
+initModalSwipeClose(chatUserModal, hideChatUserModal, '.chat-user-modal-card');
+initModalSwipeClose(groupModal, hideGroupModal, '.group-modal-card');
+initModalSwipeClose(groupAddModal, hideGroupAddModal, '.group-add-modal-card');
 // ---------- FEED / ЛЕНТА ----------
 
 function renderFeedPost(post) {
@@ -4294,10 +4569,6 @@ async function openChat(chat) {
     if (!chatScreen) return;
     currentChat = chat;
 
-    // Закрываем контекст‑меню чатов и сообщений, если они открыты
-    hideChatContextMenu();
-    hideMsgContextMenu();
-
     // показываем список чатов под чатом
     if (mainScreen)        mainScreen.style.display        = 'flex';
     if (feedScreen)        feedScreen.style.display        = 'none';
@@ -4345,13 +4616,19 @@ async function openChat(chat) {
     }
 
     if (chatInput)    chatInput.value = '';
-    if (chatContent)  chatContent.innerHTML = '';
+    if (chatContent)  {
+        chatContent.innerHTML = '';
+        chatContent.style.visibility = 'hidden';
+    }
     clearReply();
 
     stopChatListPolling();
     stopMessagePolling();
 
+    // показываем "лоадер" и грузим сообщения
+    setChatLoading(true);
     await loadMessages(chat.id);
+    setChatLoading(false);
 
     startMessagePolling();
     startChatStatusUpdates();
@@ -4360,6 +4637,7 @@ async function openChat(chat) {
 function closeChatScreenToMain() {
     if (!chatScreen) return;
 
+    chatScreen.style.transform = ''; // убираем временный translateX
     chatScreen.classList.remove('chat-screen-visible');
     currentChat = null;
 
@@ -5652,98 +5930,62 @@ async function refreshMessages(preserveScroll) {
         var pinnedMsg = messages.find(function (m) { return m.is_pinned; });
         var pinnedId  = pinnedMsg ? pinnedMsg.id : null;
 
-        if (needFullRerender) {
-            messagesById = {};
-            messages.forEach(function (m) { messagesById[m.id] = m; });
+        var newScrollHeight = chatContent.scrollHeight;
 
-            if (state.needScrollToFirstUnread) {
-                var firstUnreadId = null;
+        if (state.needScrollToFirstUnread) {
+            var targetMsgId = state.firstUnreadId;
 
-                if (currentUser) {
-                    for (var i = 0; i < messages.length; i++) {
-                        var msg = messages[i];
-                        if (msg.sender_login === currentUser.login) continue;
-                        if (!myLastReadId || msg.id > myLastReadId) {
-                            firstUnreadId = msg.id;
-                            break;
-                        }
-                    }
+            // Один аккуратный скролл к первому непрочитанному (или к разделителю)
+            requestAnimationFrame(function () {
+                if (!chatContent) return;
+
+                var target = null;
+                if (targetMsgId) {
+                    target = chatContent.querySelector('.msg-item[data-msg-id="' + targetMsgId + '"]');
                 }
-                state.firstUnreadId = firstUnreadId;
-            }
-
-            chatContent.innerHTML = '';
-
-            var firstUnreadIdForRender = state.firstUnreadId;
-
-            messages.forEach(function (m) {
-                if (firstUnreadIdForRender && m.id === firstUnreadIdForRender) {
-                    var sep = document.createElement('div');
-                    sep.className = 'msg-unread-separator';
-                    var span = document.createElement('span');
-                    span.textContent = 'Непрочитанные сообщения';
-                    sep.appendChild(span);
-                    chatContent.appendChild(sep);
+                if (!target) {
+                    target = chatContent.querySelector('.msg-unread-separator');
                 }
-                renderMessage(m);
+
+                var pinnedH = 0;
+                if (pinnedTopBar && pinnedTopBar.style.display !== 'none') {
+                    var pr = pinnedTopBar.getBoundingClientRect();
+                    pinnedH = pr.height || 0;
+                }
+                var extra = 8;
+
+                var top;
+                if (target) {
+                    top = target.offsetTop - pinnedH - extra;
+                } else {
+                    top = newScrollHeight;
+                }
+                if (top < 0) top = 0;
+                chatContent.scrollTop = top;
             });
 
-            renderPinnedTop(pinnedMsg);
-
-            var newScrollHeight = chatContent.scrollHeight;
-
-            if (state.needScrollToFirstUnread) {
-                var targetMsgId = state.firstUnreadId;
-
-                function scrollToTarget() {
-                    if (!chatContent) return;
-
-                    var target = null;
-                    if (targetMsgId) {
-                        target = chatContent.querySelector(
-                            '.msg-item[data-msg-id="' + targetMsgId + '"]'
-                        );
-                    }
-                    if (!target) {
-                        target = chatContent.querySelector('.msg-unread-separator');
-                    }
-
-                    if (!target) {
-                        chatContent.scrollTop = chatContent.scrollHeight;
-                        return;
-                    }
-
-                    var pinnedH = 0;
-                    if (pinnedTopBar && pinnedTopBar.style.display !== 'none') {
-                        pinnedH = pinnedTopBar.getBoundingClientRect().height || 0;
-                    }
-                    var extra = 8;
-                    var top = target.offsetTop - pinnedH - extra;
-                    if (top < 0) top = 0;
-                    chatContent.scrollTop = top;
-                }
-
-                scrollToTarget();
-                setTimeout(scrollToTarget, 300);
-                setTimeout(scrollToTarget, 800);
-
-                state.needScrollToFirstUnread = false;
-            } else if (preserveScroll) {
-                if (fromBottom <= 80) chatContent.scrollTop = newScrollHeight;
-                else chatContent.scrollTop = prevScrollTop;
-            } else {
+            state.needScrollToFirstUnread = false;
+        } else if (preserveScroll) {
+            // если пользователь был близко к низу — остаёмся внизу,
+            // иначе сохраняем прежний scrollTop
+            if (fromBottom <= 80) {
                 chatContent.scrollTop = newScrollHeight;
+            } else {
+                chatContent.scrollTop = prevScrollTop;
             }
-
-            state.initialized = true;
-            state.lastId      = lastId;
-            state.pinnedId    = pinnedId;
-            chatRenderState[chatId] = state;
-
-            updateReadStatusInDom(messages);
-            await markChatRead(chatId);
-            return;
+        } else {
+            // обычный кейс — сразу в самый низ
+            chatContent.scrollTop = newScrollHeight;
         }
+
+        state.initialized = true;
+        state.lastId      = lastId;
+        state.pinnedId    = pinnedId;
+        chatRenderState[chatId] = state;
+
+        updateReadStatusInDom(messages);
+        await markChatRead(chatId);
+        return;
 
         var newMessages = messages.filter(function (m) {
             return m.id > state.lastId;
@@ -5990,3 +6232,38 @@ if ('serviceWorker' in navigator) {
 })();
 
 
+function updateVoiceCancelPreview(dx) {
+    // dx — смещение пальца относительно точки старта (отрицательное при уходе влево)
+    if (!voiceRecordUi || !chatInputForm) return;
+
+    if (!isRecordingVoice) {
+        voiceRecordUi.style.transform = '';
+        voiceRecordUi.style.backgroundColor = 'rgba(63,63,63,0.95)';
+        chatInputForm.classList.remove('recording-cancel-preview');
+        return;
+    }
+
+    if (dx >= 0) {
+        // нет движения влево — сброс анимации
+        voiceRecordUi.style.transform = '';
+        voiceRecordUi.style.backgroundColor = 'rgba(63,63,63,0.95)';
+        chatInputForm.classList.remove('recording-cancel-preview');
+        return;
+    }
+
+    // dx < 0 — тянем влево
+    var p = Math.max(0, Math.min(1, (-dx) / 80)); // 0..1
+    var translate = -14 * p; // максимум ~14px влево
+
+    voiceRecordUi.style.transform = 'translateX(' + translate + 'px)';
+
+    // фон слегка краснеет по мере приближения к отмене
+    var baseAlpha = 0.95;
+    voiceRecordUi.style.backgroundColor = 'rgba(63,63,63,' + baseAlpha + ')';
+
+    if (p > 0.35) {
+        chatInputForm.classList.add('recording-cancel-preview');
+    } else {
+        chatInputForm.classList.remove('recording-cancel-preview');
+    }
+}
