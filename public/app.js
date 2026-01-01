@@ -661,11 +661,9 @@ if (chatScreen) {
         chatScreen.style.transition = 'transform 0.25s cubic-bezier(.4,0,.2,1)';
 
         if (shouldClose) {
-            // пускаем стандартную анимацию закрытия
             chatScreen.style.transform = '';
             closeChatScreenToMain();
         } else {
-            // откатываем назад
             chatScreen.style.transform = 'translateX(0px)';
         }
 
@@ -678,12 +676,9 @@ if (chatScreen) {
 
         var maxW    = window.innerWidth || 375;
         var current = Math.min(Math.max(chatSwipeDx, 0), maxW);
-        var center  = maxW / 2;
+        var threshold = maxW * 0.25; // 1/4 ширины экрана
 
-        // если левая граница чата левее центра — возвращаем;
-        // если правее центра — закрываем.
-        var shouldClose = current >= center;
-
+        var shouldClose = current >= threshold;
         finishChatSwipe(shouldClose);
     });
 
@@ -4188,6 +4183,7 @@ function initModalSwipeClose(modalEl, hideFn, cardSelector) {
         var my = t.clientY - startY;
         e.stopPropagation();
 
+        // только движение вправо по горизонтали
         if (mx <= 0 || Math.abs(my) > Math.abs(mx)) {
             dx = 0;
             if (cardEl) cardEl.style.transform = 'translateX(0px)';
@@ -4195,7 +4191,8 @@ function initModalSwipeClose(modalEl, hideFn, cardSelector) {
         }
 
         dx = mx;
-        var translate = Math.min(mx, 120);
+        var maxW     = window.innerWidth || 375;
+        var translate = Math.min(mx, maxW * 0.5); // до половины экрана
         if (cardEl) cardEl.style.transform = 'translateX(' + translate + 'px)';
     }, { passive:true });
 
@@ -4203,7 +4200,7 @@ function initModalSwipeClose(modalEl, hideFn, cardSelector) {
         if (cardEl) {
             cardEl.style.transition = 'transform 0.2s ease-out';
             if (shouldClose) {
-                cardEl.style.transform = 'translateX(120px)';
+                cardEl.style.transform = 'translateX(100vw)';
                 setTimeout(function () {
                     cardEl.style.transform = '';
                     cardEl.style.transition = '';
@@ -4219,13 +4216,18 @@ function initModalSwipeClose(modalEl, hideFn, cardSelector) {
             if (shouldClose) hideFn();
         }
         startX = startY = null;
-        dx = 0;
+        dx     = 0;
     }
 
     modalEl.addEventListener('touchend', function (e) {
         if (startX == null) return;
         e.stopPropagation();
-        var shouldClose = dx > 80;
+
+        var maxW     = window.innerWidth || 375;
+        var current  = Math.min(Math.max(dx, 0), maxW);
+        var threshold = maxW * 0.25; // 1/4 ширины
+
+        var shouldClose = current >= threshold;
         finishModalSwipe(shouldClose);
     });
 
@@ -5939,62 +5941,98 @@ async function refreshMessages(preserveScroll) {
         var pinnedMsg = messages.find(function (m) { return m.is_pinned; });
         var pinnedId  = pinnedMsg ? pinnedMsg.id : null;
 
-        var newScrollHeight = chatContent.scrollHeight;
+        if (needFullRerender) {
+            messagesById = {};
+            messages.forEach(function (m) { messagesById[m.id] = m; });
 
-        if (state.needScrollToFirstUnread) {
-            var targetMsgId = state.firstUnreadId;
+            if (state.needScrollToFirstUnread) {
+                var firstUnreadId = null;
 
-            // Один аккуратный скролл к первому непрочитанному (или к разделителю)
-            requestAnimationFrame(function () {
-                if (!chatContent) return;
-
-                var target = null;
-                if (targetMsgId) {
-                    target = chatContent.querySelector('.msg-item[data-msg-id="' + targetMsgId + '"]');
+                if (currentUser) {
+                    for (var i = 0; i < messages.length; i++) {
+                        var msg = messages[i];
+                        if (msg.sender_login === currentUser.login) continue;
+                        if (!myLastReadId || msg.id > myLastReadId) {
+                            firstUnreadId = msg.id;
+                            break;
+                        }
+                    }
                 }
-                if (!target) {
-                    target = chatContent.querySelector('.msg-unread-separator');
-                }
+                state.firstUnreadId = firstUnreadId;
+            }
 
-                var pinnedH = 0;
-                if (pinnedTopBar && pinnedTopBar.style.display !== 'none') {
-                    var pr = pinnedTopBar.getBoundingClientRect();
-                    pinnedH = pr.height || 0;
-                }
-                var extra = 8;
+            chatContent.innerHTML = '';
 
-                var top;
-                if (target) {
-                    top = target.offsetTop - pinnedH - extra;
-                } else {
-                    top = newScrollHeight;
+            var firstUnreadIdForRender = state.firstUnreadId;
+
+            messages.forEach(function (m) {
+                if (firstUnreadIdForRender && m.id === firstUnreadIdForRender) {
+                    var sep = document.createElement('div');
+                    sep.className = 'msg-unread-separator';
+                    var span = document.createElement('span');
+                    span.textContent = 'Непрочитанные сообщения';
+                    sep.appendChild(span);
+                    chatContent.appendChild(sep);
                 }
-                if (top < 0) top = 0;
-                chatContent.scrollTop = top;
+                renderMessage(m);
             });
 
-            state.needScrollToFirstUnread = false;
-        } else if (preserveScroll) {
-            // если пользователь был близко к низу — остаёмся внизу,
-            // иначе сохраняем прежний scrollTop
-            if (fromBottom <= 80) {
-                chatContent.scrollTop = newScrollHeight;
+            renderPinnedTop(pinnedMsg);
+
+            var newScrollHeight = chatContent.scrollHeight;
+
+            if (state.needScrollToFirstUnread) {
+                var targetMsgId = state.firstUnreadId;
+
+                function scrollToTarget() {
+                    if (!chatContent) return;
+
+                    var target = null;
+                    if (targetMsgId) {
+                        target = chatContent.querySelector(
+                            '.msg-item[data-msg-id="' + targetMsgId + '"]'
+                        );
+                    }
+                    if (!target) {
+                        target = chatContent.querySelector('.msg-unread-separator');
+                    }
+
+                    if (!target) {
+                        chatContent.scrollTop = chatContent.scrollHeight;
+                        return;
+                    }
+
+                    var pinnedH = 0;
+                    if (pinnedTopBar && pinnedTopBar.style.display !== 'none') {
+                        pinnedH = pinnedTopBar.getBoundingClientRect().height || 0;
+                    }
+                    var extra = 8;
+                    var top = target.offsetTop - pinnedH - extra;
+                    if (top < 0) top = 0;
+                    chatContent.scrollTop = top;
+                }
+
+                scrollToTarget();
+                setTimeout(scrollToTarget, 300);
+                setTimeout(scrollToTarget, 800);
+
+                state.needScrollToFirstUnread = false;
+            } else if (preserveScroll) {
+                if (fromBottom <= 80) chatContent.scrollTop = newScrollHeight;
+                else chatContent.scrollTop = prevScrollTop;
             } else {
-                chatContent.scrollTop = prevScrollTop;
+                chatContent.scrollTop = newScrollHeight;
             }
-        } else {
-            // обычный кейс — сразу в самый низ
-            chatContent.scrollTop = newScrollHeight;
+
+            state.initialized = true;
+            state.lastId      = lastId;
+            state.pinnedId    = pinnedId;
+            chatRenderState[chatId] = state;
+
+            updateReadStatusInDom(messages);
+            await markChatRead(chatId);
+            return;
         }
-
-        state.initialized = true;
-        state.lastId      = lastId;
-        state.pinnedId    = pinnedId;
-        chatRenderState[chatId] = state;
-
-        updateReadStatusInDom(messages);
-        await markChatRead(chatId);
-        return;
 
         var newMessages = messages.filter(function (m) {
             return m.id > state.lastId;
