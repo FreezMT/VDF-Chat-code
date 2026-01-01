@@ -2606,3 +2606,43 @@ textarea {
         display:flex;
     }
 }
+
+/* Упрощаем эффекты на мобильных (iOS/Android) */
+@media (max-width: 900px) {
+    .media-viewer,
+    .chat-context-overlay,
+    .msg-context-overlay,
+    .reply-bar,
+    .attach-preview-bar {
+        -webkit-backdrop-filter: none !important;
+        backdrop-filter: none !important;
+    }
+
+    .media-viewer{
+        background: rgba(0,0,0,0.95) !important;
+    }
+    .chat-context-overlay{
+        background: rgba(0,0,0,0.40) !important;
+    }
+    .msg-context-overlay{
+        background: rgba(0,0,0,0.40) !important;
+    }
+    .reply-bar,
+    .attach-preview-bar{
+        background-color: rgba(0,0,0,0.85) !important;
+    }
+
+    /* Убираем размытие превью за медиа-сообщениями */
+    .msg-media-bg{
+        filter: none !important;
+        opacity: 0 !important;
+    }
+}
+
+@media (max-width: 900px) {
+    .chat-screen{
+        background-image: none !important;
+        background-color: #000000 !important;
+        background-blend-mode: normal !important;
+    }
+}

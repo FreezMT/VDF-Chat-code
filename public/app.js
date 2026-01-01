@@ -35,37 +35,6 @@ document.addEventListener('contextmenu', function (e) {
     });
 });
 
-// Запрет Ctrl+колёсико (зум на десктопе)
-document.addEventListener('wheel', function (e) {
-    if (e.ctrlKey) {
-        e.preventDefault();
-    }
-}, { passive: false });
-
-// Запрет pinch‑zoom (двумя пальцами) на тач‑устройствах
-document.addEventListener('touchmove', function (e) {
-    if (e.touches && e.touches.length > 1) {
-        e.preventDefault();
-    }
-}, { passive: false });
-
-// Запрет double‑tap zoom (iOS / мобильные браузеры)
-var _lastTouchEnd = 0;
-document.addEventListener('touchend', function (e) {
-    var now = Date.now();
-    if (now - _lastTouchEnd <= 300) {
-        e.preventDefault();
-    }
-    _lastTouchEnd = now;
-}, { passive: false });
-
-// Дополнительно для iOS (жесты масштабирования)
-['gesturestart','gesturechange','gestureend'].forEach(function (evt) {
-    document.addEventListener(evt, function (e) {
-        e.preventDefault();
-    }, { passive: false });
-});
-
 // ---------- АВТО-ВОССТАНОВЛЕНИЕ СЕССИИ / СПЛЭШ ----------
 
 window.addEventListener('load', function () {
@@ -3657,7 +3626,7 @@ function startMessagePolling() {
         if (fromBottom > 80) return;
 
         await refreshMessages(false);
-    }, 2000);
+    }, 5000);
 }
 
 function stopMessagePolling() {
