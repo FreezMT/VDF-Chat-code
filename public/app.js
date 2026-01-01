@@ -1415,6 +1415,18 @@ function autoResizeChatInput() {
     updateSendButtonState();
 }
 
+function keepKeyboardAfterSend() {
+    if (!chatInput) return;
+
+    // Фокусируем textarea чуть позже, чтобы не мешать обработчику submit
+    // и чтобы сработало на мобильных
+    setTimeout(function () {
+        try {
+            chatInput.focus();
+        } catch (e) {}
+    }, 50);
+}
+
 // авто-ресайз textarea
 if (chatInput) {
     chatInput.addEventListener('input', autoResizeChatInput);
@@ -2426,6 +2438,12 @@ function renderMessage(msg) {
             imgAtt.src = msg.attachment_url;
             imgAtt.onerror = function () { this.style.display = 'none'; };
             imgAtt.addEventListener('click', function (e) {
+                if (item && item._suppressNextMediaClick) {
+                    item._suppressNextMediaClick = false;
+                    e.preventDefault();
+                    e.stopPropagation();
+                    return;
+                }
                 e.preventDefault();
                 e.stopPropagation();
                 openMediaViewer(msg.attachment_url, 'image', imgAtt);
@@ -2484,6 +2502,12 @@ function renderMessage(msg) {
             });
 
             videoAtt.addEventListener('click', function (e) {
+                if (item && item._suppressNextMediaClick) {
+                    item._suppressNextMediaClick = false;
+                    e.stopPropagation();
+                    e.preventDefault();
+                    return;
+                }
                 e.stopPropagation();
                 e.preventDefault();
                 openMediaViewer(msg.attachment_url, 'video', videoAtt);
@@ -2561,6 +2585,7 @@ function renderMessage(msg) {
         audio.addEventListener('loadedmetadata', function () {
             if (!isNaN(audio.duration) && isFinite(audio.duration)) {
                 totalDurationA = audio.duration;
+                if (totalDurationA < 1) totalDurationA = 1; // минимум 1 секунда
                 timeLabel.textContent = formatSecondsToMMSS(totalDurationA);
             }
         });
@@ -3075,6 +3100,7 @@ function hideMsgContextMenu() {
 
     msgContextMenu.classList.remove('open');
     msgContextOverlay.classList.remove('visible');
+    item._suppressNextMediaClick = true;
 
     if (currentMsgContextItem) {
         currentMsgContextItem.classList.remove('msg-item-pressed');
@@ -3136,6 +3162,11 @@ function showMsgContextMenu(msgInfo, item) {
 
         var menuH  = msgContextMenu.offsetHeight || 160;
         var margin = 8;
+        var isLastMessage = false;
+        if (chatContent) {
+            var lastItem = chatContent.querySelector('.msg-item:last-of-type');
+            if (lastItem === currentMsgContextItem) isLastMessage = true;
+        }
 
         var headerH = 64;
         var pinnedH = 0;
@@ -3165,11 +3196,42 @@ function showMsgContextMenu(msgInfo, item) {
 
         var top;
 
+        // 1) если нормально влезает СНИЗУ — ставим под сообщением
         if (spaceBelow >= menuH + margin) {
             top = rect.bottom + margin;
-        } else if (spaceAbove >= menuH + margin) {
+        }
+        // 2) иначе, если влезает СВЕРХУ — ставим над сообщением
+        else if (spaceAbove >= menuH + margin) {
+            // если это ПОСЛЕДНЕЕ сообщение, пытаемся всё равно сделать место снизу
+            if (isLastMessage && allowScroll && chatContent) {
+                var msgBottom = currentMsgContextItem.offsetTop + currentMsgContextItem.offsetHeight;
+                var desiredGap = menuH + 32;
+                var targetScroll = msgBottom + desiredGap - chatContent.clientHeight;
+                if (targetScroll < 0) targetScroll = 0;
+
+                chatContent.scrollTo({ top: targetScroll, behavior: 'smooth' });
+                setTimeout(function () {
+                    positionMenu(false);
+                }, 260);
+                return;
+            }
             top = rect.top - menuH - margin;
-        } else if (allowScroll && chatContent) {
+        }
+        // 3) иначе, если allowScroll и это последнее сообщение — тоже скроллим, чтобы меню было снизу
+        else if (allowScroll && isLastMessage && chatContent) {
+            var msgBottom2 = currentMsgContextItem.offsetTop + currentMsgContextItem.offsetHeight;
+            var desiredGap2 = menuH + 32;
+            var targetScroll2 = msgBottom2 + desiredGap2 - chatContent.clientHeight;
+            if (targetScroll2 < 0) targetScroll2 = 0;
+
+            chatContent.scrollTo({ top: targetScroll2, behavior: 'smooth' });
+            setTimeout(function () {
+                positionMenu(false);
+            }, 260);
+            return;
+        }
+        // 4) общий случай: старый код (allowScroll и т.д.)
+        else if (allowScroll && chatContent) {
             var needExtraAbove = (menuH + margin) - Math.max(spaceAbove, 0);
             var newScrollTop   = chatContent.scrollTop + needExtraAbove;
             if (newScrollTop < 0) newScrollTop = 0;
@@ -3189,13 +3251,6 @@ function showMsgContextMenu(msgInfo, item) {
             if (top < safeTop) {
                 top = rect.bottom + margin;
             }
-        }
-
-        if (top + menuH + safeBottom > vh) {
-            top = vh - safeBottom - menuH;
-        }
-        if (top < safeTop) {
-            top = safeTop;
         }
 
         msgContextMenu.style.top = top + 'px';
@@ -3341,6 +3396,31 @@ async function editMessage(msgInfo) {
                     alert(data.error || 'Ошибка редактирования');
                     return;
                 }
+                // успех — сразу обновляем UI
+                bubble.removeChild(wrap);
+                textEl.style.display = '';
+                metaEl.style.display = '';
+
+                // обновляем текст в DOM и в msgInfo
+                msgInfo.text = newText;
+                item.dataset.msgText = newText;
+                textEl.textContent = newText;
+
+                // добавляем пометку "(изменено)", если её ещё нет
+                var metaLine = bubble.querySelector('.msg-meta');
+                if (metaLine) {
+                    var editedMark = metaLine.querySelector('.msg-edited');
+                    if (!editedMark) {
+                        editedMark = document.createElement('span');
+                        editedMark.className = 'msg-edited';
+                        editedMark.textContent = ' (изменено)';
+                        metaLine.appendChild(editedMark);
+                    }
+                }
+
+                currentEditingMsgId = null;
+                startMessagePolling();
+                await refreshMessagesKeepingMessage(msgInfo.id);
             }
 
             currentEditingMsgId = null;
@@ -3400,7 +3480,7 @@ async function deleteMessage(msgInfo) {
 }
 
 async function reactToMessage(msgInfo, emoji) {
-    if (!currentUser || !currentUser.login) return;
+    if (!currentUser || !currentUser.login || !chatContent) return;
 
     try {
         var resp = await fetch('/api/messages/react', {
@@ -3417,7 +3497,38 @@ async function reactToMessage(msgInfo, emoji) {
             alert(data.error || 'Ошибка реакции');
             return;
         }
-        await refreshMessages(true);
+
+        // обновляем только одно сообщение в DOM
+        var item = chatContent.querySelector('.msg-item[data-msg-id="' + msgInfo.id + '"]');
+        if (!item) return;
+
+        var bubble = item.querySelector('.msg-bubble');
+        if (!bubble) return;
+
+        var reactRow = bubble.querySelector('.msg-reactions');
+        if (!data.reactions || !data.reactions.length) {
+            if (reactRow && reactRow.parentNode) reactRow.parentNode.removeChild(reactRow);
+            return;
+        }
+
+        if (!reactRow) {
+            reactRow = document.createElement('div');
+            reactRow.className = 'msg-reactions';
+            bubble.appendChild(reactRow);
+        }
+
+        reactRow.innerHTML = '';
+        (data.reactions || []).forEach(function (r) {
+            var sp = document.createElement('span');
+            sp.className = 'msg-reaction';
+            if (data.myReaction === r.emoji) sp.classList.add('my');
+            sp.textContent = r.emoji + ' ' + r.count;
+            reactRow.appendChild(sp);
+        });
+
+        // обновляем локально msgInfo
+        msgInfo.reactions = data.reactions || [];
+        msgInfo.myReaction = data.myReaction || null;
     } catch (e) {
         alert('Сетевая ошибка при реакции');
     }
@@ -4308,7 +4419,7 @@ if (groupBackBtn && groupModal) {
 }
 
 function hideGroupAddModal() {
-    if (groupAddModal) groupAddModal.style.display = 'none';
+    if (groupAddModal) groupAddModal.classList.remove('visible');
 }
 
 function showGroupAddModal() {
@@ -4337,7 +4448,7 @@ function showGroupAddModal() {
         groupAddUserIdInput.focus();
     }
 
-    groupAddModal.style.display = 'flex';
+    groupAddModal.classList.add('visible');
 }
 
 async function openGroupModal() {
@@ -5374,6 +5485,8 @@ if (changePhotoBtn && profilePhotoInput) {
             if (data.avatar) {
                 currentUser.avatar = data.avatar;
                 updateProfileUI();
+                // обновляем список чатов (где этот пользователь виден как контакт)
+                await reloadChatList();
             }
         } catch (e) {
             alert('Сетевая ошибка при сохранении фотографии');
@@ -5551,7 +5664,7 @@ if (editGroupNameBtn && groupNameEditInput && groupNameSaveBtn) {
 if (groupAddMemberBtn) {
     groupAddMemberBtn.addEventListener('click', function () {
         if (!currentGroupName) return;
-        hideGroupModal();
+        // можно НЕ скрывать groupModal, просто открыть оверлей выше
         showGroupAddModal();
     });
 }
@@ -6153,6 +6266,7 @@ if (chatInputForm && chatInput) {
             chatInput.value = '';
             autoResizeChatInput();
             clearReply();
+            keepKeyboardAfterSend();
 
             await refreshMessages(false);
             if (chatContent) chatContent.scrollTop = chatContent.scrollHeight;
@@ -6214,6 +6328,7 @@ if (chatInputForm && chatInput) {
             chatInput.value = '';
             autoResizeChatInput();
             clearReply();
+            keepKeyboardAfterSend(); 
 
             await refreshMessages(false);
             if (chatContent) chatContent.scrollTop = chatContent.scrollHeight;
@@ -6221,6 +6336,7 @@ if (chatInputForm && chatInput) {
             if (chatContent) {
                 var tmpElCatch = chatContent.querySelector('.msg-item[data-msg-id="' + tempId + '"]');
                 if (tmpElCatch && tmpElCatch.parentNode) tmpElCatch.parentNode.removeChild(tmpElCatch);
+                keepKeyboardAfterSend();
             }
             alert('Сетевая ошибка при отправке сообщения');
         }
