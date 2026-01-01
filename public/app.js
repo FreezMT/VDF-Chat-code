@@ -87,6 +87,16 @@ window.addEventListener('load', function () {
     }, 2000);
 });
 
+// Попытка зафиксировать экран в портретной ориентации (где поддерживается)
+if (screen.orientation && screen.orientation.lock) {
+    screen.orientation.lock('portrait').catch(function(){});
+}
+window.addEventListener('orientationchange', function () {
+    if (screen.orientation && screen.orientation.lock) {
+        screen.orientation.lock('portrait').catch(function(){});
+    }
+});
+
 // ---------- ГЛОБАЛЬНОЕ СОСТОЯНИЕ ----------
 
 // состояние рендера сообщений по чатам
@@ -633,6 +643,67 @@ function cleanupAttachmentObjectUrl(att) {
     }
 }
 
+
+function initAttachmentTabs() {
+    // Модалка пользователя
+    if (chatUserAttachments && chatUserMediaTab && chatUserFilesTab && chatUserAudioTab) {
+        var userTabs = {
+            mediaTab: chatUserMediaTab,
+            filesTab: chatUserFilesTab,
+            audioTab: chatUserAudioTab
+        };
+
+        chatUserMediaTab.addEventListener('click', function (e) {
+            e.stopPropagation();
+            setAttachmentsTab(chatUserAttachments, userTabs, 'media');
+        });
+
+        chatUserFilesTab.addEventListener('click', function (e) {
+            e.stopPropagation();
+            setAttachmentsTab(chatUserAttachments, userTabs, 'files');
+        });
+
+        chatUserAudioTab.addEventListener('click', function (e) {
+            e.stopPropagation();
+            setAttachmentsTab(chatUserAttachments, userTabs, 'audio');
+        });
+
+        setAttachmentsTab(chatUserAttachments, userTabs, 'media');
+    }
+
+    // Модалка группы
+    if (groupAttachments && groupMembersTab && groupMediaTab && groupFilesTab && groupAudioTab) {
+        var groupTabs = {
+            membersTab: groupMembersTab,
+            mediaTab:   groupMediaTab,
+            filesTab:   groupFilesTab,
+            audioTab:   groupAudioTab
+        };
+
+        groupMembersTab.addEventListener('click', function (e) {
+            e.stopPropagation();
+            setAttachmentsTab(groupAttachments, groupTabs, 'members');
+        });
+
+        groupMediaTab.addEventListener('click', function (e) {
+            e.stopPropagation();
+            setAttachmentsTab(groupAttachments, groupTabs, 'media');
+        });
+
+        groupFilesTab.addEventListener('click', function (e) {
+            e.stopPropagation();
+            setAttachmentsTab(groupAttachments, groupTabs, 'files');
+        });
+
+        groupAudioTab.addEventListener('click', function (e) {
+            e.stopPropagation();
+            setAttachmentsTab(groupAttachments, groupTabs, 'audio');
+        });
+
+        setAttachmentsTab(groupAttachments, groupTabs, 'members');
+    }
+}
+
 // ---------- СЕТЕВОЙ БАННЕР ----------
 
 function showNetworkErrorBanner(message) {
@@ -643,8 +714,17 @@ function showNetworkErrorBanner(message) {
     if (networkBannerTimer) clearTimeout(networkBannerTimer);
     networkBannerTimer = setTimeout(function () {
         if (networkBanner) networkBanner.classList.remove('show');
-    }, 3000);
+    }, 2000);
 }
+
+// ---------- TOAST / ЗАМЕНА alert ----------
+
+function showToast(message) {
+    showNetworkErrorBanner(message);
+}
+
+// Перехватываем все alert в приложении
+window.alert = showToast;
 
 // ---------- ВОССТАНОВЛЕНИЕ СЕССИИ ----------
 
@@ -1579,6 +1659,60 @@ function closeMediaViewer() {
         });
     }
 
+    // свайп вниз для закрытия
+    if (mediaViewerContent) {
+        var mvStartY = null;
+        var mvDy     = 0;
+
+        mediaViewerContent.addEventListener('touchstart', function(e){
+            if (e.touches.length !== 1) return;
+            mvStartY = e.touches[0].clientY;
+            mvDy = 0;
+            mediaViewerContent.style.transition = 'none';
+        }, { passive:true });
+
+        mediaViewerContent.addEventListener('touchmove', function(e){
+            if (mvStartY == null) return;
+            var y = e.touches[0].clientY;
+            mvDy = y - mvStartY;
+            if (mvDy <= 0) return; // только вниз
+
+            e.preventDefault();
+            var translate = mvDy;
+            mediaViewerContent.style.transform = 'translate3d(0,' + translate + 'px,0)';
+        }, { passive:false });
+
+        function finishMediaSwipe() {
+            if (mvStartY == null) return;
+            mediaViewerContent.style.transition = 'transform 0.2s ease-out';
+            var threshold = (window.innerHeight || 600) * 0.25;
+            if (mvDy > threshold) {
+                // закрываем как обычным closeMediaViewer
+                mediaViewerContent.style.transform = 'translate3d(0,100%,0)';
+                setTimeout(function(){
+                    mediaViewerContent.style.transition = '';
+                    mediaViewerContent.style.transform = 'translate3d(0,0,0)';
+                    closeMediaViewer();
+                }, 180);
+            } else {
+                mediaViewerContent.style.transform = 'translate3d(0,0,0)';
+                setTimeout(function(){
+                    mediaViewerContent.style.transition = '';
+                }, 200);
+            }
+            mvStartY = null;
+            mvDy = 0;
+        }
+
+        mediaViewerContent.addEventListener('touchend', function(){
+            finishMediaSwipe();
+        }, { passive:true });
+
+        mediaViewerContent.addEventListener('touchcancel', function(){
+            finishMediaSwipe();
+        }, { passive:true });
+    }
+
     if (mediaViewerPlayPause) {
         mediaViewerPlayPause.addEventListener('click', function (e) {
             e.stopPropagation();
@@ -1624,6 +1758,8 @@ function closeMediaViewer() {
             seekInMedia(t);
         }, { passive:true });
     }
+
+    
 })();
 
 // ---------- PREVIEW ВЛОЖЕНИЙ В ИНПУТ-БАРЕ ----------
@@ -2329,15 +2465,16 @@ function renderMessage(msg) {
             videoAtt.addEventListener('loadedmetadata', function () {
                 if (!isNaN(videoAtt.duration) && isFinite(videoAtt.duration)) {
                     totalDuration = videoAtt.duration;
-                    durLabel.textContent = formatSecondsToMMSS(totalDuration);
+                    // показываем 0:00 / полная длительность
+                    durLabel.textContent = '0:00 / ' + formatSecondsToMMSS(totalDuration);
                 }
                 videoAtt.play().catch(function(){});
             });
 
             videoAtt.addEventListener('timeupdate', function () {
                 if (!totalDuration || isNaN(totalDuration)) return;
-                var remaining = Math.max(0, totalDuration - videoAtt.currentTime);
-                durLabel.textContent = formatSecondsToMMSS(remaining);
+                var cur = Math.max(0, videoAtt.currentTime);
+                durLabel.textContent = formatSecondsToMMSS(cur) + ' / ' + formatSecondsToMMSS(totalDuration);
             });
 
             videoAtt.addEventListener('ended', function () {
@@ -6024,6 +6161,26 @@ if (chatInputForm && chatInput) {
 
         if (!finalText) return;
 
+        // Только текст — добавляем временное сообщение сразу
+        var tempId = 'tmp-' + Date.now();
+        var tempMsg = {
+            id: tempId,
+            chat_id: currentChat.id,
+            sender_login: currentUser.login,
+            sender_name: ((currentUser.firstName || '') + ' ' + (currentUser.lastName || '')).trim() || currentUser.login,
+            text: finalText,
+            created_at: new Date().toISOString(),
+            attachment_type: null,
+            attachment_url: null,
+            edited: false,
+            read_by_all: false,
+            reactions: [],
+            myReaction: null
+        };
+
+        renderMessage(tempMsg);
+        if (chatContent) chatContent.scrollTop = chatContent.scrollHeight;
+
         var payload = {
             chatId:      currentChat.id,
             senderLogin: currentUser.login,
@@ -6039,8 +6196,19 @@ if (chatInputForm && chatInput) {
             var data2 = await resp2.json();
 
             if (!resp2.ok || !data2.ok) {
+                // ошибка — убираем временное сообщение
+                if (chatContent) {
+                    var tmpElErr = chatContent.querySelector('.msg-item[data-msg-id="' + tempId + '"]');
+                    if (tmpElErr && tmpElErr.parentNode) tmpElErr.parentNode.removeChild(tmpElErr);
+                }
                 alert(data2.error || 'Ошибка отправки сообщения');
                 return;
+            }
+
+            // успех — убираем временное и перерисовываем с сервера
+            if (chatContent) {
+                var tmpEl = chatContent.querySelector('.msg-item[data-msg-id="' + tempId + '"]');
+                if (tmpEl && tmpEl.parentNode) tmpEl.parentNode.removeChild(tmpEl);
             }
 
             chatInput.value = '';
@@ -6050,6 +6218,10 @@ if (chatInputForm && chatInput) {
             await refreshMessages(false);
             if (chatContent) chatContent.scrollTop = chatContent.scrollHeight;
         } catch (e2) {
+            if (chatContent) {
+                var tmpElCatch = chatContent.querySelector('.msg-item[data-msg-id="' + tempId + '"]');
+                if (tmpElCatch && tmpElCatch.parentNode) tmpElCatch.parentNode.removeChild(tmpElCatch);
+            }
             alert('Сетевая ошибка при отправке сообщения');
         }
     });
@@ -6105,7 +6277,18 @@ async function refreshMessages(preserveScroll) {
 
             chatContent.innerHTML = '';
 
+            var unreadInserted = false;
+
             messages.forEach(function (m) {
+                if (myLastReadId && !unreadInserted && m.id > myLastReadId) {
+                    var sep = document.createElement('div');
+                    sep.className = 'msg-unread-separator';
+                    var span = document.createElement('span');
+                    span.textContent = 'Непрочитанные';
+                    sep.appendChild(span);
+                    chatContent.appendChild(sep);
+                    unreadInserted = true;
+                }
                 renderMessage(m);
             });
 
@@ -6406,6 +6589,40 @@ function updateVoiceCancelPreview(dx) {
         chatInputForm.classList.remove('recording-cancel-preview');
     }
 }
+
+// ESC для закрытия модалок / reply / медиавьюера
+document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Escape') return;
+
+    if (mediaViewer && mediaViewer.classList.contains('visible')) {
+        closeMediaViewer();
+        return;
+    }
+    if (forwardModal && forwardModal.classList.contains('visible')) {
+        closeForwardModal();
+        return;
+    }
+    if (postModal && postModal.classList.contains('visible')) {
+        hidePostModal();
+        return;
+    }
+    if (chatUserModal && chatUserModal.classList.contains('visible')) {
+        hideChatUserModal();
+        return;
+    }
+    if (groupAddModal && groupAddModal.style.display === 'flex') {
+        hideGroupAddModal();
+        return;
+    }
+    if (groupModal && groupModal.classList.contains('visible')) {
+        hideGroupModal();
+        return;
+    }
+    if (replyBar && replyBar.style.display === 'flex') {
+        clearReply();
+        return;
+    }
+});
 
 // ИНИЦИАЛИЗАЦИЯ ВЛОЖЕНИЙ
 initChatAttachments();
