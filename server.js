@@ -1,4 +1,4 @@
-// server.js
+// server.js — PART 1/2
 
 const express  = require('express');
 const sqlite3  = require('sqlite3').verbose();
@@ -323,7 +323,6 @@ const upload = multer({ storage });
 
 // ---------- AUTH MIDDLEWARES ----------
 
-// Для большинства API: логин в теле должен совпадать с логином из сессии
 function requireAuth(req, res, next) {
   const sessLogin = req.session && req.session.login;
   if (!sessLogin) {
@@ -442,10 +441,8 @@ function isValidAsciiField(v, max) {
 }
 
 function isValidCyrillicField(v, max) {
-  // Разрешаем русские буквы, пробелы и дефис
   if (typeof v !== 'string') return false;
   if (v.length === 0 || v.length > max) return false;
-  // хотя бы одна буква, остальное — буквы / пробелы / дефисы
   if (!/^[А-Яа-яЁё][А-Яа-яЁё\s-]*$/.test(v)) return false;
   return true;
 }
@@ -696,9 +693,7 @@ async function sendPushForMessage(row) {
         senderName   = fn.trim() || senderLogin;
         senderAvatar = u.avatar || senderAvatar;
       }
-    } catch (e) {
-      // ignore
-    }
+    } catch (e) {}
 
     const isTrainerChat =
       chatId.startsWith('trainer-') ||
@@ -861,7 +856,7 @@ app.post('/api/check-login', async (req, res) => {
   }
 });
 
-// /api/session/me — данные текущего залогиненного пользователя по сессии
+// /api/session/me
 app.get('/api/session/me', requireLoggedIn, async (req, res) => {
   try {
     const login = req.session.login;
@@ -948,7 +943,6 @@ app.post('/api/register', async (req, res) => {
       [publicId, login, passwordHash, role, firstName, lastName, team, dobToSave, null]
     );
 
-    // сразу логиним нового пользователя в сессию
     req.session.login = login;
 
     res.status(201).json({ ok: true, publicId });
@@ -1049,7 +1043,7 @@ app.post('/api/messages/edit', requireAuth, async (req, res) => {
   }
 });
 
-// /api/messages/delete (soft delete)
+// /api/messages/delete
 app.post('/api/messages/delete', requireAuth, async (req, res) => {
   try {
     const { login, messageId } = req.body;
@@ -1142,7 +1136,7 @@ app.post('/api/messages/react', requireAuth, async (req, res) => {
   }
 });
 
-// /api/messages/pin — с проверкой прав (тренер / создатель группы)
+// /api/messages/pin
 app.post('/api/messages/pin', requireAuth, async (req, res) => {
   try {
     const { login, chatId, messageId, pinned } = req.body;
@@ -1203,7 +1197,6 @@ app.post('/api/messages/pin', requireAuth, async (req, res) => {
         return res.status(403).json({ error: 'Закреплять сообщения может только создатель группы' });
       }
     }
-    // trainer-*, angelina-*, pm-* — без доп. ограничений
 
     if (pinned) {
       await runMsg(
@@ -1225,6 +1218,8 @@ app.post('/api/messages/pin', requireAuth, async (req, res) => {
     res.status(500).json({ error: 'Ошибка сервера при закреплении сообщения' });
   }
 });
+
+// server.js — PART 2/2
 
 // ---------- /api/chats ----------
 
@@ -1738,7 +1733,7 @@ app.post('/api/chat/personal', requireAuth, async (req, res) => {
 
 // ---------- MESSAGES: send-file / list / send / forward ----------
 
-// /api/messages/send-file — отправка файла (c превью для видео)
+// /api/messages/send-file
 app.post('/api/messages/send-file', requireAuth, upload.single('file'), async (req, res) => {
   try {
     const chatId      = req.body.chatId;
@@ -1749,7 +1744,6 @@ app.post('/api/messages/send-file', requireAuth, upload.single('file'), async (r
       return res.status(400).json({ error: 'Нет chatId или логина отправителя' });
     }
 
-    // Проверяем, что отправитель действительно состоит в этом чате
     const participants = await getChatParticipantsLogins(chatId);
     const lowerSender  = String(senderLogin || '').toLowerCase();
     const inChat = participants.some(l => String(l || '').toLowerCase() === lowerSender);
@@ -1793,7 +1787,6 @@ app.post('/api/messages/send-file', requireAuth, upload.single('file'), async (r
 
     await updateLastSeen(senderLogin);
 
-    // превью для видео
     let previewUrl = null;
     if (attachmentType === 'video') {
       try {
@@ -1836,13 +1829,11 @@ app.post('/api/messages/send-file', requireAuth, upload.single('file'), async (r
       [insert.lastID]
     );
 
-    // для фото/видео — генерируем "общее" имя
     if (row && (row.attachment_type === 'image' || row.attachment_type === 'video')) {
       const id      = row.id;
-      const base    = 'file' + id;
       const extSrc  = origName && origName.includes('.') ? origName.substring(origName.lastIndexOf('.')) : '';
       const ext     = extSrc || (row.attachment_type === 'image' ? '.jpg' : '.mp4');
-      const genName = base + ext;
+      const genName = 'file' + id + ext;
 
       try {
         await runMsg(
@@ -1872,7 +1863,6 @@ app.post('/api/messages/send-file', requireAuth, upload.single('file'), async (r
         row.sender_name = row.sender_login;
       }
 
-      // обновляем прочитанное для отправителя
       try {
         const existing = await getMsg(
           'SELECT id FROM chat_reads WHERE chat_id = ? AND user_login = ?',
@@ -1908,7 +1898,7 @@ app.post('/api/messages/send-file', requireAuth, upload.single('file'), async (r
   }
 });
 
-// /api/messages/list — список сообщений чата
+// /api/messages/list
 app.post('/api/messages/list', requireAuth, async (req, res) => {
   try {
     const { chatId, login } = req.body;
@@ -1920,7 +1910,6 @@ app.post('/api/messages/list', requireAuth, async (req, res) => {
       return res.status(400).json({ ok: false, error: 'Нет логина' });
     }
 
-    // Проверяем, что запрашивающий состоит в этом чате
     const participants = await getChatParticipantsLogins(chatId);
     const lowerLogin   = String(login || '').toLowerCase();
     const inChat = participants.some(l => String(l || '').toLowerCase() === lowerLogin);
@@ -2055,7 +2044,7 @@ app.post('/api/messages/list', requireAuth, async (req, res) => {
   }
 });
 
-// /api/chat/attachments — список медиа, файлов и аудио чата
+// /api/chat/attachments
 app.post('/api/chat/attachments', requireAuth, async (req, res) => {
   try {
     const sessLogin = req.session.login;
@@ -2065,7 +2054,6 @@ app.post('/api/chat/attachments', requireAuth, async (req, res) => {
       return res.status(400).json({ ok: false, error: 'Нет логина или chatId' });
     }
 
-    // Проверяем, что пользователь состоит в этом чате
     const participants = await getChatParticipantsLogins(chatId);
     const lowerLogin   = String(sessLogin || '').toLowerCase();
     const inChat = participants.some(l => String(l || '').toLowerCase() === lowerLogin);
@@ -2140,10 +2128,10 @@ app.post('/api/chat/attachments', requireAuth, async (req, res) => {
   }
 });
 
-// /api/messages/send — текстовое сообщение
+// /api/messages/send
 app.post('/api/messages/send', requireAuth, async (req, res) => {
   try {
-    const senderLogin = req.session.login;   // единственный источник истины
+    const senderLogin = req.session.login;
     const { chatId, text } = req.body;
 
     if (!chatId || !text || !String(text).trim()) {
@@ -2233,7 +2221,7 @@ app.post('/api/messages/send', requireAuth, async (req, res) => {
   }
 });
 
-// /api/messages/forward — пересылка сообщения
+// /api/messages/forward
 app.post('/api/messages/forward', requireAuth, async (req, res) => {
   try {
     const { login, messageId, targetChatIds } = req.body;
@@ -2359,9 +2347,7 @@ app.post('/api/messages/forward', requireAuth, async (req, res) => {
           const fn = (u.first_name || '') + ' ' + (u.last_name || '');
           row.sender_name = fn.trim() || login;
         }
-      } catch (e3) {
-        // ignore
-      }
+      } catch (e3) {}
 
       sendPushForMessage(row).catch(err => {
         console.error('sendPushForMessage (forward) error:', err);
@@ -2601,19 +2587,20 @@ app.post('/api/groups/create', requireAuth, async (req, res) => {
 
 // /api/group/info
 app.post('/api/group/info', requireAuth, async (req, res) => {
-    // Проверяем, что пользователь состоит в этом чате
-  const sessLogin = req.session.login;
-  const participants = await getChatParticipantsLogins(chatId);
-  const lowerLogin = String(sessLogin || '').toLowerCase();
-  const inChat = participants.some(l => String(l || '').toLowerCase() === lowerLogin);
-  if (!inChat) {
-    return res.status(403).json({ error: 'Вы не состоите в этом чате' });
-  }
   try {
+    const sessLogin = req.session.login;
     const { chatId } = req.body;
 
-    if (!chatId) {
-      return res.status(400).json({ error: 'Нет chatId' });
+    if (!sessLogin || !chatId) {
+      return res.status(400).json({ error: 'Нет логина или chatId' });
+    }
+
+    // проверяем, что пользователь состоит в этом чате
+    const participants = await getChatParticipantsLogins(chatId);
+    const lowerLogin = String(sessLogin || '').toLowerCase();
+    const inChat = participants.some(l => String(l || '').toLowerCase() === lowerLogin);
+    if (!inChat) {
+      return res.status(403).json({ error: 'Вы не состоите в этом чате' });
     }
 
     let teamKey;
@@ -3013,34 +3000,29 @@ app.post('/api/group/rename', requireAuth, async (req, res) => {
       return res.status(409).json({ error: 'Группа с таким названием уже существует' });
     }
 
-    // 1) переименовываем группу
     await run(
       db,
       'UPDATE created_groups SET name = ? WHERE id = ?',
       [cleanNew, group.id]
     );
 
-    // 2) обновляем участников кастомной группы
     await run(
       db,
       'UPDATE group_custom_members SET group_name = ? WHERE group_name = ?',
       [cleanNew, oldName]
     );
 
-    // 3) переносим мьюты на новый chatId
     await run(
       db,
       'UPDATE chat_mutes SET chat_id = ? WHERE chat_id = ?',
       [cleanNew, oldName]
     );
 
-    // 4) переносим закреплённые сообщения на новый chatId
     await runMsg(
       'UPDATE chat_pins SET chat_id = ? WHERE chat_id = ?',
       [cleanNew, oldName]
     );
 
-    // 5) обновляем chat_id в сообщениях и прочитанности
     await runMsg(
       'UPDATE messages SET chat_id = ? WHERE chat_id = ?',
       [cleanNew, oldName]
@@ -3415,15 +3397,13 @@ app.post('/api/feed/create', requireAuth, upload.single('image'), async (req, re
 
 // ---------- START ----------
 
-const HTTP_PORT  = PORT;   // 3000, как и раньше
-const HTTPS_PORT = 3443;   // новый порт под https
+const HTTP_PORT  = PORT;
+const HTTPS_PORT = 3443;
 
-// HTTP — чтобы с ноутбука всё работало, как раньше: http://localhost:3000
 app.listen(HTTP_PORT, () => {
   console.log('HTTP API listening on port ' + HTTP_PORT);
 });
 
-// HTTPS — для айфона / secure context
 const httpsOptions = {
   key:  fs.readFileSync(path.join(__dirname, 'certs', 'dev-key.pem')),
   cert: fs.readFileSync(path.join(__dirname, 'certs', 'dev-cert.pem'))

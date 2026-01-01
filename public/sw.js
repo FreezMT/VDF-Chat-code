@@ -25,7 +25,6 @@ self.addEventListener('push', function (event) {
       icon,
       tag,
       data: notifData
-      // renotify не обязателен, tag уже группирует уведомления
     })
   );
 });
@@ -42,7 +41,6 @@ self.addEventListener('notificationclick', function (event) {
       includeUncontrolled: true
     });
 
-    // Если есть chatId — пробуем открыть/фокусировать окно приложения и сообщить ему нужный чат
     if (chatId) {
       if (allClients.length > 0) {
         const client = allClients[0];
@@ -50,31 +48,23 @@ self.addEventListener('notificationclick', function (event) {
           if ('focus' in client) {
             await client.focus();
           }
-        } catch (e) {
-          // ignore focus error
-        }
+        } catch (e) {}
+
         try {
           client.postMessage({ type: 'OPEN_CHAT', chatId });
-        } catch (e) {
-          // ignore postMessage error
-        }
+        } catch (e) {}
         return;
       }
 
-      // Если окон нет — открываем новое с параметром chatId
       await self.clients.openWindow('/?chatId=' + encodeURIComponent(chatId));
       return;
     }
 
-    // Без chatId: фокусируем видимое окно или открываем url
     for (const client of allClients) {
-      // visibilityState есть только у контролируемых клиентов, но includeUncontrolled:true это покрывает
       if (client.visibilityState === 'visible') {
         try {
           await client.focus();
-        } catch (e) {
-          // ignore
-        }
+        } catch (e) {}
         return;
       }
     }

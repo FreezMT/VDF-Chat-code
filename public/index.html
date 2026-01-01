@@ -18,7 +18,7 @@
     <main id="welcome" class="welcome-screen">
         <section class="welcome-content">
             <h1 class="welcome-title">
-                Добро пожаловаться в<br>
+                Добро пожаловать в<br>
                 <span>VDF Chat</span>
             </h1>
             <p class="welcome-subtitle">
@@ -53,7 +53,7 @@
 
             <p class="field-note">Только на латинице</p>
             <div class="field field-password">
-                <input id="passwordInput" type="password" maxlength="20" placeholder="Парроль">
+                <input id="passwordInput" type="password" maxlength="20" placeholder="Пароль">
                 <button type="button" class="toggle-password" aria-label="Показать пароль"></button>
             </div>
 
@@ -343,7 +343,7 @@
             </div>
         </div>
 
-        <!-- MODAL WITH USER INFO -->
+        <!-- MODАЛ WITH USER INFO -->
         <div id="chatUserModal" class="chat-user-modal">
             <div class="chat-user-modal-backdrop"></div>
             <div class="chat-user-modal-card">
@@ -475,8 +475,31 @@
         <div id="mediaViewer" class="media-viewer">
             <div class="media-viewer-backdrop"></div>
             <div class="media-viewer-content">
-                <img  id="mediaViewerImg"   class="media-viewer-img"   src="" alt="">
-                <video id="mediaViewerVideo" class="media-viewer-video" controls></video>
+                <div class="media-viewer-chrome">
+                    <div class="media-viewer-topbar">
+                        <button type="button" id="mediaViewerCloseBtn" class="media-viewer-close-btn">✕</button>
+                        <div class="media-viewer-title" id="mediaViewerTitle"></div>
+                    </div>
+
+                    <div class="media-viewer-main">
+                        <img  id="mediaViewerImg"   class="media-viewer-img"   src="" alt="">
+                        <video id="mediaViewerVideo" class="media-viewer-video" playsinline webkit-playsinline></video>
+                    </div>
+
+                    <div class="media-viewer-bottombar" id="mediaViewerControls">
+                        <button type="button" id="mediaViewerPlayPause" class="media-viewer-playpause"></button>
+                        <div class="media-viewer-timeline">
+                            <div class="media-viewer-timeline-track">
+                                <div class="media-viewer-timeline-fill" id="mediaViewerTimelineFill"></div>
+                                <div class="media-viewer-timeline-thumb" id="mediaViewerTimelineThumb"></div>
+                            </div>
+                        </div>
+                        <div class="media-viewer-time">
+                            <span id="mediaViewerCurrentTime">0:00</span>
+                            <span id="mediaViewerTotalTime">0:00</span>
+                        </div>
+                    </div>
+                </div>
             </div>
         </div>
     </main>
