@@ -764,13 +764,13 @@ body.welcome-active {
     width:36px;
     height:36px;
     border-radius:50%;
-    border:none;
+    border:2px solid #FFFFFF;
     padding:0;
     cursor:pointer;
     display:flex;
     align-items:center;
     justify-content:center;
-    background-color:#FFFFFF;
+    background-color:#000000;
     background-image:url("icons/play.png");
     background-repeat:no-repeat;
     background-position:center;
@@ -778,10 +778,13 @@ body.welcome-active {
     transition:
         transform 0.15s ease,
         box-shadow 0.15s ease,
-        background-image 0.15s linear;
+        background-image 0.15s linear,
+        background-color 0.15s linear,
+        border-color 0.15s linear;
 }
 .msg-item.msg-me .msg-voice-play{
-    background-color:#000000;
+    background-color:#FFFFFF;
+    border-color:#000000;
 }
 .msg-voice-play.playing{
     background-image:url("icons/pause.png");
@@ -2415,4 +2418,15 @@ body.welcome-active {
 }
 *::-webkit-scrollbar {
     display: none;
+}
+
+.msg-video-duration{
+    position:absolute;
+    left:6px;
+    top:6px;
+    padding:2px 6px;
+    border-radius:8px;
+    background:rgba(0,0,0,0.6);
+    font-size:11px;
+    color:#FFFFFF;
 }

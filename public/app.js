@@ -938,13 +938,22 @@ function renderChatAttachmentsInto(mediaArr, filesArr, audioArr, mediaGrid, file
             row.appendChild(icon);
             row.appendChild(main);
 
+            var isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent || '') && !window.MSStream;
+
             row.addEventListener('click', function () {
+                if (!f.url) return;
                 if (row.dataset.downloaded === '1') return;
 
                 var aTag = document.createElement('a');
                 aTag.href = f.url;
                 aTag.download = f.name || '';
-                aTag.target = '_blank';
+
+                // На iOS открываем в этом же окне (появится системный просмотрщик с кнопкой "Готово")
+                // На остальных устройствах — в новой вкладке
+                if (!isIOS) {
+                    aTag.target = '_blank';
+                }
+
                 document.body.appendChild(aTag);
                 aTag.click();
                 document.body.removeChild(aTag);
@@ -952,7 +961,6 @@ function renderChatAttachmentsInto(mediaArr, filesArr, audioArr, mediaGrid, file
                 row.dataset.downloaded = '1';
                 icon.classList.add('downloaded');
             });
-
             filesList.appendChild(row);
         });
     }
@@ -1498,7 +1506,7 @@ function openMediaViewer(url, type, sourceEl) {
         mediaViewerImg.src = '';
 
         mediaViewerVideo.muted    = false;
-        mediaViewerVideo.controls = false; // без системных контролов
+        mediaViewerVideo.controls = true; // показываем системный плеер (timeline и т.п.)
         mediaViewerVideo.setAttribute('playsinline','true');
         mediaViewerVideo.setAttribute('webkit-playsinline','true');
         mediaViewerVideo.currentTime = 0;
@@ -2542,6 +2550,40 @@ function renderMessage(msg) {
     attachMessageInteractions(item, msg);
 
     adjustMediaBlurForMessage(item);
+    // --- компенсация "подпрыгивания" при догрузке фото/видео ---
+    if (chatContent && msg.attachment_type && (msg.attachment_type === 'image' || msg.attachment_type === 'video')) {
+        var mediaEl = null;
+        if (msg.attachment_type === 'image') {
+            mediaEl = item.querySelector('.msg-attachment-image');
+        } else if (msg.attachment_type === 'video') {
+            mediaEl = item.querySelector('.msg-attachment-video');
+        }
+
+        if (mediaEl) {
+            var adjust = function () {
+                if (!chatContent) return;
+                var fromBottom = chatContent.scrollHeight - (chatContent.scrollTop + chatContent.clientHeight);
+                // если пользователь был близко к низу (до 40px) — удерживаем внизу
+                if (fromBottom <= 40) {
+                    chatContent.scrollTop = chatContent.scrollHeight;
+                }
+            };
+
+            if (mediaEl.tagName.toLowerCase() === 'img') {
+                if (mediaEl.complete) {
+                    adjust();
+                } else {
+                    mediaEl.addEventListener('load', adjust, { once:true });
+                }
+            } else {
+                if (mediaEl.readyState >= 1) {
+                    adjust();
+                } else {
+                    mediaEl.addEventListener('loadedmetadata', adjust, { once:true });
+                }
+            }
+        }
+    }
 }
 
 function renderPinnedTop(msg) {
@@ -2861,10 +2903,9 @@ function showMsgContextMenu(msgInfo, item) {
      * Позиционирование меню.
      * allowScroll = true — можем один раз прокрутить чат, чтобы меню влезло снизу.
      */
-    function positionMenu(allowScroll) {
+    function positionMenu() {
         if (!msgContextMenu || !currentMsgContextItem) return;
 
-        // ориентируемся на всю колонку сообщения (с медиа и reply), а не только bubble
         var refEl = currentMsgContextItem.querySelector('.msg-col') ||
                     currentMsgContextItem.querySelector('.msg-bubble') ||
                     currentMsgContextItem;
@@ -2872,10 +2913,9 @@ function showMsgContextMenu(msgInfo, item) {
         var rect = refEl.getBoundingClientRect();
         var vh   = window.innerHeight;
 
-        var menuH  = msgContextMenu.offsetHeight || 160;
+        var menuH  = msgContextMenu.offsetHeight || 180;
         var margin = 8;
 
-        // верхняя безопасная зона: шапка + закреплённое сообщение
         var headerH = 64;
         var pinnedH = 0;
         if (pinnedTopBar && pinnedTopBar.style.display !== 'none') {
@@ -2884,7 +2924,6 @@ function showMsgContextMenu(msgInfo, item) {
         }
         var safeTop = headerH + pinnedH + 8;
 
-        // нижняя безопасная зона: инпут + reply‑бар + attach‑preview
         var bottomReserve = 8;
         if (chatInputForm) {
             var ir = chatInputForm.getBoundingClientRect();
@@ -2900,44 +2939,18 @@ function showMsgContextMenu(msgInfo, item) {
         }
         var safeBottom = bottomReserve;
 
-        var desiredTopBelow = rect.bottom + margin;
-        var fitsBelowNow = (desiredTopBelow + menuH + safeBottom <= vh);
-        var spaceAbove = (rect.top - margin) - safeTop;
-
+        var spaceBelow = vh - safeBottom - rect.bottom;
         var top;
 
-        if (fitsBelowNow) {
-            // уже влезает снизу
-            top = desiredTopBelow;
-        } else if (allowScroll && chatContent) {
-            // пытаемся прокрутить чат так, чтобы меню влезло снизу
-            var maxRectBottom = vh - safeBottom - menuH - margin;
-            var needDelta = rect.bottom - maxRectBottom;
-            if (needDelta < 0) needDelta = 0;
-
-            var newScrollTop = chatContent.scrollTop + needDelta;
-            if (newScrollTop < 0) newScrollTop = 0;
-
-            if (typeof chatContent.scrollTo === 'function') {
-                chatContent.scrollTo({ top: newScrollTop, behavior: 'smooth' });
-            } else {
-                chatContent.scrollTop = newScrollTop;
-            }
-
-            // после прокрутки — один повтор позиционирования без скролла
-            setTimeout(function () {
-                positionMenu(false);
-            }, 260);
-            return;
-        } else if (spaceAbove >= menuH) {
-            // снизу не влезает — ставим над сообщением
-            top = rect.top - menuH - margin;
+        if (spaceBelow >= menuH + margin) {
+            // достаточно места снизу — ставим под сообщением
+            top = rect.bottom + margin;
         } else {
-            // втискиваем между safeTop и нижней границей
-            top = desiredTopBelow;
+            // иначе — всегда НАД сообщением
+            top = rect.top - menuH - margin;
         }
 
-        // финальный clamp в безопасную область
+        // clamp в безопасную область
         if (top + menuH + safeBottom > vh) {
             top = vh - safeBottom - menuH;
         }
@@ -2947,7 +2960,6 @@ function showMsgContextMenu(msgInfo, item) {
 
         msgContextMenu.style.top = top + 'px';
 
-        // горизонтальное выравнивание
         if (isMe) {
             msgContextMenu.style.right = '12px';
             msgContextMenu.style.left  = 'auto';
@@ -4963,7 +4975,7 @@ function showMsgContextMenu(msgInfo, item) {
      * Позиционирование меню.
      * allowScroll = true — можно один раз прокрутить чат, чтобы меню влезло.
      */
-    function positionMenu(allowScroll) {
+    function positionMenu() {
         if (!msgContextMenu || !currentMsgContextItem) return;
 
         // ориентируемся на всю колонку сообщения (с медиа и reply), а не только bubble
