@@ -416,13 +416,12 @@ function startSystemVoiceFileChooser() {
 }
 
 function setChatLoading(isLoading) {
-    if (!chatContent) return;
-    if (chatLoadingOverlay) {
-        if (isLoading) chatLoadingOverlay.classList.add('show');
-        else           chatLoadingOverlay.classList.remove('show');
+    if (!chatLoadingOverlay) return;
+    if (isLoading) {
+        chatLoadingOverlay.classList.add('show');
+    } else {
+        chatLoadingOverlay.classList.remove('show');
     }
-    // прячем содержимое на время отрисовки, чтобы не видеть "скачки"
-    chatContent.style.visibility = isLoading ? 'hidden' : 'visible';
 }
 
 
@@ -611,10 +610,10 @@ if (voiceFileInput) {
 }
 
 
-// свайп вправо для закрытия чата (контролируемый)
+// свайп вправо для закрытия чата (контролируемый, на всю ширину)
 var chatSwipeStartX = null;
 var chatSwipeStartY = null;
-var chatSwipeDx      = 0;
+var chatSwipeDx     = 0;
 
 function anyTopModalVisible() {
     if (chatUserModal && chatUserModal.classList.contains('visible')) return true;
@@ -636,7 +635,6 @@ if (chatScreen) {
         chatSwipeStartY = t.clientY;
         chatSwipeDx     = 0;
 
-        // на время жеста убираем переход, чтобы следовать за пальцем
         chatScreen.style.transition = 'none';
     }, { passive:true });
 
@@ -646,7 +644,7 @@ if (chatScreen) {
         var dx = t.clientX - chatSwipeStartX;
         var dy = t.clientY - chatSwipeStartY;
 
-        // интересует только свайп вправо, преимущественно по горизонтали
+        // интересует только движение вправо по горизонтали
         if (dx <= 0 || Math.abs(dy) > Math.abs(dx)) {
             chatSwipeDx = 0;
             chatScreen.style.transform = 'translateX(0px)';
@@ -654,20 +652,20 @@ if (chatScreen) {
         }
 
         chatSwipeDx = dx;
-        var translate = Math.min(dx, 120); // максимум ~120px
+        var maxW    = window.innerWidth || 375;
+        var translate = Math.min(dx, maxW); // не выходим за экран
         chatScreen.style.transform = 'translateX(' + translate + 'px)';
     }, { passive:true });
 
     function finishChatSwipe(shouldClose) {
-        // возвращаем переход
         chatScreen.style.transition = 'transform 0.25s cubic-bezier(.4,0,.2,1)';
 
         if (shouldClose) {
-            // сбрасываем временный transform и запускаем обычное закрытие
+            // пускаем стандартную анимацию закрытия
             chatScreen.style.transform = '';
             closeChatScreenToMain();
         } else {
-            // откат обратно
+            // откатываем назад
             chatScreen.style.transform = 'translateX(0px)';
         }
 
@@ -677,7 +675,15 @@ if (chatScreen) {
 
     chatScreen.addEventListener('touchend', function () {
         if (chatSwipeStartX == null) return;
-        var shouldClose = chatSwipeDx > 80; // порог закрытия
+
+        var maxW    = window.innerWidth || 375;
+        var current = Math.min(Math.max(chatSwipeDx, 0), maxW);
+        var center  = maxW / 2;
+
+        // если левая граница чата левее центра — возвращаем;
+        // если правее центра — закрываем.
+        var shouldClose = current >= center;
+
         finishChatSwipe(shouldClose);
     });
 
@@ -4578,6 +4584,7 @@ async function openChat(chat) {
     // подготавливаем экран чата для анимации
     chatScreen.style.display = 'flex';
     chatScreen.classList.remove('chat-screen-visible');
+    chatScreen.style.transform = ''; // сбрасываем translateX
     requestAnimationFrame(function () {
         chatScreen.classList.add('chat-screen-visible');
     });
@@ -4615,20 +4622,22 @@ async function openChat(chat) {
         };
     }
 
-    if (chatInput)    chatInput.value = '';
-    if (chatContent)  {
+    if (chatInput) chatInput.value = '';
+    if (chatContent) {
         chatContent.innerHTML = '';
-        chatContent.style.visibility = 'hidden';
+        chatContent.scrollTop = 0;
     }
     clearReply();
 
     stopChatListPolling();
     stopMessagePolling();
 
-    // показываем "лоадер" и грузим сообщения
     setChatLoading(true);
-    await loadMessages(chat.id);
-    setChatLoading(false);
+    try {
+        await loadMessages(chat.id);
+    } finally {
+        setChatLoading(false);
+    }
 
     startMessagePolling();
     startChatStatusUpdates();

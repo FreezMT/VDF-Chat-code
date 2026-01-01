@@ -2406,15 +2406,31 @@ input, textarea {
     }
 }
 
-/* Превью отмены голосового */
-.chat-input-bar.recording-cancel-preview .voice-record-ui{
-    background-color:rgba(255,59,48,0.16);
-}
-.chat-input-bar.recording-cancel-preview .voice-red-dot{
-    animation:voice-cancel-blink 0.5s infinite alternate;
+.chat-mic-btn.mic-pressed{
+    transform:translate(-50%,-50%) scale(1.2);
+    box-shadow:0 8px 22px rgba(0,0,0,0.7);
 }
 
-@keyframes voice-cancel-blink{
-    from { opacity:1; }
-    to   { opacity:0.3; }
+/* микрофон во время записи: сдвинут, увеличен, пульсирует */
+.chat-input-bar.recording .chat-mic-btn{
+    opacity:1;
+    pointer-events:auto;
+    background-color:#FF3B30;
+    transform:translate(-50%,-50%) translateX(6px);
+    animation:mic-record-pulse 0.9s ease-in-out infinite;
+}
+
+@keyframes mic-record-pulse{
+    0%{
+        transform:translate(-50%,-50%) translateX(6px) scale(1.0);
+        box-shadow:0 4px 10px rgba(0,0,0,0.4);
+    }
+    50%{
+        transform:translate(-50%,-50%) translateX(6px) scale(1.18);
+        box-shadow:0 10px 24px rgba(0,0,0,0.8);
+    }
+    100%{
+        transform:translate(-50%,-50%) translateX(6px) scale(1.0);
+        box-shadow:0 4px 10px rgba(0,0,0,0.4);
+    }
 }
