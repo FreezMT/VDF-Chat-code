@@ -999,22 +999,22 @@ function renderChatAttachmentsInto(mediaArr, filesArr, audioArr, mediaGrid, file
                 }
             }
 
-            row.addEventListener('click', function () {
-                if (audioEl.paused) {
-                    stopCurrentAttachmentAudio();
-                    audioEl.play().catch(function(){});
-                    icon.classList.add('playing');
-                    currentAttachmentAudio     = audioEl;
-                    currentAttachmentAudioIcon = icon;
-                } else {
-                    audioEl.pause();
-                    icon.classList.remove('playing');
-                    if (currentAttachmentAudio === audioEl) {
-                        currentAttachmentAudio     = null;
-                        currentAttachmentAudioIcon = null;
-                    }
+        row.addEventListener('click', function () {
+            if (audioEl.paused) {
+                stopCurrentAttachmentAudio();
+                audioEl.play().catch(function(){});
+                icon.classList.add('playing');
+                currentAttachmentAudio     = audioEl;
+                currentAttachmentAudioIcon = icon;
+            } else {
+                audioEl.pause();
+                icon.classList.remove('playing');
+                if (currentAttachmentAudio === audioEl) {
+                    currentAttachmentAudio     = null;
+                    currentAttachmentAudioIcon = null;
                 }
-            });
+            }
+        });
 
             audioEl.addEventListener('ended', function () {
                 icon.classList.remove('playing');
@@ -1498,7 +1498,9 @@ function openMediaViewer(url, type, sourceEl) {
         mediaViewerImg.src = '';
 
         mediaViewerVideo.muted    = false;
-        mediaViewerVideo.controls = true;
+        mediaViewerVideo.controls = false; // без системных контролов
+        mediaViewerVideo.setAttribute('playsinline','true');
+        mediaViewerVideo.setAttribute('webkit-playsinline','true');
         mediaViewerVideo.currentTime = 0;
         mediaViewerVideo.play().catch(function(){});
     }
@@ -1561,75 +1563,16 @@ function closeMediaViewer() {
         }
     });
 
-    // свайп вниз для закрытия (контролируемый, порог ~1/5 экрана)
-    mediaViewer.addEventListener('touchstart', function (e) {
-        if (!mediaViewer.classList.contains('visible')) return;
-        if (e.touches.length !== 1) return;
-        var t = e.touches[0];
-        mediaSwipeStartY = t.clientY;
-        mediaSwipeDy     = 0;
-        if (mediaViewerContent) mediaViewerContent.style.transition = 'none';
-    }, { passive:true });
-
-    mediaViewer.addEventListener('touchmove', function (e) {
-        if (mediaSwipeStartY == null) return;
-        var t  = e.touches[0];
-        var dy = t.clientY - mediaSwipeStartY;
-        mediaSwipeDy = dy;
-
-        if (dy <= 0) {
-            if (mediaViewerContent) mediaViewerContent.style.transform = 'translate3d(0,0,0) scale(1)';
-            return;
-        }
-
-        var vh = window.innerHeight || 667;
-        var p  = Math.min(dy / vh, 1); // 0..1
-        var translateY = dy;
-        var scale      = 1 - 0.15 * p;
-
-        if (mediaViewerContent) {
-            mediaViewerContent.style.transform =
-                'translate3d(0,' + translateY + 'px,0) scale(' + scale + ')';
-        }
-    }, { passive:true });
-
-    function finishMediaSwipe() {
-        if (!mediaViewerContent) return;
-        var vh        = window.innerHeight || 667;
-        var threshold = vh * 0.2; // 1/5 экрана
-
-        mediaViewerContent.style.transition = 'transform 0.2s ease-out';
-
-        if (mediaSwipeDy > threshold) {
-            // закрываем viewer
-            mediaViewerContent.style.transform =
-                'translate3d(0,' + vh + 'px,0) scale(0.85)';
-            setTimeout(function () {
-                mediaViewerContent.style.transition = '';
-                mediaViewerContent.style.transform  = 'translate3d(0,0,0) scale(1)';
-                closeMediaViewer();
-            }, 180);
-        } else {
-            // откат вверх
-            mediaViewerContent.style.transform = 'translate3d(0,0,0) scale(1)';
-            setTimeout(function () {
-                mediaViewerContent.style.transition = '';
-            }, 180);
-        }
-
-        mediaSwipeStartY = null;
-        mediaSwipeDy     = 0;
+    if (mediaViewerVideo) {
+        mediaViewerVideo.addEventListener('click', function(e){
+            e.stopPropagation();
+            if (mediaViewerVideo.paused) {
+                mediaViewerVideo.play().catch(function(){});
+            } else {
+                mediaViewerVideo.pause();
+            }
+        });
     }
-
-    mediaViewer.addEventListener('touchend', function () {
-        if (mediaSwipeStartY == null) return;
-        finishMediaSwipe();
-    });
-
-    mediaViewer.addEventListener('touchcancel', function () {
-        if (mediaSwipeStartY == null) return;
-        finishMediaSwipe();
-    });
 })();
 
 // ---------- PREVIEW ВЛОЖЕНИЙ В ИНПУТ-БАРЕ ----------
@@ -2295,50 +2238,65 @@ function renderMessage(msg) {
                 openMediaViewer(msg.attachment_url, 'image', imgAtt);
             });
             mediaWrapper.appendChild(imgAtt);
-        } else if (msg.attachment_type === 'video') {
-            var preview = msg.attachment_preview || null;
-            if (preview) {
-                var bg2 = document.createElement('div');
-                bg2.className = 'msg-media-bg';
-                bg2.style.backgroundImage = 'url("' + preview + '")';
-                mediaWrapper.appendChild(bg2);
-            }
-
-            var videoAtt = document.createElement('video');
-            videoAtt.className = 'msg-attachment-video';
-            videoAtt.src = msg.attachment_url;
-            if (preview) {
-                videoAtt.setAttribute('poster', preview);
-            }
-            videoAtt.muted       = true;
-            videoAtt.loop        = true;
-            videoAtt.playsInline = true;
-            videoAtt.preload     = 'auto';
-            videoAtt.autoplay    = true;
-            videoAtt.controls    = false;
-
-            videoAtt.addEventListener('canplay', function () {
-                videoAtt.play().catch(function(){});
-            });
-            videoAtt.addEventListener('click', function (e) {
-                e.preventDefault();  // не даём Safari открыть свой плеер
-                e.stopPropagation();
-                openMediaViewer(msg.attachment_url, 'video', videoAtt);
-            });
-
-            mediaWrapper.appendChild(videoAtt);
-
-            var durationBadge = document.createElement('div');
-            durationBadge.className = 'msg-video-duration';
-            durationBadge.textContent = ''; // заполним после metadata
-            mediaWrapper.appendChild(durationBadge);
-
-            videoAtt.addEventListener('loadedmetadata', function () {
-                if (!isNaN(videoAtt.duration)) {
-                    durationBadge.textContent = formatSecondsToMMSS(videoAtt.duration);
+            } else if (msg.attachment_type === 'video') {
+                var preview = msg.attachment_preview || null;
+                if (preview) {
+                    var bg2 = document.createElement('div');
+                    bg2.className = 'msg-media-bg';
+                    bg2.style.backgroundImage = 'url("' + preview + '")';
+                    mediaWrapper.appendChild(bg2);
                 }
-            });
-        }
+
+                var videoAtt = document.createElement('video');
+                videoAtt.className = 'msg-attachment-video';
+                videoAtt.src = msg.attachment_url;
+                if (preview) {
+                    videoAtt.setAttribute('poster', preview);
+                }
+                videoAtt.muted       = true;
+                videoAtt.loop        = true;
+                videoAtt.playsInline = true;
+                videoAtt.setAttribute('playsinline','true');
+                videoAtt.setAttribute('webkit-playsinline','true');
+                videoAtt.preload     = 'metadata';
+                videoAtt.autoplay    = true;
+                videoAtt.controls    = false;
+
+                var durLabel = document.createElement('div');
+                durLabel.className = 'msg-video-duration';
+                durLabel.textContent = '';
+                mediaWrapper.appendChild(durLabel);
+
+                var totalDuration = 0;
+
+                videoAtt.addEventListener('loadedmetadata', function () {
+                    if (!isNaN(videoAtt.duration) && isFinite(videoAtt.duration)) {
+                        totalDuration = videoAtt.duration;
+                        durLabel.textContent = formatSecondsToMMSS(totalDuration);
+                    }
+                    videoAtt.play().catch(function(){});
+                });
+
+                videoAtt.addEventListener('timeupdate', function () {
+                    if (!totalDuration || isNaN(totalDuration)) return;
+                    var remaining = Math.max(0, totalDuration - videoAtt.currentTime);
+                    durLabel.textContent = formatSecondsToMMSS(remaining);
+                });
+
+                videoAtt.addEventListener('ended', function () {
+                    if (totalDuration) {
+                        durLabel.textContent = formatSecondsToMMSS(totalDuration);
+                    }
+                });
+
+                videoAtt.addEventListener('click', function (e) {
+                    e.stopPropagation();
+                    e.preventDefault();
+                    openMediaViewer(msg.attachment_url, 'video');
+                });
+
+                mediaWrapper.appendChild(videoAtt);
+            }
 
         col.appendChild(mediaWrapper);
     }
@@ -2401,35 +2359,38 @@ function renderMessage(msg) {
         timeLabel.textContent = '0:00';
         voiceWrap.appendChild(timeLabel);
 
+        bubble.appendChild(voiceWrap);
+
         var audio = new Audio(msg.attachment_url);
         audio.preload = 'metadata';
 
         var totalDuration = 0;
 
         audio.addEventListener('loadedmetadata', function () {
-            if (!isNaN(audio.duration)) {
+            if (!isNaN(audio.duration) && isFinite(audio.duration)) {
                 totalDuration = audio.duration;
-                timeLabel.textContent = formatSecondsToMMSS(totalDuration); // показываем общее время
+                timeLabel.textContent = formatSecondsToMMSS(totalDuration); // сначала показываем полную длительность
             }
         });
 
         audio.addEventListener('timeupdate', function () {
             if (!totalDuration || isNaN(totalDuration)) return;
-            var ratio = audio.currentTime / totalDuration;
+            var remaining = Math.max(0, totalDuration - audio.currentTime);
+            var ratio = (totalDuration - remaining) / totalDuration;
             var playedCount = Math.round(bars.length * ratio);
             bars.forEach(function(b, idx){
                 if (idx < playedCount) b.classList.add('played');
                 else b.classList.remove('played');
             });
-
-            var remaining = Math.max(totalDuration - audio.currentTime, 0);
-            timeLabel.textContent = formatSecondsToMMSS(remaining); // обратный таймер
+            timeLabel.textContent = formatSecondsToMMSS(remaining); // обратный отсчёт
         });
 
         audio.addEventListener('ended', function () {
             playBtn.classList.remove('playing');
             bars.forEach(function(b){ b.classList.remove('played'); });
-            timeLabel.textContent = '0:00';
+            if (totalDuration) {
+                timeLabel.textContent = formatSecondsToMMSS(totalDuration);
+            }
             if (currentVoiceAudio === audio) {
                 currentVoiceAudio   = null;
                 currentVoicePlayBtn = null;
@@ -2461,11 +2422,11 @@ function renderMessage(msg) {
         });
 
         function seekFromEvent(ev){
-            if (!audio.duration || isNaN(audio.duration)) return;
+            if (!totalDuration || isNaN(totalDuration)) return;
             var rect = wave.getBoundingClientRect();
             var x = ev.clientX - rect.left;
             var ratio = Math.max(0, Math.min(1, x / rect.width));
-            audio.currentTime = ratio * audio.duration;
+            audio.currentTime = ratio * totalDuration;
         }
 
         wave.addEventListener('click', function(e){
@@ -2485,7 +2446,6 @@ function renderMessage(msg) {
             seekFromEvent(t);
         }, { passive: true });
     }
-
     // ФАЙЛ
     if (msg.attachment_type === 'file' && msg.attachment_url) {
         var fileBox = document.createElement('div');
@@ -3366,7 +3326,7 @@ async function loadMessages(chatId) {
             lastId:                   0,
             pinnedId:                 null,
             firstUnreadId:            null,
-            needScrollToFirstUnread:  false   // ВСЕГДА просто скроллим в самый низ
+            needScrollToFirstUnread:  false  // не скроллим к непрочитанным
         };
     }
     await refreshMessages(false);
@@ -6213,35 +6173,9 @@ async function refreshMessages(preserveScroll) {
             messagesById = {};
             messages.forEach(function (m) { messagesById[m.id] = m; });
 
-            if (state.needScrollToFirstUnread) {
-                var firstUnreadId = null;
-
-                if (currentUser) {
-                    for (var i = 0; i < messages.length; i++) {
-                        var msg = messages[i];
-                        if (msg.sender_login === currentUser.login) continue;
-                        if (!myLastReadId || msg.id > myLastReadId) {
-                            firstUnreadId = msg.id;
-                            break;
-                        }
-                    }
-                }
-                state.firstUnreadId = firstUnreadId;
-            }
-
             chatContent.innerHTML = '';
 
-            var firstUnreadIdForRender = state.firstUnreadId;
-
             messages.forEach(function (m) {
-                if (firstUnreadIdForRender && m.id === firstUnreadIdForRender) {
-                    var sep = document.createElement('div');
-                    sep.className = 'msg-unread-separator';
-                    var span = document.createElement('span');
-                    span.textContent = 'Непрочитанные сообщения';
-                    sep.appendChild(span);
-                    chatContent.appendChild(sep);
-                }
                 renderMessage(m);
             });
 
@@ -6249,43 +6183,7 @@ async function refreshMessages(preserveScroll) {
 
             var newScrollHeight = chatContent.scrollHeight;
 
-            if (state.needScrollToFirstUnread) {
-                var targetMsgId = state.firstUnreadId;
-
-                function scrollToTarget() {
-                    if (!chatContent) return;
-
-                    var target = null;
-                    if (targetMsgId) {
-                        target = chatContent.querySelector(
-                            '.msg-item[data-msg-id="' + targetMsgId + '"]'
-                        );
-                    }
-                    if (!target) {
-                        target = chatContent.querySelector('.msg-unread-separator');
-                    }
-
-                    if (!target) {
-                        chatContent.scrollTop = chatContent.scrollHeight;
-                        return;
-                    }
-
-                    var pinnedH = 0;
-                    if (pinnedTopBar && pinnedTopBar.style.display !== 'none') {
-                        pinnedH = pinnedTopBar.getBoundingClientRect().height || 0;
-                    }
-                    var extra = 8;
-                    var top = target.offsetTop - pinnedH - extra;
-                    if (top < 0) top = 0;
-                    chatContent.scrollTop = top;
-                }
-
-                scrollToTarget();
-                setTimeout(scrollToTarget, 300);
-                setTimeout(scrollToTarget, 800);
-
-                state.needScrollToFirstUnread = false;
-            } else if (preserveScroll) {
+            if (preserveScroll) {
                 if (fromBottom <= 80) chatContent.scrollTop = newScrollHeight;
                 else chatContent.scrollTop = prevScrollTop;
             } else {

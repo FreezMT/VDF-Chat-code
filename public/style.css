@@ -20,16 +20,8 @@ body {
     user-select: none;
     -webkit-touch-callout: none;
 }
-
 body.welcome-active {
     background-color: #1C1C1C;
-}
-
-input, textarea {
-    -webkit-user-select: text;
-    -moz-user-select: text;
-    -ms-user-select: text;
-    user-select: text;
 }
 
 /* ========== SPLASH ========== */
@@ -273,7 +265,7 @@ input, textarea {
     position:absolute;
     inset:0;
     opacity:0;
-    pointer-events:auto; /* ВАЖНО: кликабельно */
+    pointer-events:auto;
     cursor:pointer;
 }
 .date-btn{
@@ -432,7 +424,7 @@ input, textarea {
     display:block;
 }
 
-/* ========== CHAT SCREEN (анимация выезда справа) ========== */
+/* ========== CHAT SCREEN ========== */
 .chat-screen{
     position:fixed;
     inset:0;
@@ -522,6 +514,34 @@ input, textarea {
     overflow-y:auto;
 }
 
+/* LOADER поверх чата */
+.chat-loading-overlay{
+    position:absolute;
+    top:64px;
+    left:0;
+    right:0;
+    bottom:80px;
+    background:rgba(0,0,0,0.35);
+    display:none;
+    align-items:center;
+    justify-content:center;
+    z-index:5;
+}
+.chat-loading-overlay.show{
+    display:flex;
+}
+.chat-loading-spinner{
+    width:32px;
+    height:32px;
+    border-radius:50%;
+    border:3px solid rgba(255,255,255,0.3);
+    border-top-color:#FFFFFF;
+    animation:chat-loading-spin 0.7s linear infinite;
+}
+@keyframes chat-loading-spin{
+    to { transform:rotate(360deg); }
+}
+
 /* CHAT INPUT BAR */
 .chat-input-bar{
     position:fixed;
@@ -535,7 +555,7 @@ input, textarea {
     background:transparent;
 }
 
-/* textarea вместо input */
+/* textarea */
 .chat-input-bar textarea{
     flex:1;
     border-radius:12px;
@@ -613,6 +633,7 @@ input, textarea {
     pointer-events:none;
     transform:translate(-50%,-50%) translateX(-8px);
 }
+
 .chat-input-bar.can-send:not(.recording) .chat-mic-btn{
     opacity:0;
     pointer-events:none;
@@ -623,6 +644,14 @@ input, textarea {
     pointer-events:auto;
     transform:translate(-50%,-50%);
 }
+
+/* микрофон при нажатии */
+.chat-mic-btn.mic-pressed{
+    transform:translate(-50%,-50%) scale(1.2);
+    box-shadow:0 8px 22px rgba(0,0,0,0.7);
+}
+
+/* микрофон во время записи: сдвинут, увеличен, пульсирует */
 .chat-input-bar.recording .chat-mic-btn{
     opacity:1;
     pointer-events:auto;
@@ -633,6 +662,21 @@ input, textarea {
 .chat-input-bar.recording .chat-send-btn{
     opacity:0;
     pointer-events:none;
+}
+
+@keyframes mic-record-pulse{
+    0%{
+        transform:translate(-50%,-50%) translateX(6px) scale(1.0);
+        box-shadow:0 4px 10px rgba(0,0,0,0.4);
+    }
+    50%{
+        transform:translate(-50%,-50%) translateX(6px) scale(1.18);
+        box-shadow:0 10px 24px rgba(0,0,0,0.8);
+    }
+    100%{
+        transform:translate(-50%,-50%) translateX(6px) scale(1.0);
+        box-shadow:0 4px 10px rgba(0,0,0,0.4);
+    }
 }
 
 /* панель записи */
@@ -662,6 +706,19 @@ input, textarea {
     opacity:1;
     transform:translateX(0);
 }
+
+/* превью отмены записи */
+.chat-input-bar.recording-cancel-preview .voice-record-ui{
+    background-color:rgba(255,59,48,0.16);
+}
+.chat-input-bar.recording-cancel-preview .voice-red-dot{
+    animation:voice-cancel-blink 0.5s infinite alternate;
+}
+@keyframes voice-cancel-blink{
+    from { opacity:1; }
+    to   { opacity:0.3; }
+}
+
 .voice-red-dot{
     width:8px;
     height:8px;
@@ -704,8 +761,8 @@ input, textarea {
     gap:10px;
 }
 .msg-voice-play{
-    width:34px;
-    height:34px;
+    width:36px;
+    height:36px;
     border-radius:50%;
     border:none;
     padding:0;
@@ -715,25 +772,22 @@ input, textarea {
     justify-content:center;
     background-color:#FFFFFF;
     background-image:url("icons/play.png");
-    background-position:center;
     background-repeat:no-repeat;
+    background-position:center;
     background-size:18px 18px;
-    box-shadow:0 3px 8px rgba(0,0,0,0.45);
     transition:
-        transform 0.12s ease-out,
-        box-shadow 0.12s ease-out;
+        transform 0.15s ease,
+        box-shadow 0.15s ease,
+        background-image 0.15s linear;
 }
 .msg-item.msg-me .msg-voice-play{
     background-color:#000000;
 }
 .msg-voice-play.playing{
     background-image:url("icons/pause.png");
+    transform:scale(1.08);
+    box-shadow:0 4px 12px rgba(0,0,0,0.6);
 }
-.msg-voice-play:active{
-    transform:scale(0.9);
-    box-shadow:0 1px 4px rgba(0,0,0,0.6);
-}
-
 .msg-voice-wave{
     flex:1;
     display:flex;
@@ -1441,6 +1495,18 @@ input, textarea {
     border-top-right-radius:0;
 }
 
+/* таймер видео */
+.msg-video-duration{
+    position:absolute;
+    left:6px;
+    top:6px;
+    padding:2px 6px;
+    border-radius:8px;
+    background:rgba(0,0,0,0.6);
+    font-size:11px;
+    color:#FFFFFF;
+}
+
 /* reply bar */
 .reply-bar{
     position:fixed;
@@ -1625,7 +1691,7 @@ input, textarea {
     align-items:flex-start;
     justify-content:flex-start;
     background:rgba(0,0,0,0.20);
-    backdrop-filter:blur(8px);        /* blur фона */
+    backdrop-filter:blur(8px);
     z-index:90;                       /* ниже chat-item-pressed (101) */
     opacity:0;
     pointer-events:none;
@@ -1677,15 +1743,15 @@ input, textarea {
     background-color:#222222;
 }
 
-/* Сообщения: только лёгкое затемнение фона (без blur), островок слева/справа */
+/* Сообщения: затемнение фона под сообщением, но не самого пузыря */
 .msg-context-overlay{
     position:fixed;
     inset:0;
     display:flex;
     align-items:flex-start;
     justify-content:flex-start;
-    background:rgba(0,0,0,0.22); /* затемняем чат */
-    z-index:90;                  /* ниже msg-item-pressed (101), сообщение сверху */
+    background:rgba(0,0,0,0.22);
+    z-index:90;                  /* ниже msg-item-pressed (101) */
     opacity:0;
     pointer-events:none;
     transition:opacity 0.18s ease-out;
@@ -1745,21 +1811,18 @@ input, textarea {
     cursor:pointer;
 }
 
+/* media viewer */
 .media-viewer{
     position:fixed;
     inset:0;
-    display:flex;
+    display:none;
     align-items:center;
     justify-content:center;
     background:rgba(0,0,0,0.9);
     z-index:100;
-    opacity:0;
-    pointer-events:none;
-    transition:opacity 0.25s ease-out;
 }
 .media-viewer.visible{
-    opacity:1;
-    pointer-events:auto;
+    display:flex;
 }
 .media-viewer-backdrop{
     position:absolute;
@@ -1770,9 +1833,6 @@ input, textarea {
     z-index:101;
     max-width:100vw;
     max-height:100vh;
-    transform-origin:center center;
-    transform:translate3d(0,0,0) scale(1);
-    transition:transform 0.25s cubic-bezier(.4,0,.2,1);
 }
 .media-viewer-img,
 .media-viewer-video{
@@ -2242,24 +2302,46 @@ input, textarea {
     margin-right:8px;
     flex-shrink:0;
     position:relative;
-    background-image:url("icons/upload.png");
-    background-position:center;
-    background-repeat:no-repeat;
-    background-size:14px 14px;
 }
 .chat-file-icon::before{
     content:'';
+    position:absolute;
+    top:50%;
+    left:50%;
+    transform:translate(-50%,-50%);
+    width:14px;
+    height:14px;
+    background-image:url("icons/download.png");
+    background-repeat:no-repeat;
+    background-position:center;
+    background-size:14px 14px;
+    opacity:0.9;
+}
+.chat-file-icon.downloaded::before{
+    opacity:0;
 }
 .chat-file-icon.downloaded{
-    opacity:0.3;
+    visibility:hidden;
 }
+
 .chat-audio-icon::before{
-    content:'▶';
-    font-size:13px;
+    content:'';
+    position:absolute;
+    top:50%;
+    left:50%;
+    transform:translate(-50%,-50%);
+    width:14px;
+    height:14px;
+    background-image:url("icons/play.png");
+    background-repeat:no-repeat;
+    background-position:center;
+    background-size:14px 14px;
+    opacity:0.9;
 }
 .chat-audio-icon.playing::before{
-    content:'⏸';
+    background-image:url("icons/pause.png");
 }
+
 .chat-file-main{
     flex:1;
     min-width:0;
@@ -2333,123 +2415,4 @@ input, textarea {
 }
 *::-webkit-scrollbar {
     display: none;
-}
-
-/* Состояния микрофона при удержании / отмене */
-.chat-mic-btn.mic-pressed{
-    transform:translate(-50%,-50%) scale(1.12);
-    box-shadow:0 6px 16px rgba(0,0,0,0.6);
-}
-
-.chat-input-bar.recording .chat-mic-btn{
-    /* было: translateX(6px), добавим лёгкий масштаб */
-    transform:translate(-50%,-50%) translateX(6px) scale(1.08);
-}
-
-.chat-input-bar.recording-cancel-preview .voice-record-ui{
-    background-color:rgba(255,59,48,0.16);
-    transform:translateX(-10px);
-}
-
-.chat-input-bar.recording-cancel-preview .voice-red-dot{
-    animation:voice-cancel-blink 0.5s infinite alternate;
-}
-
-@keyframes voice-cancel-blink{
-    from { opacity:1; }
-    to   { opacity:0.3; }
-}
-
-/* Оверлей загрузки чата */
-.chat-loading-overlay{
-    position:absolute;
-    top:64px;          /* под шапкой чата */
-    left:0;
-    right:0;
-    bottom:80px;       /* над инпут‑баром */
-    background:rgba(0,0,0,0.35);
-    display:none;
-    align-items:center;
-    justify-content:center;
-    z-index:5;
-}
-
-.chat-loading-overlay.show{
-    display:flex;
-}
-
-.chat-loading-spinner{
-    width:32px;
-    height:32px;
-    border-radius:50%;
-    border:3px solid rgba(255,255,255,0.3);
-    border-top-color:#FFFFFF;
-    animation:chat-loading-spin 0.7s linear infinite;
-}
-
-@keyframes chat-loading-spin{
-    to { transform:rotate(360deg); }
-}
-
-/* Нажатый микрофон */
-.chat-mic-btn.mic-pressed{
-    transform:translate(-50%,-50%) scale(1.08);
-    box-shadow:0 6px 16px rgba(0,0,0,0.6);
-}
-
-/* Пульсация микрофона во время записи */
-@keyframes mic-record-pulse{
-    0%{
-        transform:translate(-50%,-50%) translateX(6px) scale(1.0);
-        box-shadow:0 4px 10px rgba(0,0,0,0.4);
-    }
-    50%{
-        transform:translate(-50%,-50%) translateX(6px) scale(1.12);
-        box-shadow:0 8px 18px rgba(0,0,0,0.7);
-    }
-    100%{
-        transform:translate(-50%,-50%) translateX(6px) scale(1.0);
-        box-shadow:0 4px 10px rgba(0,0,0,0.4);
-    }
-}
-
-.chat-mic-btn.mic-pressed{
-    transform:translate(-50%,-50%) scale(1.2);
-    box-shadow:0 8px 22px rgba(0,0,0,0.7);
-}
-
-/* микрофон во время записи: сдвинут, увеличен, пульсирует */
-.chat-input-bar.recording .chat-mic-btn{
-    opacity:1;
-    pointer-events:auto;
-    background-color:#FF3B30;
-    transform:translate(-50%,-50%) translateX(6px);
-    animation:mic-record-pulse 0.9s ease-in-out infinite;
-}
-
-@keyframes mic-record-pulse{
-    0%{
-        transform:translate(-50%,-50%) translateX(6px) scale(1.0);
-        box-shadow:0 4px 10px rgba(0,0,0,0.4);
-    }
-    50%{
-        transform:translate(-50%,-50%) translateX(6px) scale(1.18);
-        box-shadow:0 10px 24px rgba(0,0,0,0.8);
-    }
-    100%{
-        transform:translate(-50%,-50%) translateX(6px) scale(1.0);
-        box-shadow:0 4px 10px rgba(0,0,0,0.4);
-    }
-}
-
-.msg-video-duration{
-    position:absolute;
-    left:6px;
-    top:6px;
-    padding:2px 6px;
-    border-radius:999px;
-    background:rgba(0,0,0,0.65);
-    font-size:11px;
-    color:#FFFFFF;
-    z-index:2;
 }
