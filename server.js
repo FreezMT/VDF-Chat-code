@@ -10,6 +10,9 @@ const webPush  = require('web-push');
 const ffmpeg   = require('fluent-ffmpeg');
 const ffmpegPath = require('@ffmpeg-installer/ffmpeg').path;
 
+const http  = require('http');
+const { WebSocketServer } = require('ws');
+
 const compression = require('compression');
 const sharp       = require('sharp');
 const helmet      = require('helmet');          // защита заголовков
@@ -1063,6 +1066,10 @@ app.post('/api/messages/edit', requireAuth, async (req, res) => {
       'UPDATE messages SET text = ?, edited_at = CURRENT_TIMESTAMP WHERE id = ?',
       [clean, messageId]
     );
+    const row = await getMsg('SELECT chat_id FROM messages WHERE id = ?', [messageId]).catch(() => null);
+    if (row && row.chat_id) {
+      broadcastChatUpdated(row.chat_id).catch(() => {});
+    }
 
     res.json({ ok: true });
   } catch (e) {
@@ -1095,7 +1102,10 @@ app.post('/api/messages/delete', requireAuth, async (req, res) => {
       'UPDATE messages SET deleted = 1 WHERE id = ?',
       [messageId]
     );
-
+    const row = await getMsg('SELECT chat_id FROM messages WHERE id = ?', [messageId]).catch(() => null);
+    if (row && row.chat_id) {
+      broadcastChatUpdated(row.chat_id).catch(() => {});
+    }
     res.json({ ok: true });
   } catch (e) {
     console.error('MESSAGE DELETE ERROR:', e);
@@ -1158,6 +1168,10 @@ app.post('/api/messages/react', requireAuth, async (req, res) => {
       reactions,
       myReaction: mine ? mine.emoji : null
     });
+    const row = await getMsg('SELECT chat_id FROM messages WHERE id = ?', [messageId]).catch(() => null);
+    if (row && row.chat_id) {
+      broadcastChatUpdated(row.chat_id).catch(() => {});
+    }
   } catch (e) {
     console.error('MESSAGE REACT ERROR:', e);
     res.status(500).json({ error: 'Ошибка сервера при реакции на сообщение' });
@@ -1241,6 +1255,7 @@ app.post('/api/messages/pin', requireAuth, async (req, res) => {
     }
 
     res.json({ ok: true });
+    broadcastChatUpdated(chatId).catch(() => {});
   } catch (e) {
     console.error('MESSAGE PIN ERROR:', e);
     res.status(500).json({ error: 'Ошибка сервера при закреплении сообщения' });
@@ -2014,6 +2029,9 @@ app.post('/api/messages/send-file', requireAuth, upload.single('file'), async (r
     }
 
     res.json({ ok: true, message: row });
+    if (row && row.chat_id) {
+      broadcastChatUpdated(row.chat_id).catch(() => {});
+    }
   } catch (e) {
     console.error('SEND FILE MESSAGE ERROR:', e);
     res.status(500).json({ error: 'Ошибка сервера при отправке файла' });
@@ -2337,6 +2355,7 @@ app.post('/api/messages/send', requireAuth, async (req, res) => {
     }
 
     res.json({ ok: true, message: row });
+    broadcastChatUpdated(chatId).catch(() => {});
   } catch (e) {
     console.error('SEND MESSAGE ERROR:', e);
     res.status(500).json({ error: 'Ошибка сервера при отправке сообщения' });
@@ -2474,6 +2493,9 @@ app.post('/api/messages/forward', requireAuth, async (req, res) => {
       sendPushForMessage(row).catch(err => {
         console.error('sendPushForMessage (forward) error:', err);
       });
+      if (cid) {
+        broadcastChatUpdated(cid).catch(() => {});
+      }
     }
 
     res.json({ ok: true });
@@ -3552,15 +3574,107 @@ app.post('/api/feed/create', requireAuth, upload.single('image'), async (req, re
 const HTTP_PORT  = PORT;
 const HTTPS_PORT = 3443;
 
-app.listen(HTTP_PORT, () => {
+// HTTP-сервер (для разработки / fallback)
+const httpServer = http.createServer(app);
+httpServer.listen(HTTP_PORT, () => {
   console.log('HTTP API listening on port ' + HTTP_PORT);
 });
 
+// HTTPS-сервер (основной для PWA + WebSocket)
 const httpsOptions = {
   key:  fs.readFileSync(path.join(__dirname, 'certs', 'dev-key.pem')),
   cert: fs.readFileSync(path.join(__dirname, 'certs', 'dev-cert.pem'))
 };
-
-https.createServer(httpsOptions, app).listen(HTTPS_PORT, () => {
+const httpsServer = https.createServer(httpsOptions, app);
+httpsServer.listen(HTTPS_PORT, () => {
   console.log('HTTPS API listening on port ' + HTTPS_PORT);
 });
+
+// ---------- WEBSOCKET-СЕРВЕР ----------
+
+const wss = new WebSocketServer({ server: httpsServer, path: '/ws' });
+
+// login -> Set<WebSocket>
+const wsClientsByLogin = new Map();
+
+wss.on('connection', (ws) => {
+  ws.isAlive = true;
+  ws.login   = null;
+
+  ws.on('pong', () => {
+    ws.isAlive = true;
+  });
+
+  ws.on('message', (raw) => {
+    let data;
+    try {
+      data = JSON.parse(raw.toString());
+    } catch (e) {
+      return;
+    }
+    if (data.type === 'auth' && data.login) {
+      const login = String(data.login);
+      ws.login = login;
+      const key = login.toLowerCase();
+      if (!wsClientsByLogin.has(key)) {
+        wsClientsByLogin.set(key, new Set());
+      }
+      wsClientsByLogin.get(key).add(ws);
+    }
+  });
+
+  ws.on('close', () => {
+    if (ws.login) {
+      const key = ws.login.toLowerCase();
+      const set = wsClientsByLogin.get(key);
+      if (set) {
+        set.delete(ws);
+        if (!set.size) wsClientsByLogin.delete(key);
+      }
+    }
+  });
+});
+
+// heartbeat (отключать мёртвые подключения)
+setInterval(() => {
+  wss.clients.forEach(ws => {
+    if (!ws.isAlive) {
+      ws.terminate();
+      return;
+    }
+    ws.isAlive = false;
+    ws.ping(() => {});
+  });
+}, 30000);
+
+// Рассылка события "чат обновился" всем участникам чата
+async function broadcastChatUpdated(chatId) {
+  try {
+    const participants = await getChatParticipantsLogins(chatId);
+    const set = new Set(participants.map(l => String(l || '').toLowerCase()));
+
+    for (const loginLower of set) {
+      const conns = wsClientsByLogin.get(loginLower);
+      if (!conns) continue;
+      for (const ws of conns) {
+        if (ws.readyState === ws.OPEN) {
+          ws.send(JSON.stringify({
+            type:   'chatUpdated',
+            chatId: chatId
+          }));
+        }
+      }
+    }
+  } catch (e) {
+    console.error('broadcastChatUpdated error:', e);
+  }
+}
+
+// Рассылка события "лента обновилась"
+function broadcastFeedUpdated() {
+  wss.clients.forEach(ws => {
+    if (ws.readyState === ws.OPEN) {
+      ws.send(JSON.stringify({ type: 'feedUpdated' }));
+    }
+  });
+}

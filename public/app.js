@@ -315,6 +315,9 @@ var recordTouchStartX = null;
 var currentVoiceAudio   = null;
 var currentVoicePlayBtn = null;
 
+var ws = null;
+var wsReconnectTimer = null;
+
 // СОСТОЯНИЕ ПРИЛОЖЕНИЯ
 var currentUser        = null;
 var currentChat        = null;
@@ -404,6 +407,68 @@ var chatLoadingOverlay = document.getElementById('chatLoadingOverlay');
 var micTouchStartX = null;
 var micTouchStartY = null;
 var micGestureActive = false;
+
+function connectWebSocket() {
+    if (!('WebSocket' in window)) return;
+    if (!currentUser || !currentUser.login) return;
+
+    if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+        return;
+    }
+
+    var protocol = (location.protocol === 'https:') ? 'wss:' : 'ws:';
+    var wsUrl    = protocol + '//' + location.host + '/ws';
+
+    try {
+        ws = new WebSocket(wsUrl);
+    } catch (e) {
+        return;
+    }
+
+    ws.onopen = function () {
+        try {
+            ws.send(JSON.stringify({
+                type: 'auth',
+                login: currentUser.login
+            }));
+        } catch (e) {}
+    };
+
+    ws.onmessage = function (ev) {
+        var data;
+        try {
+            data = JSON.parse(ev.data);
+        } catch (e) {
+            return;
+        }
+
+        if (data.type === 'chatUpdated' && data.chatId) {
+            // если сейчас открыт этот чат — обновляем сообщения
+            if (currentChat && currentChat.id === data.chatId) {
+                refreshMessages(false);
+            }
+            // и в любом случае обновляем список чатов (превью, непрочитанные)
+            reloadChatList();
+        } else if (data.type === 'feedUpdated') {
+            // если мы на экране ленты
+            if (feedScreen && feedScreen.style.display !== 'none') {
+                loadFeed();
+            }
+        }
+    };
+
+    ws.onclose = function () {
+        ws = null;
+        if (wsReconnectTimer) clearTimeout(wsReconnectTimer);
+        if (currentUser && currentUser.login) {
+            wsReconnectTimer = setTimeout(connectWebSocket, 3000);
+        }
+    };
+
+    ws.onerror = function () {
+        try { ws.close(); } catch (e) {}
+    };
+}
 
 // Fallback через системный аудиорекордер (на случай отсутствия MediaRecorder)
 function startSystemVoiceFileChooser() {
@@ -2163,8 +2228,10 @@ function setNavActive(tab) {
     } else if (tab === 'plus') {
         navAddIcon.src = 'icons/plus-active.png';
     } else if (tab === 'list') {
+        // Список (лента)
         navListIcon.src = 'icons/list.png';
     } else if (tab === 'home') {
+        // Домик (чаты)
         navHomeIcon.src = 'icons/home.png';
     }
 }
@@ -5104,6 +5171,7 @@ async function openMainScreen(user) {
         window._pendingChatIdFromPush = null;
         handleOpenChatFromPush(cid);
     }
+    connectWebSocket();
 }
 
 async function openChatsScreen() {
@@ -5237,8 +5305,23 @@ async function openChat(chat) {
 function closeChatScreenToMain() {
     if (!chatScreen) return;
 
-    chatScreen.style.transform = '';
+    // Гарантированно снимаем состояние загрузки и показываем контент
+    try {
+        setChatLoading(false);
+    } catch (e) {}
+    if (chatContent) {
+        chatContent.style.opacity = '1';
+    }
+    if (chatInput) {
+        try { chatInput.blur(); } catch (e) {}
+    }
+
+    // Убираем класс видимости и просто скрываем чат-экран
     chatScreen.classList.remove('chat-screen-visible');
+    chatScreen.style.transform = '';
+    chatScreen.style.display   = 'none';
+    chatScreen.setAttribute('aria-hidden','true');
+
     currentChat = null;
 
     hideChatUserModal();
@@ -5248,24 +5331,18 @@ function closeChatScreenToMain() {
     stopChatStatusUpdates();
     stopMessagePolling();
 
-    // Возвращаемся на список чатов
+    // Показываем экран с чатами
     if (mainScreen) {
-        hideAllMainScreens();
-        mainScreen.style.display = 'flex';
+        hideAllMainScreens();                    // скрываем все...
+        mainScreen.style.display = 'flex';       // ...но затем явно включаем список чатов
         mainScreen.setAttribute('aria-hidden','false');
     }
+
     showBottomNav();
-    setNavActive('list');
+    setNavActive('home'); // чаты (домик)
 
     reloadChatList();
     startChatListPolling();
-
-    var handler = function (e) {
-        if (e.target !== chatScreen) return;
-        chatScreen.removeEventListener('transitionend', handler);
-        chatScreen.style.display = 'none';
-    };
-    chatScreen.addEventListener('transitionend', handler);
 }
 
 function openProfileScreen() {
@@ -5568,15 +5645,17 @@ if (chatSearchInput) {
 }
 
 // нижняя навигация
-if (navHomeBtn && feedScreen) {
+// Домик — ЧАТЫ
+if (navHomeBtn && mainScreen) {
     navHomeBtn.addEventListener('click', function () {
-        openFeedScreen();
+        openChatsScreen();
     });
 }
 
-if (navListBtn && mainScreen) {
+// Список — ЛЕНТА
+if (navListBtn && feedScreen) {
     navListBtn.addEventListener('click', function () {
-        openChatsScreen();
+        openFeedScreen();
     });
 }
 
@@ -5717,6 +5796,15 @@ if (logoutBtn) {
                     caches.delete(key).catch(function(){});
                 });
             }).catch(function(){});
+        }
+
+        if (ws) {
+            try { ws.close(); } catch (e) {}
+            ws = null;
+        }
+        if (wsReconnectTimer) {
+            clearTimeout(wsReconnectTimer);
+            wsReconnectTimer = null;
         }
     });
 }
