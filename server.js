@@ -1117,8 +1117,15 @@ app.post('/api/messages/delete', requireAuth, async (req, res) => {
 app.post('/api/messages/react', requireAuth, async (req, res) => {
   try {
     const { login, messageId, emoji } = req.body;
-    if (!login || !messageId || !emoji) {
-      return res.status(400).json({ error: 'Нет логина, ID сообщения или emoji' });
+    if (!login || !messageId) {
+      return res.status(400).json({ error: 'Нет логина или ID сообщения' });
+    }
+
+    // Жёсткая проверка emoji
+    const rawEmoji = emoji;
+    const safeEmoji = (typeof rawEmoji === 'string' && rawEmoji.trim()) ? rawEmoji.trim() : null;
+    if (!safeEmoji) {
+      return res.status(400).json({ error: 'Некорректный эмодзи' });
     }
 
     const msg = await getMsg(
@@ -1134,20 +1141,25 @@ app.post('/api/messages/react', requireAuth, async (req, res) => {
       [messageId, login]
     );
 
-    if (existing && existing.emoji === emoji) {
+    // Если уже стоит такая же реакция — убираем её
+    if (existing && existing.emoji === safeEmoji) {
       await runMsg(
         'DELETE FROM message_reactions WHERE id = ?',
         [existing.id]
       );
-    } else if (existing) {
+    }
+    // Если стоит другая реакция — обновляем
+    else if (existing) {
       await runMsg(
         'UPDATE message_reactions SET emoji = ?, created_at = CURRENT_TIMESTAMP WHERE id = ?',
-        [emoji, existing.id]
+        [safeEmoji, existing.id]
       );
-    } else {
+    }
+    // Если ещё не реагировали — вставляем новую
+    else {
       await runMsg(
         'INSERT INTO message_reactions (message_id, login, emoji) VALUES (?, ?, ?)',
-        [messageId, login, emoji]
+        [messageId, login, safeEmoji]
       );
     }
 
@@ -1163,7 +1175,6 @@ app.post('/api/messages/react', requireAuth, async (req, res) => {
       [messageId, login]
     );
 
-    // можно дополнительно оповещать всех в чате, но это не обязательно
     res.json({
       ok: true,
       reactions,
