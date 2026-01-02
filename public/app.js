@@ -3,51 +3,44 @@
 console.log('app.js loaded');
 
 // ---------- ГЛОБАЛЬНЫЕ ЗАПРЕТЫ / ЖЕСТЫ ----------
+//
+// РАНЕЕ: глобально запрещали contextmenu + copy/cut/paste.
+// Оставляем код, но по умолчанию выключаем, чтобы не ломать UX.
+
+var GLOBAL_CONTEXT_LOCK_ENABLED = false;
 
 // Системное контекстное меню отключаем ВЕЗДЕ,
-// кроме полей ввода текста, contenteditable и текстов сообщений/постов/профиля
-document.addEventListener('contextmenu', function (e) {
-    var t = e.target;
-    if (!t) return;
-
-    if (
-        t.tagName === 'INPUT' ||
-        t.tagName === 'TEXTAREA' ||
-        t.isContentEditable ||
-        t.closest('.msg-text') ||
-        t.closest('.feed-post-text') ||
-        t.closest('.profile-name') ||
-        t.closest('.profile-pill') ||
-        t.closest('.chat-user-name') ||
-        t.closest('.chat-user-pill')
-    ) {
-        return;
-    }
-    e.preventDefault();
-});
-
-// Запрет copy / cut / paste вне текстовых полей и текстовых блоков
-['copy', 'cut', 'paste'].forEach(function (evt) {
-    document.addEventListener(evt, function (e) {
+// кроме полей ввода текста и contenteditable (если включено флагом)
+if (GLOBAL_CONTEXT_LOCK_ENABLED) {
+    document.addEventListener('contextmenu', function (e) {
         var t = e.target;
-        if (!t) return;
-
         if (
-            t.tagName === 'INPUT' ||
-            t.tagName === 'TEXTAREA' ||
-            t.isContentEditable ||
-            t.closest('.msg-text') ||
-            t.closest('.feed-post-text') ||
-            t.closest('.profile-name') ||
-            t.closest('.profile-pill') ||
-            t.closest('.chat-user-name') ||
-            t.closest('.chat-user-pill')
+            t &&
+            (t.tagName === 'INPUT' ||
+             t.tagName === 'TEXTAREA' ||
+             t.isContentEditable)
         ) {
             return;
         }
         e.preventDefault();
     });
-});
+
+    // Запрет copy / cut / paste вне текстовых полей
+    ['copy', 'cut', 'paste'].forEach(function (evt) {
+        document.addEventListener(evt, function (e) {
+            var t = e.target;
+            if (
+                t &&
+                (t.tagName === 'INPUT' ||
+                 t.tagName === 'TEXTAREA' ||
+                 t.isContentEditable)
+            ) {
+                return;
+            }
+            e.preventDefault();
+        });
+    });
+}
 
 // ---------- АВТО-ВОССТАНОВЛЕНИЕ СЕССИИ / СПЛЭШ ----------
 
@@ -79,6 +72,13 @@ window.addEventListener('orientationchange', function () {
         screen.orientation.lock('portrait').catch(function(){});
     }
 });
+
+// РЕГИСТРАЦИЯ service worker РАНЬШЕ (для PWA/кэша, не только для пушей)
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').catch(function(e){
+        console.warn('SW register error:', e);
+    });
+}
 
 // ---------- ГЛОБАЛЬНОЕ СОСТОЯНИЕ ----------
 
@@ -132,7 +132,7 @@ var mainScreen         = document.getElementById('mainScreen');   // списо�
 var chatScreen         = document.getElementById('chatScreen');
 var profileScreen      = document.getElementById('profileScreen');
 var createGroupScreen  = document.getElementById('createGroupScreen');
-var feedScreen         = document.getElementById('feedScreen');    // лента
+var feedScreen         = document.getElementById('feedScreen');    // лента (главный экран)
 var bottomNav          = document.getElementById('bottomNav');
 
 // FEED
@@ -169,27 +169,38 @@ var chatAttachInput  = document.getElementById('chatAttachInput');
 var attachPreviewBar = document.getElementById('attachPreviewBar');
 
 // MEDIA VIEWER
-var mediaViewer        = document.getElementById('mediaViewer');
-var mediaViewerImg     = document.getElementById('mediaViewerImg');
-var mediaViewerVideo   = document.getElementById('mediaViewerVideo');
+var mediaViewer      = document.getElementById('mediaViewer');
+var mediaViewerImg   = document.getElementById('mediaViewerImg');
+var mediaViewerVideo = document.getElementById('mediaViewerVideo');
 var mediaViewerContent = mediaViewer ? mediaViewer.querySelector('.media-viewer-content') : null;
 
 // кастомный контролбар медиавьюера
-var mediaViewerCloseBtn      = document.getElementById('mediaViewerCloseBtn');
-var mediaViewerTitle         = document.getElementById('mediaViewerTitle');
-var mediaViewerPlayPause     = document.getElementById('mediaViewerPlayPause');
-var mediaViewerTimelineFill  = document.getElementById('mediaViewerTimelineFill');
+var mediaViewerCloseBtn    = document.getElementById('mediaViewerCloseBtn');
+var mediaViewerTitle       = document.getElementById('mediaViewerTitle');
+var mediaViewerPlayPause   = document.getElementById('mediaViewerPlayPause');
+var mediaViewerTimelineFill= document.getElementById('mediaViewerTimelineFill');
 var mediaViewerTimelineThumb = document.getElementById('mediaViewerTimelineThumb');
-var mediaViewerCurrentTime   = document.getElementById('mediaViewerCurrentTime');
-var mediaViewerTotalTime     = document.getElementById('mediaViewerTotalTime');
-var mediaViewerControls      = document.getElementById('mediaViewerControls');
+var mediaViewerCurrentTime = document.getElementById('mediaViewerCurrentTime');
+var mediaViewerTotalTime   = document.getElementById('mediaViewerTotalTime');
+var mediaViewerControls    = document.getElementById('mediaViewerControls');
 
-var currentMediaSourceRect   = null;
-var mediaSwipeStartY         = null;
-var mediaSwipeDy             = 0;
-var mediaViewerIsVideo       = false;
-var mediaViewerHideUiTimer   = null;
-var mediaViewerControlsVisible = true;
+var currentMediaSourceRect = null;
+var mediaSwipeStartY = null;
+var mediaSwipeDy     = 0;
+var mediaViewerIsVideo = false;
+var mediaViewerHideUiTimer = null;
+var mediaViewerUiVisible = false;
+
+// Зум в медиавьюере
+var mediaViewerScale = 1;
+var mediaViewerStartScale = 1;
+var mediaViewerPanX = 0;
+var mediaViewerPanY = 0;
+var mediaViewerStartPanX = 0;
+var mediaViewerStartPanY = 0;
+var mediaViewerPinchStartDist = null;
+var mediaViewerLastTouchX = null;
+var mediaViewerLastTouchY = null;
 
 // интервалы
 var chatStatusInterval   = null;
@@ -278,12 +289,12 @@ var hasMediaDevices      = !!(navigator.mediaDevices && navigator.mediaDevices.g
 var mediaRecorderSupport = typeof window.MediaRecorder !== 'undefined';
 var canUseLiveVoiceRecording = hasMediaDevices && mediaRecorderSupport;
 
-var chatSendBtn    = document.getElementById('chatSendBtn');
-var chatMicBtn     = document.getElementById('chatMicBtn');
-var voiceRecordUi  = document.getElementById('voiceRecordUi');
-var voiceWaveLive  = document.getElementById('voiceWaveLive');
-var voiceTimerEl   = document.getElementById('voiceTimer');
-var voiceFileInput = document.getElementById('voiceFileInput');
+var chatSendBtn   = document.getElementById('chatSendBtn');
+var chatMicBtn    = document.getElementById('chatMicBtn');
+var voiceRecordUi = document.getElementById('voiceRecordUi');
+var voiceWaveLive = document.getElementById('voiceWaveLive');
+var voiceTimerEl  = document.getElementById('voiceTimer');
+var voiceFileInput= document.getElementById('voiceFileInput');
 
 var mediaRecorder      = null;
 var mediaStream        = null;
@@ -342,22 +353,6 @@ var senderColors = [
     '#2EC4B6'
 ];
 
-// человекочитаемые названия команд (для профиля и UI)
-var TEAM_LABELS = {
-    'vinyl-dance-family':  'Vinyl Dance Family',
-    'vinyl-junior-family': 'Vinyl Junior Family',
-    'vinyl-kids-family':   'Vinyl Kids Family',
-    'vdf-crew':            'VDF Crew',
-    'vdf-kidz-crew':       'VDF Kidz Crew'
-    // остальные команды в БД уже в виде "Аделя 10+", "Crazy Parents" и т.п.
-};
-
-function formatTeamName(team) {
-    if (!team) return '';
-    if (TEAM_LABELS[team]) return TEAM_LABELS[team];
-    return team;
-}
-
 var pinnedTopBar = document.getElementById('pinnedTopBar');
 
 // МЬЮТЫ / ЗАКРЕПЫ / КОНТЕКСТНОЕ МЕНЮ ЧАТА
@@ -368,7 +363,6 @@ var chatContextOverlay    = null;
 var chatContextMenu       = null;
 var ctxPinBtn             = null;
 var ctxMuteBtn            = null;
-var ctxLeaveBtn           = null;
 var contextMenuTargetChat = null;
 var contextMenuTargetChatItem = null;
 var suppressChatClick     = false;
@@ -382,7 +376,7 @@ var msgCtxDeleteBtn   = null;
 var msgCtxForwardBtn  = null;
 var msgCtxPinBtn      = null;
 var msgCtxDownloadBtn = null;
-var msgCtxCopyBtn     = null;          // НОВОЕ: копировать текст
+var msgCtxCopyBtn     = null;
 var msgCtxEmojiRow    = null;
 var currentMsgContext = null;
 var currentMsgContextItem = null;
@@ -425,13 +419,11 @@ function startSystemVoiceFileChooser() {
 }
 
 function setChatLoading(isLoading) {
-    if (chatLoadingOverlay) {
-        if (isLoading) chatLoadingOverlay.classList.add('show');
-        else chatLoadingOverlay.classList.remove('show');
-    }
-    if (chatScreen) {
-        if (isLoading) chatScreen.classList.add('chat-loading');
-        else chatScreen.classList.remove('chat-loading');
+    if (!chatLoadingOverlay) return;
+    if (isLoading) {
+        chatLoadingOverlay.classList.add('show');
+    } else {
+        chatLoadingOverlay.classList.remove('show');
     }
 }
 
@@ -506,7 +498,6 @@ if (chatMicBtn) {
 
         updateVoiceCancelPreview(dx);
 
-        // отмена свайпом ВЛЕВО
         if (dx < -80) {
             micGestureActive = false;
             stopVoiceRecording(false);
@@ -708,7 +699,7 @@ function initAttachmentTabs() {
     }
 }
 
-// ---------- СЕТЕВОЙ БАННЕР / TOAST ----------
+// ---------- СЕТЕВОЙ БАННЕР ----------
 
 function showNetworkErrorBanner(message) {
     if (!networkBanner) return;
@@ -718,8 +709,10 @@ function showNetworkErrorBanner(message) {
     if (networkBannerTimer) clearTimeout(networkBannerTimer);
     networkBannerTimer = setTimeout(function () {
         if (networkBanner) networkBanner.classList.remove('show');
-    }, 2500);
+    }, 2000);
 }
+
+// ---------- TOAST / ЗАМЕНА alert ----------
 
 function showToast(message) {
     showNetworkErrorBanner(message);
@@ -895,6 +888,7 @@ function renderChatAttachmentsInto(mediaArr, filesArr, audioArr, mediaGrid, file
 
             var img = document.createElement('img');
             img.className = 'chat-media-img';
+            // важное: используем превью, если оно есть (для видео / в будущем для фото)
             img.src = m.preview || m.url;
             img.loading = 'lazy';
             img.decoding = 'async';
@@ -909,7 +903,7 @@ function renderChatAttachmentsInto(mediaArr, filesArr, audioArr, mediaGrid, file
             }
 
             cell.addEventListener('click', function () {
-                openMediaViewer(m.url, m.type === 'video' ? 'video' : 'image', img);
+                openMediaViewer(m.url, m.type === 'video' ? 'video' : 'image');
             });
 
             mediaGrid.appendChild(cell);
@@ -948,15 +942,18 @@ function renderChatAttachmentsInto(mediaArr, filesArr, audioArr, mediaGrid, file
 
             row.addEventListener('click', function () {
                 if (!f.url) return;
-                // открываем файл во внешнем окне/вкладке
-                try {
-                    var win = window.open(f.url, '_blank');
-                    if (!win) window.location.href = f.url;
-                } catch (e) {
-                    window.location.href = f.url;
-                }
-            });
 
+                // Открываем файл в НОВОЙ вкладке / странице (без download атрибута)
+                var aTag = document.createElement('a');
+                aTag.href = f.url;
+                aTag.target = '_blank';
+                document.body.appendChild(aTag);
+                aTag.click();
+                document.body.removeChild(aTag);
+
+                row.dataset.downloaded = '1';
+                icon.classList.add('downloaded');
+            });
             filesList.appendChild(row);
         });
     }
@@ -1409,6 +1406,9 @@ function autoResizeChatInput() {
 
 function keepKeyboardAfterSend() {
     if (!chatInput) return;
+
+    // Фокусируем textarea чуть позже, чтобы не мешать обработчику submit
+    // и чтобы сработало на мобильных
     setTimeout(function () {
         try {
             chatInput.focus();
@@ -1453,15 +1453,64 @@ function allowOnlyCyrillic(value) {
     return value.replace(/[^А-Яа-яЁё\s-]/g, '').slice(0, 30);
 }
 
+// Форматирование названия команды для отображения
+function formatTeamDisplayName(team) {
+    if (!team) return '';
+    var t = String(team);
+
+    // если есть кириллица — показываем как есть
+    if (/[А-Яа-яЁё]/.test(t)) return t;
+
+    // slug/latin: vinyl-dance-family -> Vinyl Dance Family
+    var parts = t.split(/[-_]+/).filter(Boolean);
+    if (!parts.length) return t;
+    return parts.map(function (p) {
+        return p.charAt(0).toUpperCase() + p.slice(1);
+    }).join(' ');
+}
+
 // ---------- MEDIA VIEWER (КАСТОМНЫЙ ПЛЕЕР КАК НА iOS) ----------
+
+function resetMediaViewerZoom() {
+    mediaViewerScale = 1;
+    mediaViewerPanX = 0;
+    mediaViewerPanY = 0;
+    mediaViewerStartScale = 1;
+    mediaViewerStartPanX = 0;
+    mediaViewerStartPanY = 0;
+    mediaViewerPinchStartDist = null;
+    mediaViewerLastTouchX = null;
+    mediaViewerLastTouchY = null;
+
+    if (mediaViewerImg) {
+        mediaViewerImg.style.transform = '';
+    }
+    if (mediaViewerVideo) {
+        mediaViewerVideo.style.transform = '';
+    }
+}
+
+function applyMediaViewerTransform() {
+    var target = mediaViewerIsVideo ? mediaViewerVideo : mediaViewerImg;
+    if (!target) return;
+    var s = mediaViewerScale;
+    var x = mediaViewerPanX;
+    var y = mediaViewerPanY;
+    target.style.transform = 'translate3d(' + x + 'px,' + y + 'px,0) scale(' + s + ')';
+}
 
 function resetMediaViewerUi() {
     if (!mediaViewer) return;
-    if (mediaViewerImg)   mediaViewerImg.style.display   = 'none';
+    if (mediaViewerImg)   {
+        mediaViewerImg.style.display   = 'none';
+        mediaViewerImg.src = '';
+        mediaViewerImg.style.transform = '';
+    }
     if (mediaViewerVideo) {
         mediaViewerVideo.style.display = 'none';
-        try { mediaViewerVideo.pause(); } catch(e){}
+        mediaViewerVideo.pause();
         mediaViewerVideo.src = '';
+        mediaViewerVideo.style.transform = '';
     }
     if (mediaViewerPlayPause) {
         mediaViewerPlayPause.classList.remove('play', 'pause');
@@ -1471,36 +1520,51 @@ function resetMediaViewerUi() {
     if (mediaViewerCurrentTime) mediaViewerCurrentTime.textContent = '0:00';
     if (mediaViewerTotalTime) mediaViewerTotalTime.textContent   = '0:00';
     mediaViewerIsVideo = false;
-    mediaViewerControlsVisible = true;
-    if (mediaViewerControls) mediaViewerControls.style.display = 'none';
-    if (mediaViewer) mediaViewer.classList.remove('controls-hidden');
-}
-
-function setMediaViewerControlsVisible(visible) {
-    mediaViewerControlsVisible = !!visible;
-    if (!mediaViewer) return;
-    if (visible) {
-        mediaViewer.classList.remove('controls-hidden');
-    } else {
-        mediaViewer.classList.add('controls-hidden');
+    mediaViewerUiVisible = false;
+    if (mediaViewerControls) {
+        mediaViewerControls.style.display = 'none';
+        mediaViewerControls.classList.remove('media-viewer-controls-visible');
     }
+    resetMediaViewerZoom();
 }
 
-function scheduleMediaViewerUiHide() {
-    if (!mediaViewerIsVideo) return;
-    if (!mediaViewerControls) return;
+function showMediaViewerControls() {
+    if (!mediaViewerIsVideo || !mediaViewerControls) return;
+    mediaViewerControls.style.display = 'flex';
+    mediaViewerControls.classList.add('media-viewer-controls-visible');
+    mediaViewerUiVisible = true;
+
     if (mediaViewerHideUiTimer) clearTimeout(mediaViewerHideUiTimer);
-    setMediaViewerControlsVisible(true);
     mediaViewerHideUiTimer = setTimeout(function () {
-        setMediaViewerControlsVisible(false);
+        hideMediaViewerControls();
     }, 2500);
 }
 
-function showMediaViewerUi() {
-    if (!mediaViewerIsVideo) return;
-    if (mediaViewerHideUiTimer) clearTimeout(mediaViewerHideUiTimer);
-    setMediaViewerControlsVisible(true);
-    scheduleMediaViewerUiHide();
+function hideMediaViewerControls() {
+    if (!mediaViewerIsVideo || !mediaViewerControls) return;
+    mediaViewerControls.classList.remove('media-viewer-controls-visible');
+    mediaViewerUiVisible = false;
+    if (mediaViewerHideUiTimer) {
+        clearTimeout(mediaViewerHideUiTimer);
+        mediaViewerHideUiTimer = null;
+    }
+}
+
+function toggleMediaViewerPlayPause() {
+    if (!mediaViewerIsVideo || !mediaViewerVideo) return;
+    if (mediaViewerVideo.paused) {
+        mediaViewerVideo.play().catch(function(){});
+        if (mediaViewerPlayPause) {
+            mediaViewerPlayPause.classList.remove('play');
+            mediaViewerPlayPause.classList.add('pause');
+        }
+    } else {
+        mediaViewerVideo.pause();
+        if (mediaViewerPlayPause) {
+            mediaViewerPlayPause.classList.remove('pause');
+            mediaViewerPlayPause.classList.add('play');
+        }
+    }
 }
 
 function openMediaViewer(url, type, sourceEl) {
@@ -1539,6 +1603,8 @@ function openMediaViewer(url, type, sourceEl) {
         });
     }
 
+    resetMediaViewerZoom();
+
     if (type === 'image') {
         mediaViewerIsVideo = false;
         mediaViewerImg.src = url;
@@ -1555,7 +1621,10 @@ function openMediaViewer(url, type, sourceEl) {
         mediaViewerVideo.setAttribute('webkit-playsinline','true');
         mediaViewerVideo.currentTime = 0;
 
-        if (mediaViewerControls) mediaViewerControls.style.display = 'flex';
+        if (mediaViewerControls) {
+            mediaViewerControls.style.display = 'flex';
+            mediaViewerControls.classList.remove('media-viewer-controls-visible');
+        }
         if (mediaViewerTitle) mediaViewerTitle.textContent = 'Видео';
 
         mediaViewerVideo.addEventListener('loadedmetadata', function onMeta() {
@@ -1582,7 +1651,6 @@ function openMediaViewer(url, type, sourceEl) {
                 mediaViewerPlayPause.classList.remove('pause');
                 mediaViewerPlayPause.classList.add('play');
             }
-            setMediaViewerControlsVisible(true);
         });
 
         mediaViewerVideo.play().then(function () {
@@ -1590,13 +1658,13 @@ function openMediaViewer(url, type, sourceEl) {
                 mediaViewerPlayPause.classList.remove('play');
                 mediaViewerPlayPause.classList.add('pause');
             }
-            showMediaViewerUi();
+            showMediaViewerControls();
         }).catch(function(){
             if (mediaViewerPlayPause) {
                 mediaViewerPlayPause.classList.remove('pause');
                 mediaViewerPlayPause.classList.add('play');
             }
-            showMediaViewerUi();
+            showMediaViewerControls();
         });
     }
 }
@@ -1643,7 +1711,14 @@ function closeMediaViewer() {
     }
 }
 
-// события медиавьюера + зум
+// Служебная функция для зума: дистанция между двумя тачами
+function distanceBetweenTouches(t1, t2) {
+    var dx = t1.clientX - t2.clientX;
+    var dy = t1.clientY - t2.clientY;
+    return Math.sqrt(dx*dx + dy*dy);
+}
+
+// события медиавьюера
 (function initMediaViewerEvents(){
     if (!mediaViewer) return;
 
@@ -1662,29 +1737,18 @@ function closeMediaViewer() {
         });
     }
 
-    // клик по видео: если UI скрыт — показать, если виден — play/pause
+    // Нажатие по видео: если меню скрыто — показать меню, если видно — переключить play/pause
     if (mediaViewerVideo) {
         mediaViewerVideo.addEventListener('click', function(e){
             e.stopPropagation();
             if (!mediaViewerIsVideo) return;
-            if (!mediaViewerControlsVisible) {
-                showMediaViewerUi();
-                return;
-            }
-            if (mediaViewerVideo.paused) {
-                mediaViewerVideo.play().catch(function(){});
-                if (mediaViewerPlayPause) {
-                    mediaViewerPlayPause.classList.remove('play');
-                    mediaViewerPlayPause.classList.add('pause');
-                }
+
+            if (!mediaViewerUiVisible) {
+                showMediaViewerControls();
             } else {
-                mediaViewerVideo.pause();
-                if (mediaViewerPlayPause) {
-                    mediaViewerPlayPause.classList.remove('pause');
-                    mediaViewerPlayPause.classList.add('play');
-                }
+                toggleMediaViewerPlayPause();
+                showMediaViewerControls(); // обновим таймер скрытия
             }
-            showMediaViewerUi();
         });
     }
 
@@ -1744,17 +1808,8 @@ function closeMediaViewer() {
     if (mediaViewerPlayPause) {
         mediaViewerPlayPause.addEventListener('click', function (e) {
             e.stopPropagation();
-            if (!mediaViewerIsVideo) return;
-            if (mediaViewerVideo.paused) {
-                mediaViewerVideo.play().catch(function(){});
-                mediaViewerPlayPause.classList.remove('play');
-                mediaViewerPlayPause.classList.add('pause');
-            } else {
-                mediaViewerVideo.pause();
-                mediaViewerPlayPause.classList.remove('pause');
-                mediaViewerPlayPause.classList.add('play');
-            }
-            showMediaViewerUi();
+            toggleMediaViewerPlayPause();
+            showMediaViewerControls();
         });
     }
 
@@ -1767,7 +1822,7 @@ function closeMediaViewer() {
         var x = e.clientX - rect.left;
         var ratio = Math.max(0, Math.min(1, x / rect.width));
         mediaViewerVideo.currentTime = ratio * mediaViewerVideo.duration;
-        showMediaViewerUi();
+        showMediaViewerControls();
     }
 
     if (timelineTrack) {
@@ -1787,80 +1842,58 @@ function closeMediaViewer() {
         }, { passive:true });
     }
 
-    // Простая реализация pinch-zoom для изображения/видео
-    var zoomTarget = null;
-    var baseScale  = 1;
-    var currentScale = 1;
-    var lastDist   = 0;
-    var lastCenter = null;
-    var panX = 0;
-    var panY = 0;
+    // ЗУМ / ПАНОРАМА для фото/видео
+    function attachZoomHandlers(target) {
+        if (!target) return;
 
-    function getDistance(t1, t2) {
-        var dx = t2.clientX - t1.clientX;
-        var dy = t2.clientY - t1.clientY;
-        return Math.sqrt(dx*dx + dy*dy);
-    }
-    function getCenter(t1, t2) {
-        return {
-            x: (t1.clientX + t2.clientX)/2,
-            y: (t1.clientY + t2.clientY)/2
-        };
-    }
-    function applyTransform() {
-        if (!zoomTarget) return;
-        var t = 'translate(' + panX + 'px,' + panY + 'px) scale(' + currentScale + ')';
-        zoomTarget.style.transform = t;
-    }
-
-    function attachZoomHandlers(el) {
-        if (!el) return;
-        el.addEventListener('touchstart', function(e){
-            if (e.touches.length === 2) {
-                zoomTarget = el;
-                baseScale  = currentScale;
-                lastDist   = getDistance(e.touches[0], e.touches[1]);
-                lastCenter = getCenter(e.touches[0], e.touches[1]);
+        target.addEventListener('touchstart', function(e){
+            if (e.touches.length === 1) {
+                mediaViewerLastTouchX = e.touches[0].clientX;
+                mediaViewerLastTouchY = e.touches[0].clientY;
+                mediaViewerStartPanX = mediaViewerPanX;
+                mediaViewerStartPanY = mediaViewerPanY;
+                mediaViewerPinchStartDist = null;
+            } else if (e.touches.length === 2) {
+                var d = distanceBetweenTouches(e.touches[0], e.touches[1]);
+                mediaViewerPinchStartDist = d;
+                mediaViewerStartScale = mediaViewerScale;
             }
         }, { passive:true });
 
-        el.addEventListener('touchmove', function(e){
-            if (!zoomTarget) return;
-            if (e.touches.length < 2) return;
-            e.preventDefault();
-            var dist   = getDistance(e.touches[0], e.touches[1]);
-            var center = getCenter(e.touches[0], e.touches[1]);
-            if (!lastDist) lastDist = dist;
-            var scaleDelta = dist / lastDist;
-            currentScale = Math.max(1, Math.min(3, baseScale * scaleDelta));
-
-            if (lastCenter) {
-                panX += (center.x - lastCenter.x);
-                panY += (center.y - lastCenter.y);
-                lastCenter = center;
+        target.addEventListener('touchmove', function(e){
+            if (e.touches.length === 2 && mediaViewerPinchStartDist) {
+                e.preventDefault();
+                var d2 = distanceBetweenTouches(e.touches[0], e.touches[1]);
+                if (!d2) return;
+                var ratio = d2 / mediaViewerPinchStartDist;
+                var newScale = mediaViewerStartScale * ratio;
+                if (newScale < 1) newScale = 1;
+                if (newScale > 4) newScale = 4;
+                mediaViewerScale = newScale;
+                applyMediaViewerTransform();
+            } else if (e.touches.length === 1 && mediaViewerScale > 1) {
+                e.preventDefault();
+                var t = e.touches[0];
+                var dx = t.clientX - mediaViewerLastTouchX;
+                var dy = t.clientY - mediaViewerLastTouchY;
+                mediaViewerPanX = mediaViewerStartPanX + dx;
+                mediaViewerPanY = mediaViewerStartPanY + dy;
+                applyMediaViewerTransform();
             }
-            applyTransform();
         }, { passive:false });
 
-        el.addEventListener('touchend', function(e){
-            if (e.touches.length < 2) {
-                lastDist = 0;
-                lastCenter = null;
-                if (currentScale <= 1.01) {
-                    currentScale = 1;
-                    panX = 0;
-                    panY = 0;
-                    applyTransform();
-                    zoomTarget = null;
-                }
+        target.addEventListener('touchend', function(e){
+            if (e.touches.length === 0) {
+                mediaViewerPinchStartDist = null;
+                mediaViewerLastTouchX = null;
+                mediaViewerLastTouchY = null;
             }
-        });
+        }, { passive:true });
     }
 
     attachZoomHandlers(mediaViewerImg);
     attachZoomHandlers(mediaViewerVideo);
-
-})(); // initMediaViewerEvents
+})();
 
 // ---------- PREVIEW ВЛОЖЕНИЙ В ИНПУТ-БАРЕ ----------
 
@@ -2086,7 +2119,8 @@ async function loadMutedChats() {
     try {
         var resp = await fetch('/api/chat/mute/list', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ login: currentUser.login })
         });
         var data = await resp.json();
         if (!resp.ok || !data.ok) return;
@@ -2130,7 +2164,7 @@ function setNavActive(tab) {
         navAddIcon.src = 'icons/plus-active.png';
     } else if (tab === 'list') {
         navListIcon.src = 'icons/list.png';
-    } else {
+    } else if (tab === 'home') {
         navHomeIcon.src = 'icons/home.png';
     }
 }
@@ -2174,7 +2208,7 @@ function updateProfileUI() {
 
     if (profileTeamEl) {
         profileTeamEl.style.display = '';
-        profileTeamEl.textContent   = formatTeamName(currentUser.team);
+        profileTeamEl.textContent   = formatTeamDisplayName(currentUser.team || '');
     }
 
     if (profileDobEl) {
@@ -2337,6 +2371,7 @@ function onMsgTouchMove(e) {
     var col = swipeItem.querySelector('.msg-col');
     if (!col) return;
 
+    // Ответ — свайп ВЛЕВО (dx отрицательный)
     if (dx >= 0) {
         swipeLastDx = 0;
         col.style.transition = 'transform 0.15s ease-out';
@@ -2437,11 +2472,9 @@ function stopChatStatusUpdates() {
     if (chatHeaderStatus) chatHeaderStatus.textContent = '';
 }
 
-// ===== END OF PART 1/4 =====
-
 // app.js — PART 2/4
 
-// ---------- РЕНДЕР СООБЩЕНИЯ (включая голосовые) ----------
+// ---------- РЕНДЕР СООБЩЕНИЯ (включая голосовые / видео‑таймер) ----------
 
 function renderMessage(msg) {
     if (!chatContent) return;
@@ -2565,9 +2598,10 @@ function renderMessage(msg) {
             videoAtt.autoplay    = true;
             videoAtt.controls    = false;
 
+            // Таймер видео (в левом верхнем углу) — не должен пропадать
             var durLabel = document.createElement('div');
             durLabel.className = 'msg-video-duration';
-            durLabel.textContent = '0:00';
+            durLabel.textContent = '0:00 / 0:00';
             mediaWrapper.appendChild(durLabel);
 
             var totalDuration = 0;
@@ -2575,6 +2609,7 @@ function renderMessage(msg) {
             videoAtt.addEventListener('loadedmetadata', function () {
                 if (!isNaN(videoAtt.duration) && isFinite(videoAtt.duration)) {
                     totalDuration = videoAtt.duration;
+                    if (totalDuration < 1) totalDuration = 1;
                     durLabel.textContent = '0:00 / ' + formatSecondsToMMSS(totalDuration);
                 }
                 videoAtt.play().catch(function(){});
@@ -2588,7 +2623,7 @@ function renderMessage(msg) {
 
             videoAtt.addEventListener('ended', function () {
                 if (totalDuration) {
-                    durLabel.textContent = formatSecondsToMMSS(totalDuration);
+                    durLabel.textContent = formatSecondsToMMSS(totalDuration) + ' / ' + formatSecondsToMMSS(totalDuration);
                 }
             });
 
@@ -2631,7 +2666,6 @@ function renderMessage(msg) {
 
     if (rb) bubble.appendChild(rb);
 
-    // голосовое
     if (msg.attachment_type === 'audio' && msg.attachment_url) {
         var voiceWrap = document.createElement('div');
         voiceWrap.className = 'msg-voice';
@@ -2677,25 +2711,22 @@ function renderMessage(msg) {
         audio.addEventListener('loadedmetadata', function () {
             if (!isNaN(audio.duration) && isFinite(audio.duration)) {
                 totalDurationA = audio.duration;
-                if (totalDurationA < 1) totalDurationA = 1;
+                if (totalDurationA < 1) totalDurationA = 1; // минимум 1 секунда
                 timeLabel.textContent = formatSecondsToMMSS(totalDurationA);
             }
         });
 
         audio.addEventListener('timeupdate', function () {
-            if ((!totalDurationA || isNaN(totalDurationA)) && !isNaN(audio.duration) && audio.duration > 0) {
-                totalDurationA = audio.duration;
-                if (totalDurationA < 1) totalDurationA = 1;
-            }
             if (!totalDurationA || isNaN(totalDurationA)) return;
-            var remaining = Math.max(0, totalDurationA - audio.currentTime);
-            var ratio = (totalDurationA - remaining) / totalDurationA;
+            var current = Math.max(0, audio.currentTime);
+            var ratio = current / totalDurationA;
             var playedCount = Math.round(bars.length * ratio);
             bars.forEach(function(b, idx){
                 if (idx < playedCount) b.classList.add('played');
                 else b.classList.remove('played');
             });
-            timeLabel.textContent = formatSecondsToMMSS(remaining);
+            // Показываем прошедшее время
+            timeLabel.textContent = formatSecondsToMMSS(current);
         });
 
         audio.addEventListener('ended', function () {
@@ -2735,9 +2766,6 @@ function renderMessage(msg) {
         });
 
         function seekFromEvent(ev){
-            if ((!totalDurationA || isNaN(totalDurationA)) && !isNaN(audio.duration) && audio.duration > 0) {
-                totalDurationA = audio.duration;
-            }
             if (!totalDurationA || isNaN(totalDurationA)) return;
             var rect = wave.getBoundingClientRect();
             var x = ev.clientX - rect.left;
@@ -2763,7 +2791,6 @@ function renderMessage(msg) {
         }, { passive: true });
     }
 
-    // файл
     if (msg.attachment_type === 'file' && msg.attachment_url) {
         var fileBox = document.createElement('div');
         fileBox.className = 'msg-file-attachment';
@@ -2783,15 +2810,16 @@ function renderMessage(msg) {
             fileBox.appendChild(sizeDiv);
         }
 
-        fileBox.addEventListener('click', function(e){
+        // При клике по файлу — открываем в новой вкладке страницу файла
+        fileBox.addEventListener('click', function (e) {
             e.stopPropagation();
             if (!msg.attachment_url) return;
-            try {
-                var win = window.open(msg.attachment_url, '_blank');
-                if (!win) window.location.href = msg.attachment_url;
-            } catch (err) {
-                window.location.href = msg.attachment_url;
-            }
+            var aTag = document.createElement('a');
+            aTag.href = msg.attachment_url;
+            aTag.target = '_blank';
+            document.body.appendChild(aTag);
+            aTag.click();
+            document.body.removeChild(aTag);
         });
 
         bubble.appendChild(fileBox);
@@ -3097,12 +3125,14 @@ function createMsgContextMenu() {
 // скачивание / открытие вложения сообщения
 function downloadMessageAttachment(msgInfo) {
     if (!msgInfo || !msgInfo.attachmentUrl) return;
-    try {
-        var win = window.open(msgInfo.attachmentUrl, '_blank');
-        if (!win) window.location.href = msgInfo.attachmentUrl;
-    } catch (e) {
-        window.location.href = msgInfo.attachmentUrl;
-    }
+
+    // По просьбе: при скачивании любого файла перекидываем на другую страницу (новая вкладка)
+    var aTag = document.createElement('a');
+    aTag.href = msgInfo.attachmentUrl;
+    aTag.target = '_blank';
+    document.body.appendChild(aTag);
+    aTag.click();
+    document.body.removeChild(aTag);
 }
 
 // === ОБРАБОТЧИКИ ДЛЯ СООБЩЕНИЙ ===
@@ -3127,6 +3157,7 @@ function attachMessageInteractions(item, msg) {
         attachmentSize: typeof msg.attachment_size === 'number' ? msg.attachment_size : null
     };
 
+    // Правый клик (desktop) — контекстное меню
     item.addEventListener('contextmenu', function (e) {
         e.preventDefault();
         showMsgContextMenu(item._msgInfo, item);
@@ -3208,6 +3239,7 @@ function hideMsgContextMenu() {
     msgContextMenu.classList.remove('open');
     msgContextOverlay.classList.remove('visible');
 
+    // подавляем клик по медиа только для этого элемента
     if (currentMsgContextItem) {
         currentMsgContextItem._suppressNextMediaClick = true;
         currentMsgContextItem.classList.remove('msg-item-pressed');
@@ -3271,13 +3303,13 @@ function showMsgContextMenu(msgInfo, item) {
         var margin = 8;
 
         var isLastMessage = false;
-        var isSecondLast  = false;
+        var isPreLastMessage = false;
         if (chatContent) {
-            var items = chatContent.querySelectorAll('.msg-item');
-            var lastItem = items[items.length - 1];
-            var prevItem = items[items.length - 2];
+            var items = Array.from(chatContent.querySelectorAll('.msg-item'));
+            var lastItem = items[items.length - 1] || null;
+            var preLastItem = items[items.length - 2] || null;
             if (lastItem === currentMsgContextItem) isLastMessage = true;
-            if (prevItem === currentMsgContextItem) isSecondLast = true;
+            if (preLastItem === currentMsgContextItem) isPreLastMessage = true;
         }
 
         var headerH = 64;
@@ -3308,36 +3340,34 @@ function showMsgContextMenu(msgInfo, item) {
 
         var top;
 
-        var preferAbove = isLastMessage || isSecondLast;
+        var shouldForceAbove = isLastMessage || isPreLastMessage;
 
-        // 1) если chat снизу, и мы НЕ обязаны поднимать меню вверх
-        if (!preferAbove && spaceBelow >= menuH + margin) {
+        // Если последнее/предпоследнее — стараемся ставить меню наверху
+        if (shouldForceAbove && spaceAbove >= menuH + margin) {
+            top = rect.top - menuH - margin;
+        }
+        // 1) если нормально влезает СНИЗУ — ставим под сообщением
+        else if (!shouldForceAbove && spaceBelow >= menuH + margin) {
             top = rect.bottom + margin;
         }
-        // 2) иначе, если влезает сверху — туда
+        // 2) иначе, если влезает СВЕРХУ — ставим над сообщением
         else if (spaceAbove >= menuH + margin) {
-            if (preferAbove && allowScroll && chatContent) {
+            // если это ПОСЛЕДНЕЕ сообщение и allowScroll — можем немного скроллить
+            if ((isLastMessage || isPreLastMessage) && allowScroll && chatContent) {
                 var msgBottom = currentMsgContextItem.offsetTop + currentMsgContextItem.offsetHeight;
                 var desiredGap = menuH + 32;
                 var targetScroll = msgBottom + desiredGap - chatContent.clientHeight;
                 if (targetScroll < 0) targetScroll = 0;
+
                 chatContent.scrollTo({ top: targetScroll, behavior: 'smooth' });
-                setTimeout(function () { positionMenu(false); }, 260);
+                setTimeout(function () {
+                    positionMenu(false);
+                }, 260);
                 return;
             }
             top = rect.top - menuH - margin;
         }
-        // 3) если preferAbove, но места не хватает — пробуем проскроллить
-        else if (preferAbove && allowScroll && chatContent) {
-            var msgBottom2 = currentMsgContextItem.offsetTop + currentMsgContextItem.offsetHeight;
-            var desiredGap2 = menuH + 32;
-            var targetScroll2 = msgBottom2 + desiredGap2 - chatContent.clientHeight;
-            if (targetScroll2 < 0) targetScroll2 = 0;
-            chatContent.scrollTo({ top: targetScroll2, behavior: 'smooth' });
-            setTimeout(function () { positionMenu(false); }, 260);
-            return;
-        }
-        // 4) иначе стандартное поведение c автоскроллом
+        // 3) общий случай: пробуем немного проскроллить, чтобы освободить место
         else if (allowScroll && chatContent) {
             var needExtraAbove = (menuH + margin) - Math.max(spaceAbove, 0);
             var newScrollTop   = chatContent.scrollTop + needExtraAbove;
@@ -3349,7 +3379,9 @@ function showMsgContextMenu(msgInfo, item) {
                 chatContent.scrollTop = newScrollTop;
             }
 
-            setTimeout(function () { positionMenu(false); }, 260);
+            setTimeout(function () {
+                positionMenu(false);
+            }, 260);
             return;
         } else {
             top = rect.top - menuH - margin;
@@ -3379,10 +3411,6 @@ function showMsgContextMenu(msgInfo, item) {
         positionMenu(true);
     });
 }
-
-// ===== END OF PART 2/4 =====
-
-// app.js — PART 3/4
 
 // --- действия над сообщениями ---
 
@@ -3476,7 +3504,7 @@ async function editMessage(msgInfo) {
                     alert(dataDel.error || 'Ошибка удаления сообщения');
                     return;
                 }
-                // мгновенно убираем элемент
+                // Анимация удаления + локальное обновление
                 animateMessageRemoveById(msgInfo.id);
             } else {
                 var fullText = newText;
@@ -3507,17 +3535,16 @@ async function editMessage(msgInfo) {
                     alert(data.error || 'Ошибка редактирования');
                     return;
                 }
-                // успех — сразу обновляем UI
+
+                // Успех — сразу обновляем UI локально (реальное время)
                 bubble.removeChild(wrap);
                 textEl.style.display = '';
                 metaEl.style.display = '';
 
-                // обновляем текст в DOM и в msgInfo
                 msgInfo.text = newText;
                 item.dataset.msgText = newText;
                 textEl.textContent = newText;
 
-                // добавляем пометку "(изменено)", если её ещё нет
                 var metaLine = bubble.querySelector('.msg-meta');
                 if (metaLine) {
                     var editedMark = metaLine.querySelector('.msg-edited');
@@ -3529,12 +3556,13 @@ async function editMessage(msgInfo) {
                     }
                 }
 
-                // лёгкий refresh, чтобы синхронизировать пины/прочитанность
+                currentEditingMsgId = null;
+                startMessagePolling();
+
+                // Небольшой мягкий рефреш, чтобы подтянуть возможные новые сообщения,
+                // но без резкого "дёрганья" — позицию сохраняем
                 await refreshMessagesKeepingMessage(msgInfo.id);
             }
-
-            currentEditingMsgId = null;
-            startMessagePolling();
         } catch (e) {
             alert('Сетевая ошибка при редактировании');
         }
@@ -3559,6 +3587,8 @@ function animateMessageRemoveById(messageId) {
         refreshMessages(true);
     }, 180);
 }
+
+// app.js — PART 3/4
 
 // ---------- DELETE / REACT / PIN ----------
 
@@ -3631,9 +3661,13 @@ async function reactToMessage(msgInfo, emoji) {
             });
         }
 
-        // обновляем локально msgInfo
+        // обновляем локально msgInfo и item._msgInfo
         msgInfo.reactions = data.reactions || [];
         msgInfo.myReaction = data.myReaction || null;
+        if (item._msgInfo) {
+            item._msgInfo.reactions = msgInfo.reactions;
+            item._msgInfo.myReaction = msgInfo.myReaction;
+        }
     } catch (e) {
         alert('Сетевая ошибка при реакции');
     }
@@ -3660,8 +3694,8 @@ async function pinMessage(msgInfo) {
             alert(data.error || 'Ошибка закрепления');
             return;
         }
-        // обновляем только закр. панель и флаг
-        msgInfo.isPinned = newPinned;
+
+        // мягко подтягиваем состояние (закреплённое сверху), сохраняя позицию
         await refreshMessagesKeepingMessage(msgInfo.id);
     } catch (e) {
         alert('Сетевая ошибка при закреплении');
@@ -3983,7 +4017,7 @@ async function initPushForCurrentUser() {
             return;
         }
 
-        var reg = await navigator.serviceWorker.register('/sw.js');
+        var reg = await navigator.serviceWorker.ready;
 
         var sub = await reg.pushManager.getSubscription();
         if (!sub) {
@@ -4052,6 +4086,8 @@ function buildChatSubtitle(chat) {
     return full;
 }
 
+// карта id -> DOM-элемент уже есть выше: var chatItemsById = {};
+
 function renderOrCreateChatItem(chat) {
     if (!chat || !chatList) return null;
 
@@ -4091,6 +4127,7 @@ function renderOrCreateChatItem(chat) {
 
         // обычный клик — открыть чат
         item.addEventListener('click', function () {
+            // если меню открыто на этом же чате — закрываем и ОТКРЫВАЕМ чат
             if (chatContextOverlay &&
                 chatContextOverlay.classList.contains('visible') &&
                 contextMenuTargetChatItem === item) {
@@ -4104,6 +4141,12 @@ function renderOrCreateChatItem(chat) {
                 return;
             }
             openChat(chat);
+        });
+
+        // Правый клик — тоже контекстное меню
+        item.addEventListener('contextmenu', function (e) {
+            e.preventDefault();
+            showChatContextMenu(chat, item);
         });
 
         // long-press (мышь)
@@ -4309,26 +4352,7 @@ function getChatPartnerLogin(chat) {
     return null;
 }
 
-// ===== END OF PART 3/4 =====
-
-
 // app.js — PART 4/4
-
-// Переопределяем setMediaViewerControlsVisible для анимированного выезда панели плеера
-function setMediaViewerControlsVisible(visible) {
-    mediaViewerControlsVisible = !!visible;
-    if (!mediaViewerControls || !mediaViewer) return;
-
-    if (visible) {
-        mediaViewerControls.style.opacity = '1';
-        mediaViewerControls.style.transform = 'translateY(0)';
-        mediaViewerControls.style.pointerEvents = 'auto';
-    } else {
-        mediaViewerControls.style.opacity = '0';
-        mediaViewerControls.style.transform = 'translateY(40px)';
-        mediaViewerControls.style.pointerEvents = 'none';
-    }
-}
 
 // ---------- МОДАЛКА ПОЛЬЗОВАТЕЛЯ ----------
 
@@ -4390,7 +4414,7 @@ async function openUserInfoModal(login, fromGroup) {
         }
 
         if (chatUserTeam) {
-            chatUserTeam.textContent = formatTeamName(user.team || '');
+            chatUserTeam.textContent = formatTeamDisplayName(user.team || '');
         }
 
         if (chatUserDob) {
@@ -4588,7 +4612,7 @@ async function openGroupModal() {
         var resp = await fetch('/api/group/info', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ chatId: currentChat.id })
+            body: JSON.stringify({ chatId: currentChat.id, login: currentUser.login })
         });
         var data = await resp.json();
 
@@ -4835,6 +4859,12 @@ function renderFeedPost(post) {
         imgPost.loading = 'lazy';
         imgPost.decoding = 'async';
         imgPost.onerror = function () { this.style.display = 'none'; };
+
+        // По клику на картинку поста — открываем медиавьюер
+        imgPost.addEventListener('click', function (e) {
+            e.stopPropagation();
+            openMediaViewer(post.imageUrl, 'image', imgPost);
+        });
     }
 
     var textEl = document.createElement('div');
@@ -4855,6 +4885,7 @@ function renderFeedPost(post) {
     card.appendChild(textEl);
     card.appendChild(footer);
 
+    // long-press для тренеров -> inline editor
     var pressTimer = null;
 
     function startPressTimer() {
@@ -5021,50 +5052,19 @@ async function loadFeed() {
     }
 }
 
-function openFeedScreen() {
-    if (!feedScreen) return;
-    if (!currentUser) {
-        alert('Сначала войдите в аккаунт');
-        return;
-    }
-
-    if (mainScreen)        mainScreen.style.display        = 'none';
-    if (chatScreen)        chatScreen.style.display        = 'none';
-    if (profileScreen)     profileScreen.style.display     = 'none';
-    if (createGroupScreen) createGroupScreen.style.display = 'none';
-
-    feedScreen.style.display = 'flex';
-    showBottomNav();
-
-    hideChatUserModal();
-    hideGroupModal();
-    hideGroupAddModal();
-    clearReply();
-    stopChatStatusUpdates();
-    stopMessagePolling();
-    stopChatListPolling();
-
-    setNavActive('list');
-
-    if (createPostBtn) {
-        var roleLower = (currentUser.role || '').toLowerCase();
-        createPostBtn.style.display =
-            (roleLower === 'trainer' || roleLower === 'тренер') ? 'block' : 'none';
-    }
-
-    loadFeed();
-}
-
 // ---------- ЭКРАНЫ: ПОСЛЕ ЛОГИНА / ЧАТ / ПРОФИЛЬ / СОЗДАНИЕ ГРУППЫ ----------
 
-function updateNavButtonsVisibilityByRole() {
-    if (!navAddBtn || !currentUser) return;
-    var roleLower = (currentUser.role || '').toLowerCase();
-    if (roleLower === 'trainer' || roleLower === 'тренер') {
-        navAddBtn.style.display = 'flex';
-    } else {
-        navAddBtn.style.display = 'none';
-    }
+function hideAllMainScreens() {
+    if (welcomeScreen)    { welcomeScreen.style.display    = 'none'; welcomeScreen.setAttribute('aria-hidden','true'); }
+    if (registerScreen)   { registerScreen.style.display   = 'none'; registerScreen.setAttribute('aria-hidden','true'); }
+    if (parentInfoScreen) { parentInfoScreen.style.display = 'none'; parentInfoScreen.setAttribute('aria-hidden','true'); }
+    if (dancerInfoScreen) { dancerInfoScreen.style.display = 'none'; dancerInfoScreen.setAttribute('aria-hidden','true'); }
+    if (loginScreen)      { loginScreen.style.display      = 'none'; loginScreen.setAttribute('aria-hidden','true'); }
+    if (feedScreen)       { feedScreen.style.display       = 'none'; feedScreen.setAttribute('aria-hidden','true'); }
+    if (mainScreen)       { mainScreen.style.display       = 'none'; mainScreen.setAttribute('aria-hidden','true'); }
+    if (chatScreen)       { chatScreen.style.display       = 'none'; chatScreen.setAttribute('aria-hidden','true'); }
+    if (profileScreen)    { profileScreen.style.display    = 'none'; profileScreen.setAttribute('aria-hidden','true'); }
+    if (createGroupScreen){ createGroupScreen.style.display= 'none'; createGroupScreen.setAttribute('aria-hidden','true'); }
 }
 
 async function openMainScreen(user) {
@@ -5081,17 +5081,7 @@ async function openMainScreen(user) {
         currentUser.publicId     = user.publicId  || currentUser.publicId;
     }
 
-    if (welcomeScreen)    welcomeScreen.style.display    = 'none';
-    if (registerScreen)   registerScreen.style.display   = 'none';
-    if (parentInfoScreen) parentInfoScreen.style.display = 'none';
-    if (dancerInfoScreen) dancerInfoScreen.style.display = 'none';
-    if (loginScreen)      loginScreen.style.display      = 'none';
-    if (chatScreen)       chatScreen.style.display       = 'none';
-    if (profileScreen)    profileScreen.style.display    = 'none';
-    if (createGroupScreen)createGroupScreen.style.display= 'none';
-    if (mainScreen)       mainScreen.style.display       = 'none';
-    if (feedScreen)       feedScreen.style.display       = 'none';
-
+    hideAllMainScreens();
     hideChatUserModal();
     hideGroupModal();
     hideGroupAddModal();
@@ -5099,14 +5089,13 @@ async function openMainScreen(user) {
     stopChatStatusUpdates();
     stopMessagePolling();
 
-    updateNavButtonsVisibilityByRole();
     showBottomNav();
 
     loadPinnedChatsForUser();
     await loadMutedChats();
 
-    // Главный экран — лента постов
-    openFeedScreen();
+    // Главный экран: ЛЕНТА постов
+    await openFeedScreen();
 
     initPushForCurrentUser();
 
@@ -5120,15 +5109,13 @@ async function openMainScreen(user) {
 async function openChatsScreen() {
     if (!mainScreen) return;
 
-    if (feedScreen)        feedScreen.style.display        = 'none';
-    if (chatScreen)        chatScreen.style.display        = 'none';
-    if (profileScreen)     profileScreen.style.display     = 'none';
-    if (createGroupScreen) createGroupScreen.style.display = 'none';
+    hideAllMainScreens();
 
     mainScreen.style.display = 'flex';
+    mainScreen.setAttribute('aria-hidden','false');
     showBottomNav();
 
-    setNavActive('home');
+    setNavActive('list');
 
     hideChatUserModal();
     hideGroupModal();
@@ -5141,16 +5128,47 @@ async function openChatsScreen() {
     startChatListPolling();
 }
 
+async function openFeedScreen() {
+    if (!feedScreen) return;
+    if (!currentUser) {
+        alert('Сначала войдите в аккаунт');
+        return;
+    }
+
+    hideAllMainScreens();
+
+    feedScreen.style.display = 'flex';
+    feedScreen.setAttribute('aria-hidden','false');
+    showBottomNav();
+
+    hideChatUserModal();
+    hideGroupModal();
+    hideGroupAddModal();
+    clearReply();
+    stopChatStatusUpdates();
+    stopMessagePolling();
+    stopChatListPolling();
+
+    setNavActive('home');
+
+    if (createPostBtn) {
+        var roleLower = (currentUser.role || '').toLowerCase();
+        createPostBtn.style.display =
+            (roleLower === 'trainer' || roleLower === 'тренер') ? 'block' : 'none';
+    }
+
+    loadFeed();
+}
+
 async function openChat(chat) {
     if (!chatScreen) return;
     currentChat = chat;
 
-    if (mainScreen)        mainScreen.style.display        = 'none';
-    if (feedScreen)        feedScreen.style.display        = 'none';
-    if (profileScreen)     profileScreen.style.display     = 'none';
-    if (createGroupScreen) createGroupScreen.style.display = 'none';
+    hideAllMainScreens();
 
+    // Чат‑экран активен
     chatScreen.style.display = 'flex';
+    chatScreen.setAttribute('aria-hidden','false');
     chatScreen.classList.remove('chat-screen-visible');
     chatScreen.style.transform = '';
     requestAnimationFrame(function () {
@@ -5190,10 +5208,7 @@ async function openChat(chat) {
         };
     }
 
-    if (chatInput) {
-        chatInput.value = '';
-        autoResizeChatInput();
-    }
+    if (chatInput) chatInput.value = '';
     if (chatContent) {
         chatContent.innerHTML = '';
         chatContent.scrollTop = 0;
@@ -5233,9 +5248,14 @@ function closeChatScreenToMain() {
     stopChatStatusUpdates();
     stopMessagePolling();
 
-    if (mainScreen)  mainScreen.style.display  = 'flex';
+    // Возвращаемся на список чатов
+    if (mainScreen) {
+        hideAllMainScreens();
+        mainScreen.style.display = 'flex';
+        mainScreen.setAttribute('aria-hidden','false');
+    }
     showBottomNav();
-    setNavActive('home');
+    setNavActive('list');
 
     reloadChatList();
     startChatListPolling();
@@ -5251,12 +5271,10 @@ function closeChatScreenToMain() {
 function openProfileScreen() {
     if (!profileScreen) return;
 
-    if (feedScreen)        feedScreen.style.display        = 'none';
-    if (mainScreen)        mainScreen.style.display        = 'none';
-    if (chatScreen)        chatScreen.style.display        = 'none';
-    if (createGroupScreen) createGroupScreen.style.display = 'none';
+    hideAllMainScreens();
 
     profileScreen.style.display = 'flex';
+    profileScreen.setAttribute('aria-hidden','false');
     showBottomNav();
 
     hideChatUserModal();
@@ -5285,12 +5303,10 @@ function openCreateGroupScreen() {
         return;
     }
 
-    if (feedScreen)      feedScreen.style.display      = 'none';
-    if (mainScreen)      mainScreen.style.display      = 'none';
-    if (chatScreen)      chatScreen.style.display      = 'none';
-    if (profileScreen)   profileScreen.style.display   = 'none';
+    hideAllMainScreens();
 
     createGroupScreen.style.display = 'block';
+    createGroupScreen.setAttribute('aria-hidden','false');
     showBottomNav();
     setNavActive('plus');
 
@@ -5328,14 +5344,8 @@ function createChatContextMenu() {
     ctxMuteBtn = document.createElement('button');
     ctxMuteBtn.className = 'chat-context-btn';
 
-    ctxLeaveBtn = document.createElement('button');
-    ctxLeaveBtn.className = 'chat-context-btn chat-context-btn-danger';
-    ctxLeaveBtn.textContent = 'Выйти из группы';
-
     chatContextMenu.appendChild(ctxPinBtn);
     chatContextMenu.appendChild(ctxMuteBtn);
-    chatContextMenu.appendChild(ctxLeaveBtn);
-
     chatContextOverlay.appendChild(chatContextMenu);
     document.body.appendChild(chatContextOverlay);
 
@@ -5355,11 +5365,6 @@ function createChatContextMenu() {
         hideChatContextMenu();
         await reloadChatList();
     };
-
-    ctxLeaveBtn.onclick = async function () {
-        if (!contextMenuTargetChat) return;
-        await leaveGroup(contextMenuTargetChat);
-    };
 }
 
 function showChatContextMenu(chat, item) {
@@ -5374,15 +5379,6 @@ function showChatContextMenu(chat, item) {
     }
     if (ctxMuteBtn) {
         ctxMuteBtn.textContent = isChatMuted(chat.id) ? 'Включить уведомления' : 'Выключить уведомления';
-    }
-
-    // пункт "Выйти" только для групп
-    if (ctxLeaveBtn) {
-        if (chat.type === 'group' || chat.type === 'groupCustom') {
-            ctxLeaveBtn.style.display = '';
-        } else {
-            ctxLeaveBtn.style.display = 'none';
-        }
     }
 
     chatContextOverlay.classList.add('visible');
@@ -5476,6 +5472,7 @@ function toggleChatPin(chat) {
 
 async function leaveGroup(chat) {
     if (!currentUser || !currentUser.login || !chat) return;
+    if (!confirm('Выйти из этой группы?')) return;
 
     try {
         var resp = await fetch('/api/group/leave', {
@@ -5492,9 +5489,6 @@ async function leaveGroup(chat) {
             return;
         }
         hideChatContextMenu();
-        if (currentChat && currentChat.id === chat.id) {
-            closeChatScreenToMain();
-        }
         await reloadChatList();
     } catch (e) {
         alert('Сетевая ошибка при выходе из группы');
@@ -5507,48 +5501,54 @@ async function leaveGroup(chat) {
 var registerBtn = document.getElementById('registerBtn');
 if (registerBtn && welcomeScreen && registerScreen) {
     registerBtn.addEventListener('click', function () {
-        welcomeScreen.style.display = 'none';
+        hideAllMainScreens();
         registerScreen.style.display = 'block';
+        registerScreen.setAttribute('aria-hidden','false');
     });
 }
 
 var loginBtn = document.getElementById('loginBtn');
 if (loginBtn && welcomeScreen && loginScreen) {
     loginBtn.addEventListener('click', function () {
-        welcomeScreen.style.display = 'none';
+        hideAllMainScreens();
         loginScreen.style.display = 'block';
+        loginScreen.setAttribute('aria-hidden','false');
     });
 }
 
 var backBtn = document.getElementById('backToWelcome');
 if (backBtn && welcomeScreen && registerScreen) {
     backBtn.addEventListener('click', function () {
-        registerScreen.style.display = 'none';
+        hideAllMainScreens();
         welcomeScreen.style.display = 'flex';
+        welcomeScreen.setAttribute('aria-hidden','false');
     });
 }
 
 var backToWelcomeFromLoginBtn = document.getElementById('backToWelcomeFromLogin');
 if (backToWelcomeFromLoginBtn && welcomeScreen && loginScreen) {
     backToWelcomeFromLoginBtn.addEventListener('click', function () {
-        loginScreen.style.display = 'none';
+        hideAllMainScreens();
         welcomeScreen.style.display = 'flex';
+        welcomeScreen.setAttribute('aria-hidden','false');
     });
 }
 
 var backToRegisterBtn = document.getElementById('backToRegister');
 if (backToRegisterBtn && registerScreen && parentInfoScreen) {
     backToRegisterBtn.addEventListener('click', function () {
-        parentInfoScreen.style.display = 'none';
+        hideAllMainScreens();
         registerScreen.style.display   = 'block';
+        registerScreen.setAttribute('aria-hidden','false');
     });
 }
 
 var backToRegisterFromDancerBtn = document.getElementById('backToRegisterFromDancer');
 if (backToRegisterFromDancerBtn && registerScreen && dancerInfoScreen) {
     backToRegisterFromDancerBtn.addEventListener('click', function () {
-        dancerInfoScreen.style.display = 'none';
+        hideAllMainScreens();
         registerScreen.style.display   = 'block';
+        registerScreen.setAttribute('aria-hidden','false');
     });
 }
 
@@ -5568,15 +5568,15 @@ if (chatSearchInput) {
 }
 
 // нижняя навигация
-if (navHomeBtn && mainScreen) {
+if (navHomeBtn && feedScreen) {
     navHomeBtn.addEventListener('click', function () {
-        openChatsScreen();
+        openFeedScreen();
     });
 }
 
-if (navListBtn && feedScreen) {
+if (navListBtn && mainScreen) {
     navListBtn.addEventListener('click', function () {
-        openFeedScreen();
+        openChatsScreen();
     });
 }
 
@@ -5664,7 +5664,7 @@ if (changePhotoBtn && profilePhotoInput) {
     });
 }
 
-// ПРОФИЛЬ: выход из аккаунта
+// ПРОФИЛЬ: выход из аккаунта + очистка кэша
 if (logoutBtn) {
     logoutBtn.addEventListener('click', async function () {
         try {
@@ -5683,6 +5683,7 @@ if (logoutBtn) {
         mutedChats           = {};
         pinnedChats          = {};
         lastChats            = [];
+        lastChatMessageMap   = {};
 
         stopChatListPolling();
         stopMessagePolling();
@@ -5693,26 +5694,29 @@ if (logoutBtn) {
         if (chatList)    chatList.innerHTML    = '';
         if (feedList)    feedList.innerHTML    = '';
 
-        if (profileScreen)     profileScreen.style.display     = 'none';
-        if (mainScreen)        mainScreen.style.display        = 'none';
-        if (chatScreen)        chatScreen.style.display        = 'none';
-        if (createGroupScreen) createGroupScreen.style.display = 'none';
-        if (feedScreen)        feedScreen.style.display        = 'none';
-
-        if (welcomeScreen)     welcomeScreen.style.display     = 'flex';
+        hideAllMainScreens();
+        if (welcomeScreen) {
+            welcomeScreen.style.display = 'flex';
+            welcomeScreen.setAttribute('aria-hidden','false');
+        }
         hideBottomNav();
 
         document.body.classList.add('welcome-active');
 
         setNavActive('home');
 
-        // Очистка localStorage / sessionStorage / caches
-        try { localStorage.clear(); } catch(e){}
-        try { sessionStorage.clear(); } catch(e){}
-        if ('caches' in window) {
-            caches.keys().then(function(keys){
-                keys.forEach(function(k){ caches.delete(k).catch(function(){}); });
-            });
+        // Очистка localStorage (включая пины и прочий кэш)
+        try {
+            localStorage.clear();
+        } catch (e) {}
+
+        // Очистка Cache Storage (PWA кэши)
+        if (window.caches && typeof caches.keys === 'function') {
+            caches.keys().then(function (keys) {
+                keys.forEach(function (key) {
+                    caches.delete(key).catch(function(){});
+                });
+            }).catch(function(){});
         }
     });
 }
@@ -5943,7 +5947,8 @@ if (ageField && ageText && ageValue) {
 }
 
 if (createGroupBtn) {
-    createGroupBtn.addEventListener('click', async function () {
+    createGroupBtn.addEventListener('click', async function (e) {
+        e.preventDefault();
         if (!currentUser) {
             alert('Авторизуйтесь, чтобы создавать группы');
             return;
@@ -5989,7 +5994,7 @@ if (createGroupBtn) {
             });
             var data = await resp.json();
 
-            if (!resp.ok) {
+            if (!resp.ok || !data.ok) {
                 alert(data.error || 'Ошибка создания группы');
                 return;
             }
@@ -6024,22 +6029,6 @@ if (togglePasswordBtn && passwordInput) {
     });
 }
 
-// отдельная кнопка "глаз" для поля пароля в логине
-if (loginScreenPassword) {
-    var loginField = loginScreenPassword.parentNode;
-    if (loginField && !loginField.querySelector('.toggle-password-login')) {
-        var loginToggleBtn = document.createElement('button');
-        loginToggleBtn.type = 'button';
-        loginToggleBtn.className = 'toggle-password toggle-password-login';
-        loginToggleBtn.setAttribute('aria-label','Показать пароль');
-        loginField.appendChild(loginToggleBtn);
-
-        loginToggleBtn.addEventListener('click', function () {
-            loginScreenPassword.type = loginScreenPassword.type === 'password' ? 'text' : 'password';
-        });
-    }
-}
-
 var roleSelect = document.getElementById('roleSelect');
 var roleText   = document.getElementById('roleText');
 var roleValue  = document.getElementById('roleValue');
@@ -6067,8 +6056,10 @@ if (roleSelect && roleText && roleValue) {
 var registerForm = document.querySelector('.register-form');
 var continueBtn  = registerForm ? registerForm.querySelector('.btn-primary') : null;
 
-if (continueBtn && loginInput && passwordInput && roleValue && registerScreen) {
-    continueBtn.addEventListener('click', async function () {
+// Обработка сабмита формы регистрации (поддержка Enter)
+if (registerForm && loginInput && passwordInput && roleValue && registerScreen) {
+    registerForm.addEventListener('submit', async function (e) {
+        e.preventDefault();
         var login    = loginInput.value.trim();
         var password = passwordInput.value;
         var role     = roleValue.value;
@@ -6098,16 +6089,18 @@ if (continueBtn && loginInput && passwordInput && roleValue && registerScreen) {
         registrationBaseData.password = password;
         registrationBaseData.role     = role;
 
+        hideAllMainScreens();
+
         if (role === 'parent' && parentInfoScreen) {
-            registerScreen.style.display   = 'none';
             parentInfoScreen.style.display = 'block';
+            parentInfoScreen.setAttribute('aria-hidden','false');
             if (dancerInfoScreen) dancerInfoScreen.style.display = 'none';
             return;
         }
 
         if (role === 'dancer' && dancerInfoScreen) {
-            registerScreen.style.display   = 'none';
             dancerInfoScreen.style.display = 'block';
+            dancerInfoScreen.setAttribute('aria-hidden','false');
             if (parentInfoScreen) parentInfoScreen.style.display = 'none';
             return;
         }
@@ -6155,7 +6148,8 @@ if (teamSelect && teamText && teamValue) {
 
 var parentContinueBtn = document.getElementById('parentContinueBtn');
 if (parentContinueBtn && parentFirstNameInput && parentLastNameInput && teamValue) {
-    parentContinueBtn.addEventListener('click', async function () {
+    parentContinueBtn.addEventListener('click', async function (e) {
+        e.preventDefault();
         var firstName = parentFirstNameInput.value.trim();
         var lastName  = parentLastNameInput.value.trim();
         var team      = teamValue.value;
@@ -6187,7 +6181,7 @@ if (parentContinueBtn && parentFirstNameInput && parentLastNameInput && teamValu
 
             var data = await response.json();
 
-            if (!response.ok) {
+            if (!response.ok || !data.ok) {
                 alert(data.error || 'Ошибка регистрации');
                 return;
             }
@@ -6285,7 +6279,8 @@ if (dancerDobField && dancerDobInput && dancerDobText && dancerDobBtn) {
 
 var dancerContinueBtn = document.getElementById('dancerContinueBtn');
 if (dancerContinueBtn && dancerFirstNameInput && dancerLastNameInput && dancerTeamValue && dancerDobInput) {
-    dancerContinueBtn.addEventListener('click', async function () {
+    dancerContinueBtn.addEventListener('click', async function (e) {
+        e.preventDefault();
         var firstName = dancerFirstNameInput.value.trim();
         var lastName  = dancerLastNameInput.value.trim();
         var team      = dancerTeamValue.value;
@@ -6318,7 +6313,7 @@ if (dancerContinueBtn && dancerFirstNameInput && dancerLastNameInput && dancerTe
 
             var data = await response.json();
 
-            if (!response.ok) {
+            if (!response.ok || !data.ok) {
                 alert(data.error || 'Ошибка регистрации');
                 return;
             }
@@ -6352,7 +6347,8 @@ if (loginScreenPassword) {
 }
 
 if (loginContinueBtn && loginScreenLogin && loginScreenPassword) {
-    loginContinueBtn.addEventListener('click', async function () {
+    loginContinueBtn.addEventListener('click', async function (e) {
+        e.preventDefault();
         var login    = loginScreenLogin.value.trim();
         var password = loginScreenPassword.value;
 
@@ -6415,6 +6411,7 @@ if (chatInputForm && chatInput) {
             finalText = header + sName + '\n' + sLogin + '\n' + quoted + '\n[/r]\n' + baseText;
         }
 
+        // Вложения
         if (pendingAttachments && pendingAttachments.length) {
             var usedAttachments = pendingAttachments.slice();
 
@@ -6502,6 +6499,7 @@ if (chatInputForm && chatInput) {
             var data2 = await resp2.json();
 
             if (!resp2.ok || !data2.ok) {
+                // ошибка — убираем временное сообщение
                 if (chatContent) {
                     var tmpElErr = chatContent.querySelector('.msg-item[data-msg-id="' + tempId + '"]');
                     if (tmpElErr && tmpElErr.parentNode) tmpElErr.parentNode.removeChild(tmpElErr);
@@ -6510,6 +6508,7 @@ if (chatInputForm && chatInput) {
                 return;
             }
 
+            // успех — убираем временное и перерисовываем с сервера
             if (chatContent) {
                 var tmpEl = chatContent.querySelector('.msg-item[data-msg-id="' + tempId + '"]');
                 if (tmpEl && tmpEl.parentNode) tmpEl.parentNode.removeChild(tmpEl);
@@ -6526,8 +6525,8 @@ if (chatInputForm && chatInput) {
             if (chatContent) {
                 var tmpElCatch = chatContent.querySelector('.msg-item[data-msg-id="' + tempId + '"]');
                 if (tmpElCatch && tmpElCatch.parentNode) tmpElCatch.parentNode.removeChild(tmpElCatch);
-                keepKeyboardAfterSend();
             }
+            keepKeyboardAfterSend();
             alert('Сетевая ошибка при отправке сообщения');
         }
     });
@@ -6647,6 +6646,7 @@ async function refreshMessages(preserveScroll) {
         await markChatRead(chatId);
     } catch (e) {
         console.error('refreshMessages error:', e);
+        console.warn('Сетевая ошибка при загрузке сообщений');
     }
 }
 
@@ -6928,6 +6928,24 @@ document.addEventListener('keydown', function (e) {
         return;
     }
 });
+
+// Дополнительная обёртка над setChatLoading, чтобы скрывать инпут чата полностью
+(function enhanceSetChatLoadingVisibility(){
+    if (typeof setChatLoading !== 'function') return;
+    var orig = setChatLoading;
+    setChatLoading = function(isLoading) {
+        orig(isLoading);
+        if (chatInputForm) {
+            chatInputForm.style.visibility = isLoading ? 'hidden' : 'visible';
+        }
+        if (replyBar) {
+            replyBar.style.visibility = isLoading ? 'hidden' : 'visible';
+        }
+        if (attachPreviewBar) {
+            attachPreviewBar.style.visibility = isLoading ? 'hidden' : 'visible';
+        }
+    };
+})();
 
 // ИНИЦИАЛИЗАЦИЯ ВЛОЖЕНИЙ
 initChatAttachments();

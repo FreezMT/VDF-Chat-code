@@ -2,37 +2,35 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <meta
-        name="viewport"
-        content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover"
-    >
-    <title>VDF Chat</title>
+
+    <!-- Viewport без блокировки зума -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
     <!-- PWA / A2HS -->
-    <meta name="theme-color" content="#000000">
-    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="theme-color" content="#111111">
+    <link rel="manifest" href="/manifest.webmanifest">
+
+    <!-- iOS PWA -->
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="VDF Chat">
-    <meta name="format-detection" content="telephone=no">
-    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel="apple-touch-icon" href="/icons/icon-192.png">
 
-    <!-- Иконки для A2HS (файлы нужно положить в /public/icons) -->
-    <link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon-180.png">
-    <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png">
-    <link rel="icon" type="image/png" sizes="512x512" href="/icons/icon-512.png">
+    <title>VDF Chat</title>
 
     <link href="https://fonts.googleapis.com/css2?family=Jost:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
+    <noscript>Для работы приложения необходим JavaScript.</noscript>
+
     <!-- SPLASH -->
-    <main id="splash" class="splash">
+    <main id="splash" class="splash" aria-hidden="true">
         <img src="logo.png" alt="Vinyl Dance Family" class="logo">
     </main>
 
     <!-- WELCOME -->
-    <main id="welcome" class="welcome-screen">
+    <main id="welcome" class="welcome-screen" aria-hidden="true">
         <section class="welcome-content">
             <h1 class="welcome-title">
                 Добро пожаловать в<br>
@@ -45,14 +43,14 @@
         </section>
 
         <section class="welcome-buttons">
-            <button class="btn" id="registerBtn">Регистрация</button>
-            <button class="btn" id="loginBtn">Вход</button>
+            <button class="btn" id="registerBtn" type="button">Регистрация</button>
+            <button class="btn" id="loginBtn" type="button">Вход</button>
         </section>
     </main>
 
     <!-- REGISTER: ROLE -->
-    <main id="registerScreen" class="register-screen">
-        <button type="button" class="back-btn" id="backToWelcome">←</button>
+    <main id="registerScreen" class="register-screen" aria-hidden="true">
+        <button type="button" class="back-btn" id="backToWelcome" aria-label="Назад">←</button>
 
         <header class="register-header">
             <h1 class="register-title">Регистрация</h1>
@@ -65,12 +63,12 @@
         <form class="register-form" autocomplete="off">
             <p class="field-note">Только на латинице</p>
             <div class="field">
-                <input id="loginInput" type="text" maxlength="20" placeholder="Логин" autocomplete="off">
+                <input id="loginInput" type="text" maxlength="20" placeholder="Логин" autocomplete="username">
             </div>
 
             <p class="field-note">Только на латинице</p>
             <div class="field field-password">
-                <input id="passwordInput" type="password" maxlength="20" placeholder="Пароль" autocomplete="off">
+                <input id="passwordInput" type="password" maxlength="20" placeholder="Пароль" autocomplete="new-password">
                 <button type="button" class="toggle-password" aria-label="Показать пароль"></button>
             </div>
 
@@ -86,13 +84,14 @@
                 <input type="hidden" id="roleValue">
             </div>
 
-            <button type="button" class="btn btn-primary">Продолжить</button>
+            <!-- type="submit" — для поддержки Enter, логика обработана в JS -->
+            <button type="submit" class="btn btn-primary">Продолжить</button>
         </form>
     </main>
 
     <!-- REGISTER: PARENT -->
-    <main id="parentInfoScreen" class="parent-screen">
-        <button type="button" class="back-btn" id="backToRegister">←</button>
+    <main id="parentInfoScreen" class="parent-screen" aria-hidden="true">
+        <button type="button" class="back-btn" id="backToRegister" aria-label="Назад">←</button>
 
         <header class="parent-header">
             <h1 class="register-title">Регистрация</h1>
@@ -105,11 +104,11 @@
 
         <form class="parent-form" autocomplete="off">
             <div class="field">
-                <input id="parentFirstName" type="text" maxlength="30" placeholder="Имя" autocomplete="off">
+                <input id="parentFirstName" type="text" maxlength="30" placeholder="Имя">
             </div>
 
             <div class="field">
-                <input id="parentLastName" type="text" maxlength="30" placeholder="Фамилия" autocomplete="off">
+                <input id="parentLastName" type="text" maxlength="30" placeholder="Фамилия">
             </div>
 
             <div class="field field-select" id="teamSelect">
@@ -142,13 +141,13 @@
                 <input type="hidden" id="teamValue">
             </div>
 
-            <button type="button" class="btn btn-primary" id="parentContinueBtn">Продолжить</button>
+            <button type="submit" class="btn btn-primary" id="parentContinueBtn">Продолжить</button>
         </form>
     </main>
 
     <!-- REGISTER: DANCER -->
-    <main id="dancerInfoScreen" class="dancer-screen">
-        <button type="button" class="back-btn" id="backToRegisterFromDancer">←</button>
+    <main id="dancerInfoScreen" class="dancer-screen" aria-hidden="true">
+        <button type="button" class="back-btn" id="backToRegisterFromDancer" aria-label="Назад">←</button>
 
         <header class="dancer-header">
             <h1 class="register-title">Регистрация</h1>
@@ -161,11 +160,11 @@
 
         <form class="dancer-form" autocomplete="off">
             <div class="field">
-                <input id="dancerFirstName" type="text" maxlength="30" placeholder="Имя" autocomplete="off">
+                <input id="dancerFirstName" type="text" maxlength="30" placeholder="Имя">
             </div>
 
             <div class="field">
-                <input id="dancerLastName" type="text" maxlength="30" placeholder="Фамилия" autocomplete="off">
+                <input id="dancerLastName" type="text" maxlength="30" placeholder="Фамилия">
             </div>
 
             <div class="field field-select" id="dancerTeamSelect">
@@ -200,17 +199,17 @@
 
             <div class="field field-date" id="dancerDobField">
                 <span id="dancerDobText">Выберите</span>
-                <button type="button" class="date-btn" id="dancerDobBtn"></button>
+                <button type="button" class="date-btn" id="dancerDobBtn" aria-label="Выбрать дату рождения"></button>
                 <input type="date" id="dancerDobInput">
             </div>
 
-            <button type="button" class="btn btn-primary" id="dancerContinueBtn">Продолжить</button>
+            <button type="submit" class="btn btn-primary" id="dancerContinueBtn">Продолжить</button>
         </form>
     </main>
 
     <!-- LOGIN -->
-    <main id="loginScreen" class="login-screen">
-        <button type="button" class="back-btn" id="backToWelcomeFromLogin">←</button>
+    <main id="loginScreen" class="login-screen" aria-hidden="true">
+        <button type="button" class="back-btn" id="backToWelcomeFromLogin" aria-label="Назад">←</button>
 
         <header class="login-header">
             <h1 class="register-title">Вход</h1>
@@ -225,17 +224,16 @@
                 <input id="loginScreenLogin" type="text" maxlength="20" placeholder="Логин" autocomplete="username">
             </div>
 
-            <div class="field field-password">
+            <div class="field">
                 <input id="loginScreenPassword" type="password" maxlength="20" placeholder="Пароль" autocomplete="current-password">
-                <!-- Кнопку показа пароля для логина будем настраивать в JS/CSS, аналогично регистрации -->
             </div>
 
-            <button type="button" class="btn btn-primary" id="loginContinueBtn">Продолжить</button>
+            <button type="submit" class="btn btn-primary" id="loginContinueBtn">Продолжить</button>
         </form>
     </main>
 
-    <!-- FEED: ЛЕНТА АКТИВНОСТИ (Главный экран в PWA) -->
-    <main id="feedScreen" class="feed-screen">
+    <!-- FEED: ЛЕНТА АКТИВНОСТИ (главный экран после входа) -->
+    <main id="feedScreen" class="feed-screen" aria-hidden="true">
         <section class="feed-list" id="feedList"></section>
 
         <button type="button" class="feed-create-btn" id="createPostBtn">
@@ -244,10 +242,10 @@
     </main>
 
     <!-- MODAL: СОЗДАНИЕ ПОСТА -->
-    <div id="postModal" class="post-modal">
+    <div id="postModal" class="post-modal" aria-hidden="true">
         <div class="post-modal-backdrop"></div>
-        <div class="post-modal-card">
-            <div class="post-modal-title">Новый пост</div>
+        <div class="post-modal-card" role="dialog" aria-modal="true" aria-labelledby="postModalTitle">
+            <div class="post-modal-title" id="postModalTitle">Новый пост</div>
 
             <div class="post-modal-field">
                 <div class="post-modal-label">Фотография (по желанию)</div>
@@ -278,7 +276,7 @@
     </div>
 
     <!-- MAIN (LIST OF CHATS) -->
-    <main id="mainScreen" class="main-screen">
+    <main id="mainScreen" class="main-screen" aria-hidden="true">
         <div class="chat-search-wrapper">
             <input type="text" id="chatSearchInput" placeholder="Поиск по чатам">
         </div>
@@ -286,9 +284,9 @@
     </main>
 
     <!-- CHAT -->
-    <main id="chatScreen" class="chat-screen">
+    <main id="chatScreen" class="chat-screen" aria-hidden="true">
         <header class="chat-header">
-            <button type="button" class="chat-back" id="backToMainFromChat">←</button>
+            <button type="button" class="chat-back" id="backToMainFromChat" aria-label="Назад">←</button>
 
             <div class="chat-header-center">
                 <div class="chat-header-title" id="chatHeaderTitle">Чат</div>
@@ -303,6 +301,8 @@
         <div id="pinnedTopBar" class="pinned-top-bar"></div>
 
         <section class="chat-content"></section>
+
+        <!-- Лоадер чата: перекрывает и сообщения, и инпут -->
         <div id="chatLoadingOverlay" class="chat-loading-overlay">
             <div class="chat-loading-spinner"></div>
         </div>
@@ -312,14 +312,14 @@
                 <div id="replySender" class="reply-bar-title"></div>
                 <div id="replyText" class="reply-bar-text"></div>
             </div>
-            <button id="replyCancelBtn" type="button" class="reply-bar-cancel">✕</button>
+            <button id="replyCancelBtn" type="button" class="reply-bar-cancel" aria-label="Отменить ответ">✕</button>
         </div>
 
         <div id="attachPreviewBar" class="attach-preview-bar"></div>
 
         <form class="chat-input-bar" id="chatInputForm" autocomplete="off">
-            <button type="button" class="chat-attach-btn" id="chatAttachBtn"></button>
-            <input type="file" id="chatAttachInput" style="display:none">
+            <button type="button" class="chat-attach-btn" id="chatAttachBtn" aria-label="Прикрепить файл"></button>
+            <input type="file" id="chatAttachInput" multiple style="display:none">
             <input
                 type="file"
                 id="voiceFileInput"
@@ -328,7 +328,7 @@
                 style="display:none"
             />
 
-            <textarea id="chatInput" rows="1" placeholder="Сообщение" autocomplete="off"></textarea>
+            <textarea id="chatInput" rows="1" placeholder="Сообщение"></textarea>
 
             <!-- UI для записи голосового -->
             <div class="voice-record-ui" id="voiceRecordUi">
@@ -339,16 +339,16 @@
             </div>
 
             <div class="chat-send-mic-wrapper">
-                <button type="button" class="chat-mic-btn" id="chatMicBtn"></button>
-                <button type="submit" class="chat-send-btn" id="chatSendBtn"></button>
+                <button type="button" class="chat-mic-btn" id="chatMicBtn" aria-label="Записать голосовое"></button>
+                <button type="submit" class="chat-send-btn" id="chatSendBtn" aria-label="Отправить сообщение"></button>
             </div>
         </form>
 
         <!-- MODAL: ПЕРЕСЛАТЬ СООБЩЕНИЕ -->
-        <div id="forwardModal" class="forward-modal">
+        <div id="forwardModal" class="forward-modal" aria-hidden="true">
             <div class="forward-backdrop"></div>
-            <div class="forward-card">
-                <div class="forward-title">Переслать сообщение</div>
+            <div class="forward-card" role="dialog" aria-modal="true" aria-labelledby="forwardModalTitle">
+                <div class="forward-title" id="forwardModalTitle">Переслать сообщение</div>
                 <div class="forward-list" id="forwardList"></div>
                 <div class="forward-actions">
                     <button type="button" id="forwardCancelBtn" class="forward-btn forward-btn-cancel">
@@ -362,10 +362,10 @@
         </div>
 
         <!-- MODAL WITH USER INFO -->
-        <div id="chatUserModal" class="chat-user-modal">
+        <div id="chatUserModal" class="chat-user-modal" aria-hidden="true">
             <div class="chat-user-modal-backdrop"></div>
-            <div class="chat-user-modal-card">
-                <button type="button" id="chatUserBackBtn" class="chat-user-back-btn">←</button>
+            <div class="chat-user-modal-card" role="dialog" aria-modal="true">
+                <button type="button" id="chatUserBackBtn" class="chat-user-back-btn" aria-label="Назад">←</button>
 
                 <div class="chat-user-avatar-wrapper">
                     <img id="chatUserAvatar" src="/img/default-avatar.png" alt="Аватар" class="chat-user-avatar">
@@ -402,21 +402,21 @@
         </div>
 
         <!-- MODAL WITH GROUP INFO -->
-        <div id="groupModal" class="chat-user-modal">
+        <div id="groupModal" class="chat-user-modal" aria-hidden="true">
             <div class="group-modal-backdrop"></div>
-            <div class="group-modal-card">
-                <button type="button" id="groupBackBtn" class="group-back-btn">←</button>
+            <div class="group-modal-card" role="dialog" aria-modal="true">
+                <button type="button" id="groupBackBtn" class="group-back-btn" aria-label="Назад">←</button>
 
                 <div class="group-avatar-row">
                     <div class="group-avatar-wrapper">
                         <img id="groupAvatar" src="/group-avatar.png" alt="Аватар группы" class="group-avatar">
                     </div>
-                    <button type="button" class="edit-icon" id="editGroupAvatarBtn"></button>
+                    <button type="button" class="edit-icon" id="editGroupAvatarBtn" aria-label="Изменить аватар группы"></button>
                 </div>
 
                 <div class="group-name-row">
                     <div class="group-name" id="groupNameTitle"></div>
-                    <button type="button" class="edit-icon" id="editGroupNameBtn"></button>
+                    <button type="button" class="edit-icon" id="editGroupNameBtn" aria-label="Изменить название группы"></button>
                 </div>
 
                 <!-- выбор новой аватарки -->
@@ -464,9 +464,9 @@
         </div>
 
         <!-- MODAL: ADD MEMBER BY ID -->
-        <div id="groupAddModal" class="chat-user-modal">
+        <div id="groupAddModal" class="chat-user-modal" aria-hidden="true">
             <div class="group-add-modal-backdrop"></div>
-            <div class="group-add-modal-card">
+            <div class="group-add-modal-card" role="dialog" aria-modal="true">
                 <div class="group-avatar-row">
                     <div class="group-avatar-wrapper">
                         <img id="groupAddAvatar" src="/group-avatar.png" alt="Аватар группы" class="group-avatar">
@@ -489,13 +489,13 @@
             </div>
         </div>
 
-        <!-- MEDIA VIEWER -->
-        <div id="mediaViewer" class="media-viewer">
+        <!-- MEDIA VIEWER (просмотр фото/видео, PWA-style) -->
+        <div id="mediaViewer" class="media-viewer" aria-hidden="true">
             <div class="media-viewer-backdrop"></div>
             <div class="media-viewer-content">
                 <div class="media-viewer-chrome">
                     <div class="media-viewer-topbar">
-                        <button type="button" id="mediaViewerCloseBtn" class="media-viewer-close-btn">✕</button>
+                        <button type="button" id="mediaViewerCloseBtn" class="media-viewer-close-btn" aria-label="Закрыть просмотр">✕</button>
                         <div class="media-viewer-title" id="mediaViewerTitle"></div>
                     </div>
 
@@ -505,7 +505,7 @@
                     </div>
 
                     <div class="media-viewer-bottombar" id="mediaViewerControls">
-                        <button type="button" id="mediaViewerPlayPause" class="media-viewer-playpause"></button>
+                        <button type="button" id="mediaViewerPlayPause" class="media-viewer-playpause" aria-label="Пуск/пауза"></button>
                         <div class="media-viewer-timeline">
                             <div class="media-viewer-timeline-track">
                                 <div class="media-viewer-timeline-fill" id="mediaViewerTimelineFill"></div>
@@ -523,7 +523,7 @@
     </main>
 
     <!-- PROFILE -->
-    <main id="profileScreen" class="profile-screen">
+    <main id="profileScreen" class="profile-screen" aria-hidden="true">
         <div class="profile-content">
             <div class="profile-avatar-wrapper">
                 <img id="profileAvatar" src="/img/default-avatar.png" alt="Аватар" class="profile-avatar">
@@ -546,7 +546,7 @@
     </main>
 
     <!-- CREATE GROUP -->
-    <main id="createGroupScreen" class="create-group-screen">
+    <main id="createGroupScreen" class="create-group-screen" aria-hidden="true">
         <header class="create-group-header">
             <h1 class="register-title">Создание новой группы</h1>
         </header>
@@ -589,30 +589,32 @@
                 <input type="hidden" id="ageValue">
             </div>
 
-            <button type="button" class="btn btn-primary" id="createGroupBtn">Создать</button>
+            <button type="submit" class="btn btn-primary" id="createGroupBtn">Создать</button>
         </form>
     </main>
 
+    <!-- OVERLAY ДЛЯ ЛАНДШАФТА НА МОБИЛЬНЫХ -->
     <div id="orientationOverlay" class="orientation-overlay">
         Поверните устройство в портретный режим
     </div>
 
     <!-- BOTTOM NAV -->
-    <nav id="bottomNav" class="bottom-nav" aria-label="Основная навигация">
-        <button class="nav-btn nav-add" id="navAddBtn">
+    <nav id="bottomNav" class="bottom-nav" aria-hidden="true">
+        <button class="nav-btn nav-add" id="navAddBtn" type="button">
             <img id="navAddIcon" src="icons/plus.png" alt="Создать группу">
         </button>
-        <button class="nav-btn nav-list" id="navListBtn">
-            <img id="navListIcon" src="icons/list-gray.png" alt="Лента">
+        <button class="nav-btn nav-list" id="navListBtn" type="button">
+            <img id="navListIcon" src="icons/list-gray.png" alt="Чаты">
         </button>
-        <button class="nav-btn nav-home" id="navHomeBtn">
-            <img id="navHomeIcon" src="icons/home.png" alt="Чаты">
+        <button class="nav-btn nav-home" id="navHomeBtn" type="button">
+            <img id="navHomeIcon" src="icons/home.png" alt="Главная">
         </button>
-        <button class="nav-btn nav-profile" id="navProfileBtn">
+        <button class="nav-btn nav-profile" id="navProfileBtn" type="button">
             <img id="navProfileIcon" src="icons/user.png" alt="Профиль">
         </button>
     </nav>
 
+    <!-- Глобальный баннер-уведомление / тост -->
     <div id="networkBanner" class="network-banner" role="status" aria-live="polite"></div>
 
     <script src="app.js"></script>

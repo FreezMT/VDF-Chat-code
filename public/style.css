@@ -12,13 +12,6 @@ body {
     background-color: #1C1C1C;
     color: #FFFFFF;
     font-family: "Jost",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Oxygen,Ubuntu,Cantarell,"Open Sans","Helvetica Neue",sans-serif;
-
-    /* глобально запрещаем выделение */
-    -webkit-user-select: none;
-    -moz-user-select: none;
-    -ms-user-select: none;
-    user-select: none;
-
     -webkit-touch-callout: none;
 }
 
@@ -30,19 +23,6 @@ textarea {
     -ms-user-select: text;
     user-select: text;
     -webkit-touch-callout: default;
-}
-
-/* Разрешаем копирование текста в важных местах (сообщения, посты, профиль) */
-.msg-text,
-.feed-post-text,
-.profile-name,
-.profile-pill,
-.chat-user-name,
-.chat-user-pill {
-    -webkit-user-select: text;
-    -moz-user-select: text;
-    -ms-user-select: text;
-    user-select: text;
 }
 
 /* ========== SPLASH ========== */
@@ -104,11 +84,7 @@ textarea {
     font-size:16px;
     font-weight:700;
     cursor:pointer;
-    transition:
-        transform 0.16s cubic-bezier(.2,.8,.2,1),
-        box-shadow 0.16s ease-out,
-        background-color 0.18s ease-out,
-        opacity 0.14s ease-out;
+    transition:transform 0.12s ease-out, box-shadow 0.12s ease-out, background-color 0.15s ease-out, opacity 0.15s ease-out;
 }
 .btn:last-child {
     margin-bottom:0;
@@ -155,7 +131,8 @@ textarea {
 .register-form .field,
 .parent-form .field,
 .dancer-form .field,
-.login-form .field {
+.login-form .field,
+.create-group-form .field {
     width:100%;
     max-width:360px;
     margin:0 auto 16px;
@@ -166,12 +143,12 @@ textarea {
     padding:0 16px;
     border-radius:14px;
     background-color:#151515;
-    transition:border-radius 0.16s ease-out, background-color 0.16s ease-out, border-color 0.16s ease-out;
 }
 .register-form input,
 .parent-form input,
 .dancer-form input,
-.login-form input {
+.login-form input,
+.create-group-form input {
     background:transparent;
     border:none;
     outline:none;
@@ -183,13 +160,15 @@ textarea {
 .register-form input::placeholder,
 .parent-form input::placeholder,
 .dancer-form input::placeholder,
-.login-form input::placeholder {
+.login-form input::placeholder,
+.create-group-form input::placeholder {
     color:rgba(255,255,255,.4);
 }
 .register-form .btn-primary,
 .parent-form .btn-primary,
 .dancer-form .btn-primary,
-.login-form .btn-primary {
+.login-form .btn-primary,
+.create-group-form .btn-primary {
     margin-top:40px;
     max-width:360px;
     width:100%;
@@ -244,6 +223,7 @@ textarea {
     position:relative;
     cursor:pointer;
     user-select:none;
+    border-radius:14px;
 }
 .select-display{
     display:flex;
@@ -281,16 +261,15 @@ textarea {
 .select-option:hover{
     background-color:#2A2A2A;
 }
+.field-select.open{
+    border-bottom-left-radius:0;
+    border-bottom-right-radius:0;
+}
 .field-select.open .select-options{
     display:block;
 }
 .field-select.open .select-arrow{
     transform:rotate(-135deg);
-}
-/* при открытом селекте закругление нижних углов как в iOS */
-.field.field-select.open{
-    border-bottom-left-radius:0;
-    border-bottom-right-radius:0;
 }
 
 /* DATE FIELD */
@@ -364,18 +343,13 @@ textarea {
     padding:12px 16px;
     border-bottom:1px solid rgba(255,255,255,.1);
     cursor:pointer;
-    transition:
-        transform 0.14s ease-out,
-        filter 0.14s ease-out,
-        background-color 0.14s ease-out,
-        box-shadow 0.14s ease-out;
+    transition:transform 0.14s ease-out, filter 0.14s ease-out, background-color 0.14s ease-out;
     position:relative;
 }
 .chat-item.chat-item-pressed{
     transform:scale(0.97);
     filter:brightness(1.03);
     z-index:101;
-    box-shadow:0 8px 22px rgba(0,0,0,0.7);
 }
 .chat-avatar{
     width:40px;
@@ -445,7 +419,7 @@ textarea {
     position:fixed;
     left:0;
     right:0;
-    bottom:0;
+    bottom:10px;
     height:64px;
     background-color:#111111;
     display:none;
@@ -453,7 +427,7 @@ textarea {
     justify-content:space-around;
     border-top-left-radius:24px;
     border-top-right-radius:24px;
-    padding:0 8px calc(8px + env(safe-area-inset-bottom, 0px));
+    padding:0;
     box-shadow:0 8px 30px rgba(0,0,0,0.7);
     transform:translateY(80px);
     opacity:0;
@@ -497,13 +471,13 @@ textarea {
     color:#FFFFFF;
     padding-top:64px;
     padding-bottom:80px;
+
     transform:translateX(100%);
     opacity:0;
     pointer-events:none;
     transition:
         transform 0.25s cubic-bezier(.4,0,.2,1),
         opacity 0.2s ease-out;
-    z-index:40;
 }
 .chat-screen.chat-screen-visible{
     transform:translateX(0);
@@ -522,7 +496,7 @@ textarea {
     justify-content:space-between;
     padding:0 16px;
     background-color:#111111;
-    z-index:41;
+    z-index:10;
 }
 .chat-back{
     background:transparent;
@@ -571,14 +545,12 @@ textarea {
     right:0;
     bottom:80px;
     overflow-y:auto;
-    -webkit-overflow-scrolling:touch;
-    transition:opacity 0.18s ease-out, transform 0.18s ease-out;
 }
 
-/* LOADER поверх чата */
+/* LOADER поверх чата (перекрывает и сообщения, и инпут) */
 .chat-loading-overlay{
     position:absolute;
-    top:0;
+    top:64px;
     left:0;
     right:0;
     bottom:0;
@@ -586,7 +558,7 @@ textarea {
     display:none;
     align-items:center;
     justify-content:center;
-    z-index:45;
+    z-index:20;
 }
 .chat-loading-overlay.show{
     display:flex;
@@ -609,12 +581,11 @@ textarea {
     left:0;
     right:0;
     bottom:0;
-    padding:8px 16px calc(24px + env(safe-area-inset-bottom,0px));
+    padding:8px 16px 24px;
     display:flex;
     align-items:center;
     gap:8px;
     background:transparent;
-    z-index:42;
 }
 
 /* textarea */
@@ -998,6 +969,7 @@ textarea {
     box-sizing:border-box;
     overflow:hidden;
     min-height:0;
+
     transform:translateX(100%);
     transition:transform 0.25s cubic-bezier(.4,0,.2,1);
 }
@@ -1264,28 +1236,6 @@ textarea {
     margin-top:96px;
     margin-bottom:32px;
     text-align:center;
-}
-.create-group-form .field{
-    width:100%;
-    max-width:360px;
-    margin:0 auto 16px;
-    border:1px solid rgba(255,255,255,.4);
-    height:56px;
-    display:flex;
-    align-items:center;
-    padding:0 16px;
-}
-.create-group-form input{
-    background:transparent;
-    border:none;
-    outline:none;
-    color:#FFFFFF;
-    width:100%;
-    font-size:16px;
-    font-family:inherit;
-}
-.create-group-form input::placeholder{
-    color:rgba(255,255,255,.4);
 }
 .create-group-role-label{
     width:100%;
@@ -1575,7 +1525,8 @@ textarea {
     background:rgba(0,0,0,0.6);
     font-size:11px;
     color:#FFFFFF;
-    z-index:2; /* всегда поверх видео */
+    z-index:2;
+    pointer-events:none;
 }
 
 /* reply bar */
@@ -1590,8 +1541,7 @@ textarea {
     justify-content:space-between;
     background-color:rgba(0,0,0,0.7);
     backdrop-filter:blur(6px);
-    z-index:39;
-    transition:transform 0.18s ease-out, opacity 0.18s ease-out;
+    z-index:19;
 }
 .reply-bar-content{
     max-width:80%;
@@ -1633,7 +1583,7 @@ textarea {
     overflow-x:auto;
     background:rgba(0,0,0,0.6);
     backdrop-filter:blur(6px);
-    z-index:38;
+    z-index:18;
 }
 .attach-preview-item{
     position:relative;
@@ -1697,7 +1647,7 @@ textarea {
     padding:4px 12px 6px;
     background:rgba(0,0,0,0.7);
     backdrop-filter:blur(4px);
-    z-index:39;
+    z-index:9;
     display:none;
 }
 .pinned-top-label{
@@ -1782,6 +1732,7 @@ textarea {
     padding:8px 0;
     box-shadow:0 18px 60px rgba(0,0,0,0.7);
     z-index:102;
+
     transform:translate3d(0,8px,0) scale(0.96);
     transform-origin:top center;
     opacity:0;
@@ -1840,6 +1791,7 @@ textarea {
     padding:8px 0 4px;
     box-shadow:0 18px 60px rgba(0,0,0,0.7);
     z-index:102;
+
     transform:translate3d(0,8px,0) scale(0.96);
     transform-origin:top right;
     opacity:0;
@@ -1910,7 +1862,6 @@ textarea {
     display:flex;
     align-items:stretch;
     justify-content:center;
-    transition:transform 0.22s cubic-bezier(.4,0,.2,1);
 }
 .media-viewer-chrome{
     position:relative;
@@ -1968,20 +1919,28 @@ textarea {
     box-shadow:0 12px 40px rgba(0,0,0,0.7);
     background-color:#000000;
     object-fit:contain;
-    touch-action:none; /* подготовка для жестов увеличения */
 }
 
 /* кастомный контролбар как на iOS */
 .media-viewer-bottombar{
     height:80px;
-    padding:8px 16px calc(20px + env(safe-area-inset-bottom,0px));
+    padding:8px 16px 20px;
     display:flex;
     align-items:center;
     gap:10px;
     background:linear-gradient(to top, rgba(0,0,0,0.9), transparent);
     box-sizing:border-box;
+    transform:translateY(100%);
+    opacity:0;
+    pointer-events:none;
+    transition:
+        transform 0.25s cubic-bezier(.25,.8,.25,1),
+        opacity 0.2s ease-out;
+}
+.media-viewer-bottombar.media-viewer-controls-visible{
+    transform:translateY(0);
     opacity:1;
-    transition:opacity 0.22s ease-out;
+    pointer-events:auto;
 }
 .media-viewer-playpause{
     width:40px;
@@ -1991,10 +1950,10 @@ textarea {
     background-color:#FFFFFF;
     background-position:center;
     background-repeat:no-repeat;
-    background-size:20px 20px;
+    background-size:18px 18px;
     cursor:pointer;
     flex-shrink:0;
-    box-shadow:0 4px 14px rgba(0,0,0,0.5);
+    box-shadow:0 4px 12px rgba(0,0,0,0.6);
 }
 .media-viewer-playpause.play{
     background-image:url("icons/play-dark.png");
@@ -2135,7 +2094,7 @@ textarea {
     cursor:default;
 }
 
-/* feed screen */
+/* feed screen (главный экран после входа) */
 .feed-screen{
     display:none;
     min-height:100vh;
@@ -2156,16 +2115,12 @@ textarea {
     border-radius:16px;
     padding:12px 14px;
     margin:10px auto;
-    transition:
-        transform 0.12s ease-out,
-        box-shadow 0.12s ease-out,
-        background-color 0.12s ease-out,
-        opacity 0.12s ease-out;
+    transition:transform 0.12s ease-out, box-shadow 0.12s ease-out, background-color 0.12s ease-out;
 }
 .feed-post-header{
     display:flex;
     align-items:center;
-    justify-content:center;
+    justify-content:flex-start;
     margin-bottom:6px;
 }
 .feed-post-avatar-wrapper{
@@ -2620,14 +2575,15 @@ textarea {
     display:block;
 }
 
-/* ГЛОБАЛЬНОЕ СКРЫТИЕ СКРОЛЛБАРОВ ДЛЯ МОБИЛЬНЫХ ОБЛАСТЕЙ */
-/* при желании можно сузить только на основные скролл-контейнеры */
-* {
-    scrollbar-width: none;
-    -ms-overflow-style: none;
-}
-*::-webkit-scrollbar {
-    display: none;
+/* ГЛОБАЛЬНОЕ СКРЫТИЕ СКРОЛЛБАРОВ — ТОЛЬКО НА МОБИЛЬНЫХ */
+@media (max-width: 900px) {
+    * {
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+    }
+    *::-webkit-scrollbar {
+        display: none;
+    }
 }
 
 .orientation-overlay{

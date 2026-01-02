@@ -1,15 +1,26 @@
 // public/sw.js
 
-const CACHE_NAME = 'vdf-pwa-v1';
-const CACHE_ASSETS = [
+// ====== PWA / OFFLINE КЭШИРОВАНИЕ ======
+
+const STATIC_CACHE_VERSION = 'v1';
+const STATIC_CACHE_NAME    = 'vdf-chat-static-' + STATIC_CACHE_VERSION;
+const RUNTIME_CACHE_NAME   = 'vdf-chat-runtime-' + STATIC_CACHE_VERSION;
+
+// Минимальный набор файлов для оффлайн-оболочки
+const STATIC_ASSETS = [
   '/',
   '/index.html',
   '/style.css',
   '/app.js',
+  '/manifest.webmanifest',
+
+  // базовые картинки
   '/logo.png',
   '/group-avatar.png',
   '/img/default-avatar.png',
-  // иконки навигации
+  '/img/chat-bg.png',
+
+  // иконки навигации/кнопок (если пути другие — поправь под свой проект)
   '/icons/home.png',
   '/icons/home-gray.png',
   '/icons/user.png',
@@ -22,83 +33,112 @@ const CACHE_ASSETS = [
   '/icons/send.png',
   '/icons/attach.png',
   '/icons/edit.png',
-  '/icons/mute.png',
   '/icons/play.png',
+  '/icons/pause.png',
   '/icons/play-dark.png',
   '/icons/pause-dark.png',
-  '/icons/upload.png',
-  // статические шрифты браузера грузит сам
+  '/icons/mute.png',
+  '/icons/upload.png'
 ];
 
-// ---------- INSTALL / ACTIVATE (PWA) ----------
-
+// Установка: предкэшируем "оболочку" приложения
 self.addEventListener('install', event => {
   event.waitUntil(
-    caches.open(CACHE_NAME)
-      .then(cache => cache.addAll(CACHE_ASSETS))
-      .then(() => self.skipWaiting())
+    caches.open(STATIC_CACHE_NAME)
+      .then(cache => cache.addAll(STATIC_ASSETS))
       .catch(() => {})
   );
+  self.skipWaiting();
 });
 
+// Активация: чистим старые кэши
 self.addEventListener('activate', event => {
   event.waitUntil(
-    (async () => {
-      const keys = await caches.keys();
-      await Promise.all(
-        keys.map(k => {
-          if (k !== CACHE_NAME) {
-            return caches.delete(k);
+    caches.keys()
+      .then(keys => Promise.all(
+        keys.map(key => {
+          if (
+            key !== STATIC_CACHE_NAME &&
+            key !== RUNTIME_CACHE_NAME &&
+            key.startsWith('vdf-chat-')
+          ) {
+            return caches.delete(key);
           }
+          return Promise.resolve();
         })
-      );
-      await self.clients.claim();
-    })()
+      ))
+      .then(() => self.clients.claim())
   );
 });
 
-// ---------- FETCH: кешируем только GET, без API ----------
-
+// Обработка запросов: только GET, без API/POST
 self.addEventListener('fetch', event => {
   const req = event.request;
 
-  // не кешируем POST/PUT/DELETE и т.п.
+  // Кэшируем только GET
   if (req.method !== 'GET') return;
 
   const url = new URL(req.url);
 
-  // не кешируем API-запросы
-  if (url.pathname.startsWith('/api/')) return;
+  // Только наш origin
+  if (url.origin !== self.location.origin) return;
 
-  // стратегия: cache-first для статики и shell
+  // Навигация (переходы по страницам) — network-first, fallback на кэш
+  if (req.mode === 'navigate') {
+    event.respondWith(
+      fetch(req)
+        .then(res => {
+          const resClone = res.clone();
+          caches.open(STATIC_CACHE_NAME).then(cache => {
+            cache.put('/', resClone);
+          }).catch(() => {});
+          return res;
+        })
+        .catch(() => {
+          return caches.match(req)
+            .then(match => match || caches.match('/'));
+        })
+    );
+    return;
+  }
+
+  // Если это один из заранее известных статических ассетов — cache-first
+  if (STATIC_ASSETS.includes(url.pathname)) {
+    event.respondWith(
+      caches.match(req).then(cached => {
+        if (cached) return cached;
+        return fetch(req)
+          .then(res => {
+            const resClone = res.clone();
+            caches.open(STATIC_CACHE_NAME).then(cache => {
+              cache.put(req, resClone);
+            }).catch(() => {});
+            return res;
+          })
+          .catch(() => caches.match('/'));
+      })
+    );
+    return;
+  }
+
+  // Остальные GET (картинки, аватары и т.п.) — network-first с runtime-кэшем
   event.respondWith(
-    (async () => {
-      const cache = await caches.open(CACHE_NAME);
-
-      // пробуем из кэша
-      const cached = await cache.match(req);
-      if (cached) return cached;
-
-      try {
-        const response = await fetch(req);
-        // кладём только успешные GETы
-        if (response && response.status === 200 && response.type === 'basic') {
-          cache.put(req, response.clone());
-        }
-        return response;
-      } catch (e) {
-        // оффлайн‑фолбэк для навигации
-        if (req.mode === 'navigate') {
-          const fallback = await cache.match('/index.html');
-          if (fallback) return fallback;
-        }
-        throw e;
-      }
-    })()
+    fetch(req)
+      .then(res => {
+        const resClone = res.clone();
+        caches.open(RUNTIME_CACHE_NAME).then(cache => {
+          cache.put(req, resClone);
+        }).catch(() => {});
+        return res;
+      })
+      .catch(() => {
+        return caches.match(req).then(match => match || caches.match('/'));
+      })
   );
 });
 
-// ---------- PUSH УВЕДОМЛЕНИЯ ----------
+
+// ====== PUSH УВЕДОМЛЕНИЯ ======
 
 self.addEventListener('push', function (event) {
   if (!event.data) return;
@@ -141,6 +181,7 @@ self.addEventListener('notificationclick', function (event) {
       includeUncontrolled: true
     });
 
+    // Если в push пришёл chatId — открываем конкретный чат
     if (chatId) {
       if (allClients.length > 0) {
         const client = allClients[0];
@@ -160,6 +201,7 @@ self.addEventListener('notificationclick', function (event) {
       return;
     }
 
+    // Иначе — просто открываем/фокусируем приложение
     for (const client of allClients) {
       if (client.visibilityState === 'visible') {
         try {
