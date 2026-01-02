@@ -277,6 +277,12 @@ var groupAddMembersCount = document.getElementById('groupAddMembersCount');
 var groupAddUserIdInput  = document.getElementById('groupAddUserIdInput');
 var groupAddSubmitBtn    = document.getElementById('groupAddSubmitBtn');
 
+var groupAgeLabel     = document.getElementById('groupAgeLabel');
+var currentGroupAge   = null;
+var currentGroupAudience = null;
+
+
+
 // СОЗДАНИЕ ГРУППЫ
 var groupNameInput  = document.getElementById('groupNameInput');
 var audienceParents = document.getElementById('audienceParents');
@@ -409,6 +415,61 @@ var chatLoadingOverlay = document.getElementById('chatLoadingOverlay');
 var micTouchStartX = null;
 var micTouchStartY = null;
 var micGestureActive = false;
+
+function initGroupAgeEditing() {
+    if (!groupAgeLabel) return;
+
+    groupAgeLabel.addEventListener('click', async function () {
+        if (!currentUser || !currentUser.login || !currentGroupName) return;
+
+        var roleLower = (currentUser.role || '').toLowerCase();
+        if (roleLower !== 'trainer' && roleLower !== 'тренер') return;
+
+        // Только для кастомных групп и только для audience = dancers
+        if (currentChat && currentChat.type !== 'groupCustom') return;
+        if (currentGroupAudience !== 'dancers') return;
+
+        var allowedAges = ['5+','7+','9+','10+','12+','14+','18+'];
+        var current = currentGroupAge || '';
+        var input = prompt(
+            'Введите возраст для группы (варианты: ' + allowedAges.join(', ') + ')',
+            current
+        );
+        if (!input) return;
+        input = input.trim();
+        if (!allowedAges.includes(input)) {
+            alert('Некорректный возраст. Используйте: ' + allowedAges.join(', '));
+            return;
+        }
+
+        try {
+            var resp = await fetch('/api/group/set-age', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    login: currentUser.login,
+                    groupName: currentGroupName,
+                    age: input
+                })
+            });
+            var data = await resp.json();
+            if (!resp.ok || !data.ok) {
+                alert(data.error || 'Ошибка изменения возраста');
+                return;
+            }
+
+            currentGroupAge = data.age || input;
+            if (groupAgeLabel) {
+                groupAgeLabel.textContent = currentGroupAge;
+            }
+
+            // обновим список чатов, чтобы подзаголовки были актуальны
+            await reloadChatList();
+        } catch (e) {
+            alert('Сетевая ошибка при изменении возраста группы');
+        }
+    });
+}
 
 function attachIdCopyHandler(el) {
     if (!el) return;
@@ -3337,8 +3398,8 @@ function attachMessageInteractions(item, msg) {
             return;
         }
 
-        item.classList.add('msg-item-pressed');
         mouseTimer = setTimeout(function () {
+            item.classList.add('msg-item-pressed');
             showMsgContextMenu(item._msgInfo, item);
         }, 300);
     });
@@ -3364,8 +3425,8 @@ function attachMessageInteractions(item, msg) {
             return;
         }
 
-        item.classList.add('msg-item-pressed');
         touchTimer = setTimeout(function () {
+            item.classList.add('msg-item-pressed');
             showMsgContextMenu(item._msgInfo, item);
         }, 300);
     }, { passive:true });
@@ -4315,8 +4376,9 @@ function renderOrCreateChatItem(chat) {
         var mouseTimer = null;
         item.addEventListener('mousedown', function (e) {
             if (e.button !== 0) return;
-            item.classList.add('chat-item-pressed');
+
             mouseTimer = setTimeout(function () {
+                item.classList.add('chat-item-pressed');
                 showChatContextMenu(chat, item);
                 suppressChatClick = true;
             }, 300);
@@ -4333,11 +4395,10 @@ function renderOrCreateChatItem(chat) {
             });
         });
 
-        // long-press (тач)
         var touchTimer = null;
         item.addEventListener('touchstart', function () {
-            item.classList.add('chat-item-pressed');
             touchTimer = setTimeout(function () {
+                item.classList.add('chat-item-pressed');
                 showChatContextMenu(chat, item);
                 suppressChatClick = true;
             }, 300);
@@ -4498,19 +4559,26 @@ async function reloadChatList() {
 
 function getChatPartnerLogin(chat) {
     if (!chat || !currentUser) return null;
-    var roleLower = (currentUser.role || '').toLowerCase();
 
+    // Личные чаты: partnerLogin всегда логин собеседника
     if (chat.type === 'personal') {
         return chat.partnerLogin || null;
     }
 
     if (chat.type === 'trainer') {
-        if (roleLower === 'trainer' || roleLower === 'тренер') {
-            return chat.partnerLogin;
-        } else {
-            return chat.trainerLogin || chat.partnerLogin;
-        }
+        // В тренерском чате есть два логина: trainerLogin и partnerLogin.
+        // Собеседник — тот, кто НЕ равен текущему пользователю.
+        var me = String(currentUser.login || '').toLowerCase();
+        var t  = chat.trainerLogin ? String(chat.trainerLogin).toLowerCase() : null;
+        var p  = chat.partnerLogin ? String(chat.partnerLogin).toLowerCase() : null;
+
+        if (t && t !== me) return chat.trainerLogin;
+        if (p && p !== me) return chat.partnerLogin;
+
+        // fallback: если что-то пошло не так, вернём хоть что-то
+        return chat.partnerLogin || chat.trainerLogin || null;
     }
+
     return null;
 }
 
@@ -4788,6 +4856,9 @@ async function openGroupModal() {
         var members        = data.members || [];
         var membersCount   = data.membersCount || members.length;
 
+        currentGroupAudience = data.audience || null;
+        currentGroupAge      = data.age || null;
+
         if (groupAvatar) {
             groupAvatar.src = groupAvatarUrl;
             groupAvatar.onerror = function () {
@@ -4798,12 +4869,25 @@ async function openGroupModal() {
 
         if (groupNameTitle) groupNameTitle.textContent = groupName;
 
+        // Показ возраста рядом с именем, если группа для танцоров
+        if (groupAgeLabel) {
+        if (currentGroupAudience === 'dancers' && currentGroupAge) {
+            groupAgeLabel.textContent = currentGroupAge;
+            groupAgeLabel.style.display = 'inline-block';
+        } else {
+            groupAgeLabel.textContent = '';
+            groupAgeLabel.style.display = 'none';
+        }
+        }
+
         currentGroupName = groupName;
         currentGroupInfo = {
             name: groupName,
             avatar: groupAvatarUrl,
             membersCount: membersCount
         };
+
+
 
         if (groupNameEditInput) {
             groupNameEditInput.value = currentGroupName;
@@ -7157,3 +7241,4 @@ document.addEventListener('keydown', function (e) {
 // ИНИЦИАЛИЗАЦИЯ ВЛОЖЕНИЙ
 initChatAttachments();
 initAttachmentTabs();
+initGroupAgeEditing();

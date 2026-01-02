@@ -2824,16 +2824,94 @@ app.post('/api/group/info', requireAuth, async (req, res) => {
       });
     }
 
+    let audience = null;
+    let age      = null;
+
+    if (isCustom) {
+      const groupRow = await get(
+        db,
+        'SELECT name, avatar, audience, age FROM created_groups WHERE name = ?',
+        [teamKey]
+      );
+      if (groupRow) {
+        groupName   = groupRow.name;
+        groupAvatar = groupRow.avatar || '/logo.png';
+        audience    = groupRow.audience || null;
+        age         = groupRow.age || null;
+      }
+      // members уже есть
+    } else {
+      // для официальных групп по команде:
+      audience = 'dancers'; // или null, но по описанию это всегда дети/родители
+      age      = null;      // нет фиксированного возраста
+    }
+
     res.json({
       ok:           true,
       name:         groupName,
       avatar:       groupAvatar,
       membersCount: members.length,
-      members:      members
+      members:      members,
+      audience:     audience,
+      age:          age
     });
   } catch (e) {
     console.error('GROUP INFO ERROR:', e);
     res.status(500).json({ error: 'Ошибка сервера при загрузке информации о группе' });
+  }
+});
+
+// /api/group/set-age
+app.post('/api/group/set-age', requireAuth, async (req, res) => {
+  try {
+    const { login, groupName, age } = req.body;
+
+    if (!login || !groupName || !age) {
+      return res.status(400).json({ error: 'Нет логина, названия группы или возраста' });
+    }
+
+    const user = await get(
+      db,
+      'SELECT role FROM users WHERE login = ?',
+      [login]
+    );
+    if (!user) {
+      return res.status(404).json({ error: 'Пользователь не найден' });
+    }
+
+    const roleLower = (user.role || '').toLowerCase();
+    if (roleLower !== 'trainer' && roleLower !== 'тренер') {
+      return res.status(403).json({ error: 'Возраст группы могут менять только тренера' });
+    }
+
+    const group = await get(
+      db,
+      'SELECT id, audience FROM created_groups WHERE owner_login = ? AND name = ?',
+      [login, groupName]
+    );
+    if (!group) {
+      return res.status(404).json({ error: 'Группа не найдена' });
+    }
+
+    if (group.audience !== 'dancers') {
+      return res.status(400).json({ error: 'Возраст можно задать только группе для танцоров' });
+    }
+
+    const allowedAges = ['5+','7+','9+','10+','12+','14+','18+'];
+    if (!allowedAges.includes(age)) {
+      return res.status(400).json({ error: 'Некорректный возраст (используйте: ' + allowedAges.join(', ') + ')' });
+    }
+
+    await run(
+      db,
+      'UPDATE created_groups SET age = ? WHERE id = ?',
+      [age, group.id]
+    );
+
+    res.json({ ok: true, age });
+  } catch (e) {
+    console.error('GROUP SET AGE ERROR:', e);
+    res.status(500).json({ error: 'Ошибка сервера при изменении возраста' });
   }
 });
 

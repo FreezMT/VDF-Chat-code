@@ -1953,19 +1953,21 @@ textarea {
     height:40px;
     border-radius:20px;
     border:none;
-    background-color:#FFFFFF;
+    background-color:rgba(0,0,0,0.75); /* тёмный фон */
     background-position:center;
     background-repeat:no-repeat;
-    background-size:18px 18px;
+    background-size:20px 20px;
     cursor:pointer;
     flex-shrink:0;
-    box-shadow:0 4px 12px rgba(0,0,0,0.6);
+    box-shadow:0 4px 12px rgba(0,0,0,0.8);
 }
+
+/* Используем белые иконки, как в чат-голосовых */
 .media-viewer-playpause.play{
-    background-image:url("icons/play-dark.png");
+    background-image:url("icons/play.png");
 }
 .media-viewer-playpause.pause{
-    background-image:url("icons/pause-dark.png");
+    background-image:url("icons/pause.png");
 }
 
 .media-viewer-timeline{
@@ -2663,4 +2665,13 @@ textarea {
 }
 .network-banner.info{
     background-color:rgba(59,169,255,0.95); /* синий для информационных сообщений */
+}
+
+.group-age{
+    font-size:14px;
+    color:rgba(255,255,255,0.7);
+    margin-left:6px;
+}
+.group-age-editable{
+    cursor:pointer;
 }
