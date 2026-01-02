@@ -96,6 +96,8 @@ if ('serviceWorker' in navigator) {
 var chatRenderState = {}; // { [chatId]: { initialized, lastId, pinnedId } }
 var messagesById    = {}; // { [messageId]: messageRow }
 
+var msgCtxOpenedAt = 0; // время последнего открытия меню сообщений
+
 // состояние поиска по чатам
 var chatSearchInput   = document.getElementById('chatSearchInput');
 var currentChatSearch = '';
@@ -195,6 +197,8 @@ var mediaViewerTimelineThumb = document.getElementById('mediaViewerTimelineThumb
 var mediaViewerCurrentTime = document.getElementById('mediaViewerCurrentTime');
 var mediaViewerTotalTime   = document.getElementById('mediaViewerTotalTime');
 var mediaViewerControls    = document.getElementById('mediaViewerControls');
+
+var mediaViewerLoader   = document.getElementById('mediaViewerLoader');
 
 var currentMediaSourceRect = null;
 var mediaSwipeStartY = null;
@@ -1761,6 +1765,9 @@ function resetMediaViewerUi() {
         mediaViewerControls.style.display = 'none';
         mediaViewerControls.classList.remove('media-viewer-controls-visible');
     }
+    if (mediaViewerLoader) mediaViewerLoader.classList.remove('show');
+    mediaViewerIsVideo = false;
+
     resetMediaViewerZoom();
 }
 
@@ -1856,6 +1863,9 @@ function openMediaViewer(url, type, sourceEl) {
         mediaViewerVideo.setAttribute('playsinline','true');
         mediaViewerVideo.setAttribute('webkit-playsinline','true');
         mediaViewerVideo.currentTime = 0;
+        if (mediaViewerLoader) {
+            mediaViewerLoader.classList.add('show');
+        }
 
         if (mediaViewerControls) {
             mediaViewerControls.style.display = 'flex';
@@ -1868,6 +1878,19 @@ function openMediaViewer(url, type, sourceEl) {
             var dur = mediaViewerVideo.duration;
             if (mediaViewerTotalTime) mediaViewerTotalTime.textContent = formatSecondsToMMSS(dur);
             if (mediaViewerCurrentTime) mediaViewerCurrentTime.textContent = '0:00';
+        });
+
+        mediaViewerVideo.addEventListener('canplay', function onCanPlay() {
+            mediaViewerVideo.removeEventListener('canplay', onCanPlay);
+            if (mediaViewerLoader) {
+                mediaViewerLoader.classList.remove('show');
+            }
+        });
+
+        mediaViewerVideo.addEventListener('error', function () {
+            if (mediaViewerLoader) {
+                mediaViewerLoader.classList.remove('show');
+            }
         });
 
         mediaViewerVideo.addEventListener('timeupdate', function onTime() {
@@ -1890,12 +1913,14 @@ function openMediaViewer(url, type, sourceEl) {
         });
 
         mediaViewerVideo.play().then(function () {
+            if (mediaViewerLoader) mediaViewerLoader.classList.remove('show');
             if (mediaViewerPlayPause) {
                 mediaViewerPlayPause.classList.remove('play');
                 mediaViewerPlayPause.classList.add('pause');
             }
             showMediaViewerControls();
         }).catch(function(){
+            if (mediaViewerLoader) mediaViewerLoader.classList.remove('show');
             if (mediaViewerPlayPause) {
                 mediaViewerPlayPause.classList.remove('pause');
                 mediaViewerPlayPause.classList.add('play');
@@ -3326,6 +3351,10 @@ function createMsgContextMenu() {
     (chatScreen || document.body).appendChild(msgContextOverlay);
 
     msgContextOverlay.addEventListener('click', function (e) {
+        // Игнорируем первый "синтетический" click сразу после long‑press (iOS/Android)
+        if (Date.now() - msgCtxOpenedAt < 250) {
+            return;
+        }
         if (e.target === msgContextOverlay) hideMsgContextMenu();
     });
 
@@ -3517,6 +3546,8 @@ function showMsgContextMenu(msgInfo, item) {
     if (!msgInfo || !currentUser || !item) return;
     createMsgContextMenu();
 
+    msgCtxOpenedAt = Date.now();
+
     currentMsgContext     = msgInfo;
     currentMsgContextItem = item;
 
@@ -3563,7 +3594,8 @@ function showMsgContextMenu(msgInfo, item) {
             var pr = pinnedTopBar.getBoundingClientRect();
             pinnedH = pr.height || 0;
         }
-        var safeTop = headerH + pinnedH + 8;
+        // чуть больше отступ сверху, чтобы не наезжать на закреп
+        var safeTop = headerH + pinnedH + 16;
 
         var bottomReserve = 8;
         if (chatInputForm) {
@@ -4802,7 +4834,15 @@ async function openChatUserModal() {
     if (!currentChat || !currentUser) return;
     var partnerLogin = getChatPartnerLogin(currentChat);
     if (!partnerLogin) return;
-    openUserInfoModal(partnerLogin, false);
+
+    try {
+        await openUserInfoModal(partnerLogin, false);
+    } catch (e) {
+        console.error('openChatUserModal error:', e);
+        // Фоллбэк — хотя бы показать карточку с логином
+        if (chatUserName) chatUserName.textContent = partnerLogin;
+        if (chatUserModal) chatUserModal.classList.add('visible');
+    }
 }
 
 // ---------- МОДАЛКА ГРУППЫ ----------
@@ -5862,7 +5902,6 @@ if (navAddBtn) {
 }
 
 // клик по шапке чата
-// клик по шапке чата (отдельный обработчик только для chat-header)
 var chatHeaderEl = document.querySelector('.chat-header');
 if (chatHeaderEl) {
     chatHeaderEl.addEventListener('click', function (e) {
@@ -5870,7 +5909,7 @@ if (chatHeaderEl) {
         if (e.target.closest('.chat-back')) return;
         if (!currentChat) return;
 
-        // Личные чаты / тренерские — открываем модалку пользователя
+        // Личные чаты / тренерские — модалка пользователя
         if (currentChat.type === 'trainer' || currentChat.type === 'personal') {
             openChatUserModal();
         }

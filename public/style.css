@@ -2741,3 +2741,38 @@ textarea {
 .chat-user-modal.visible .group-modal-card{
     transform:translateX(0);
 }
+
+.media-viewer-main{
+    flex:1;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    padding:0 10px;
+    position:relative; /* важно для лоадера */
+}
+
+/* лоадер в центре видео */
+.media-viewer-loader{
+    position:absolute;
+    left:50%;
+    top:50%;
+    width:40px;
+    height:40px;
+    margin-left:-20px;
+    margin-top:-20px;
+    border-radius:50%;
+    border:3px solid rgba(255,255,255,0.3);
+    border-top-color:#FFFFFF;
+    box-sizing:border-box;
+    animation:media-loader-spin 0.8s linear infinite;
+    opacity:0;
+    pointer-events:none;
+    transition:opacity 0.2s ease-out;
+}
+.media-viewer-loader.show{
+    opacity:1;
+}
+
+@keyframes media-loader-spin{
+    to { transform: rotate(360deg); }
+}
