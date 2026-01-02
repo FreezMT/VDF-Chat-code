@@ -2414,6 +2414,7 @@ function hideBottomNav() {
 function setNavActive(tab) {
     if (!navHomeIcon || !navProfileIcon || !navAddIcon || !navListIcon) return;
 
+    // базовые (неактивные) состояния
     navHomeIcon.src   = 'icons/home-gray.png';
     navProfileIcon.src= 'icons/user.png';
     navAddIcon.src    = 'icons/plus.png';
@@ -2423,12 +2424,12 @@ function setNavActive(tab) {
         navProfileIcon.src = 'icons/user-active.png';
     } else if (tab === 'plus') {
         navAddIcon.src = 'icons/plus-active.png';
-    } else if (tab === 'list') {
-        // СПИСОК (лента постов)
-        navListIcon.src = 'icons/list.png';
-    } else if (tab === 'home') {
-        // ДОМИК (чаты)
+    } else if (tab === 'chats') {
+        // домик = чаты
         navHomeIcon.src = 'icons/home.png';
+    } else if (tab === 'feed') {
+        // список = лента
+        navListIcon.src = 'icons/list.png';
     }
 }
 
@@ -3482,6 +3483,7 @@ function attachMessageInteractions(item, msg) {
 
     // --- LONG PRESS: тач ---
     var touchTimer = null;
+
     item.addEventListener('touchstart', function (e) {
         if (msgContextOverlay &&
             msgContextOverlay.classList.contains('visible') &&
@@ -3494,9 +3496,9 @@ function attachMessageInteractions(item, msg) {
             item.classList.add('msg-item-pressed');
             showMsgContextMenu(item._msgInfo, item);
         }, 300);
-    }, { passive:true });
+    }, { passive: false });
 
-    item.addEventListener('touchmove', function () {
+    item.addEventListener('touchmove', function (e) {
         if (touchTimer) {
             clearTimeout(touchTimer);
             touchTimer = null;
@@ -3504,17 +3506,27 @@ function attachMessageInteractions(item, msg) {
         if (!msgContextOverlay || !msgContextOverlay.classList.contains('visible')) {
             item.classList.remove('msg-item-pressed');
         }
-    }, { passive:true });
+    }, { passive: false });
 
-    item.addEventListener('touchend', function () {
+    item.addEventListener('touchend', function (e) {
         if (touchTimer) {
             clearTimeout(touchTimer);
             touchTimer = null;
         }
+
+        // Если сейчас открыто контекстное меню именно для этого сообщения,
+        // блокируем синтетический click, чтобы меню не схлопывалось.
+        if (msgContextOverlay &&
+            msgContextOverlay.classList.contains('visible') &&
+            currentMsgContextItem === item) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+
         if (!msgContextOverlay || !msgContextOverlay.classList.contains('visible')) {
             item.classList.remove('msg-item-pressed');
         }
-    });
+    }, { passive: false });
 
     // Даблклик — ответ
     item.addEventListener('dblclick', function () {
@@ -4832,14 +4844,32 @@ async function openUserInfoModal(login, fromGroup) {
 
 async function openChatUserModal() {
     if (!currentChat || !currentUser) return;
-    var partnerLogin = getChatPartnerLogin(currentChat);
+
+    var partnerLogin = null;
+
+    if (currentChat.type === 'personal') {
+        // личный чат
+        partnerLogin = currentChat.partnerLogin || null;
+    } else if (currentChat.type === 'trainer') {
+        // тренерский чат: в объекте чата есть trainerLogin и partnerLogin
+        var me = String(currentUser.login || '').toLowerCase();
+
+        if (currentChat.trainerLogin &&
+            String(currentChat.trainerLogin).toLowerCase() !== me) {
+            partnerLogin = currentChat.trainerLogin;
+        } else if (currentChat.partnerLogin &&
+                   String(currentChat.partnerLogin).toLowerCase() !== me) {
+            partnerLogin = currentChat.partnerLogin;
+        }
+    }
+
     if (!partnerLogin) return;
 
     try {
         await openUserInfoModal(partnerLogin, false);
     } catch (e) {
         console.error('openChatUserModal error:', e);
-        // Фоллбэк — хотя бы показать карточку с логином
+        // минимальный фолбэк
         if (chatUserName) chatUserName.textContent = partnerLogin;
         if (chatUserModal) chatUserModal.classList.add('visible');
     }
@@ -5413,7 +5443,7 @@ async function openChatsScreen() {
     mainScreen.setAttribute('aria-hidden','false');
     showBottomNav();
 
-    setNavActive('home'); // чаты = домик;
+    setNavActive('chats'); // чаты = домик;
 
     hideChatUserModal();
     hideGroupModal();
@@ -5447,7 +5477,7 @@ async function openFeedScreen() {
     stopMessagePolling();
     stopChatListPolling();
 
-    setNavActive('list'); // лента = список;
+    setNavActive('feed'); // лента = список;
 
     if (createPostBtn) {
         var roleLower = (currentUser.role || '').toLowerCase();
@@ -5474,7 +5504,7 @@ async function openChat(chat) {
     });
 
     hideBottomNav();
-    setNavActive('home');
+    setNavActive('chats');
 
     chatJustOpenedAt = Date.now();
 
@@ -5569,7 +5599,7 @@ function closeChatScreenToMain() {
     }
 
     showBottomNav();
-    setNavActive('home'); // чаты (домик)
+    setNavActive('chats'); // чаты (домик)
 
     reloadChatList();
     startChatListPolling();
@@ -6017,7 +6047,7 @@ if (logoutBtn) {
 
         document.body.classList.add('welcome-active');
 
-        setNavActive('home');
+        setNavActive('chats');
 
         // Очистка localStorage (включая пины и прочий кэш)
         try {
