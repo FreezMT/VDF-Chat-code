@@ -1122,7 +1122,7 @@ app.post('/api/messages/react', requireAuth, async (req, res) => {
     }
 
     const msg = await getMsg(
-      'SELECT id FROM messages WHERE id = ? AND (deleted IS NULL OR deleted = 0)',
+      'SELECT id, chat_id FROM messages WHERE id = ? AND (deleted IS NULL OR deleted = 0)',
       [messageId]
     );
     if (!msg) {
@@ -1147,7 +1147,7 @@ app.post('/api/messages/react', requireAuth, async (req, res) => {
     } else {
       await runMsg(
         'INSERT INTO message_reactions (message_id, login, emoji) VALUES (?, ?, ?)',
-        [messageId, login]
+        [messageId, login, emoji]
       );
     }
 
@@ -1163,15 +1163,12 @@ app.post('/api/messages/react', requireAuth, async (req, res) => {
       [messageId, login]
     );
 
+    // можно дополнительно оповещать всех в чате, но это не обязательно
     res.json({
       ok: true,
       reactions,
       myReaction: mine ? mine.emoji : null
     });
-    const row = await getMsg('SELECT chat_id FROM messages WHERE id = ?', [messageId]).catch(() => null);
-    if (row && row.chat_id) {
-      broadcastChatUpdated(row.chat_id).catch(() => {});
-    }
   } catch (e) {
     console.error('MESSAGE REACT ERROR:', e);
     res.status(500).json({ error: 'Ошибка сервера при реакции на сообщение' });

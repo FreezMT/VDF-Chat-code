@@ -506,10 +506,9 @@ function applyKeyboardOffset() {
     var offset = keyboardOffset || 0;
 
     if (chatInputForm) chatInputForm.style.transform = offset ? ('translateY(-' + offset + 'px)') : '';
-    if (replyBar) replyBar.style.transform = offset ? ('translateY(-' + offset + 'px)') : '';
+    if (replyBar)      replyBar.style.transform      = offset ? ('translateY(-' + offset + 'px)') : '';
     if (attachPreviewBar) attachPreviewBar.style.transform = offset ? ('translateY(-' + offset + 'px)') : '';
 
-    // пересчитываем общий bottom с учётом offset
     updateFloatingBarsPosition();
 }
 
@@ -1562,9 +1561,22 @@ function updateFloatingBarsPosition() {
         replyBar.style.bottom = (inputHeight + attachH) + 'px';
     }
 
-    // Общая высота всех элементов снизу + учёт поднятия над клавиатурой
     var bottom = inputHeight + attachH + replyH + (keyboardOffset || 0);
     chatContent.style.bottom = bottom + 'px';
+}
+
+function updateChatTopForPinned() {
+    if (!chatContent) return;
+
+    var baseTop = 64; // высота шапки
+    var extra   = 0;
+
+    if (pinnedTopBar && pinnedTopBar.style.display !== 'none') {
+        var pr = pinnedTopBar.getBoundingClientRect();
+        extra = pr.height || 0;
+    }
+
+    chatContent.style.top = (baseTop + extra) + 'px';
 }
 
 function updateReadStatusInDom(messages) {
@@ -3157,6 +3169,7 @@ function renderPinnedTop(msg) {
     if (!msg) {
         pinnedTopBar.style.display = 'none';
         pinnedTopBar.innerHTML = '';
+        updateChatTopForPinned();
         return;
     }
 
@@ -3190,6 +3203,7 @@ function renderPinnedTop(msg) {
         el.classList.add('msg-highlight');
         setTimeout(function () { el.classList.remove('msg-highlight'); }, 1000);
     };
+    updateChatTopForPinned();
 }
 
 // ---------- КОПИРОВАНИЕ ТЕКСТА СООБЩЕНИЯ ----------
@@ -3205,8 +3219,14 @@ function copyMessageText(msgInfo) {
     }
     if (!text) return;
 
+    function done() {
+        if (typeof showInfoBanner === 'function') {
+            showInfoBanner('Текст скопирован');
+        }
+    }
+
     if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(text).catch(function(){});
+        navigator.clipboard.writeText(text).then(done).catch(done);
     } else {
         var ta = document.createElement('textarea');
         ta.value = text;
@@ -3216,6 +3236,7 @@ function copyMessageText(msgInfo) {
         ta.select();
         try { document.execCommand('copy'); } catch (e) {}
         document.body.removeChild(ta);
+        done();
     }
 }
 
@@ -3483,18 +3504,18 @@ function showMsgContextMenu(msgInfo, item) {
     // подавляем следующий клик по медиа (чтобы не открыть viewer сразу после long-press)
     item._suppressNextMediaClick = true;
 
-    // pressed-класс добавляет attachMessageInteractions, тут просто усиливаем z-index
-    if (item._oldZIndex === undefined) {
-        item._oldZIndex = item.style.zIndex || '';
-    }
-    item.style.zIndex = '9999';
-
     var isMe          = String(msgInfo.senderLogin).toLowerCase() === String(currentUser.login).toLowerCase();
     var hasText       = msgInfo.text && String(msgInfo.text).trim().length > 0;
     var hasAttachment = !!msgInfo.attachmentType;
     var hasMedia      = (msgInfo.attachmentType === 'image' || msgInfo.attachmentType === 'video');
 
-    // видимость пунктов меню
+    // pressed-класс будет добавляться attachMessageInteractions по таймеру
+    if (item._oldZIndex === undefined) {
+        item._oldZIndex = item.style.zIndex || '';
+    }
+    item.style.zIndex = '9999';
+
+    // видимость кнопок
     msgCtxEditBtn.style.display   = (isMe && (hasText || hasAttachment)) ? '' : 'none';
     msgCtxDeleteBtn.style.display = isMe ? '' : 'none';
     msgCtxPinBtn.textContent      = msgInfo.isPinned ? 'Открепить сообщение' : 'Закрепить сообщение';
@@ -3504,7 +3525,7 @@ function showMsgContextMenu(msgInfo, item) {
     msgContextOverlay.classList.add('visible');
     msgContextMenu.classList.remove('open');
 
-    function positionMenu() {
+    function positionMenu(allowScroll) {
         if (!msgContextMenu || !currentMsgContextItem) return;
 
         var refEl = currentMsgContextItem.querySelector('.msg-col') ||
@@ -3543,9 +3564,32 @@ function showMsgContextMenu(msgInfo, item) {
         var spaceAbove = rect.top    - safeTop;
         var spaceBelow = vh - safeBottom - rect.bottom;
 
+        // Если вообще нигде не помещается, попробуем проскроллить чат так,
+        // чтобы сообщение оказалось ближе к центру экрана, и пересчитаем
+        if (allowScroll && chatContent &&
+            (spaceAbove < menuH + margin || spaceBelow < menuH + margin)) {
+
+            var msgCenter    = rect.top + rect.height / 2 + chatContent.scrollTop;
+            var viewportTop  = safeTop;
+            var viewportBot  = vh - safeBottom;
+            var viewportCent = (viewportTop + viewportBot) / 2 + chatContent.scrollTop;
+
+            var delta = msgCenter - viewportCent;
+
+            chatContent.scrollTo({
+                top: chatContent.scrollTop + delta,
+                behavior: 'smooth'
+            });
+
+            setTimeout(function () {
+                positionMenu(false);
+            }, 260);
+            return;
+        }
+
         var top;
 
-        // Для фото/видео, если снизу мало места, а сверху хватает — сразу ставим сверху
+        // Для фото/видео, если снизу мало места, а сверху хватает — ставим сразу сверху
         if (hasMedia && spaceBelow < menuH + margin && spaceAbove >= menuH + margin) {
             top = rect.top - menuH - margin;
         }
@@ -3557,12 +3601,12 @@ function showMsgContextMenu(msgInfo, item) {
         else if (spaceAbove >= menuH + margin) {
             top = rect.top - menuH - margin;
         }
-        // иначе — ставим максимально доступно сверху/снизу
+        // иначе — всё равно ставим над, но потом зажмём в пределах
         else {
             top = rect.top - menuH - margin;
         }
 
-        // Клап по экрану
+        // зажим по экрану
         var minTop = safeTop;
         var maxTop = vh - safeBottom - menuH;
         if (maxTop < minTop) maxTop = minTop;
@@ -3586,7 +3630,9 @@ function showMsgContextMenu(msgInfo, item) {
         });
     }
 
-    requestAnimationFrame(positionMenu);
+    requestAnimationFrame(function () {
+        positionMenu(true);
+    });
 }
 
 // --- действия над сообщениями ---
