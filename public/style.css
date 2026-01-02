@@ -19,6 +19,17 @@ body {
     user-select: none;
 }
 
+html, body {
+    overscroll-behavior-y: contain; /* Chrome/Firefox/новый Safari */
+}
+.chat-screen,
+.feed-screen,
+.main-screen {
+    overscroll-behavior: contain;
+}
+
+
+
 
 
 /* Разрешаем нормальное поведение для текстовых полей */
@@ -426,7 +437,7 @@ textarea {
     left:0;
     right:0;
     bottom:10px;
-    height:64px;
+    height:72px; /* чуть выше */
     background-color:#111111;
     display:none;
     align-items:center;
@@ -442,13 +453,9 @@ textarea {
         opacity 0.25s ease-out;
     z-index:50;
 }
-.bottom-nav.bottom-nav-visible{
-    transform:translateY(0);
-    opacity:1;
-}
 .nav-btn{
-    width:40px;
-    height:40px;
+    width:56px;   /* больше tap-area */
+    height:56px;
     border:none;
     background:transparent;
     padding:0;
@@ -458,7 +465,7 @@ textarea {
     cursor:pointer;
 }
 .nav-btn img{
-    width:24px;
+    width:24px;   /* размер иконки тот же */
     height:24px;
     display:block;
 }

@@ -3613,6 +3613,13 @@ function showMsgContextMenu(msgInfo, item) {
             }
         }
 
+        // Гарантируем, что меню не выйдет за границы экрана
+        var minTop = safeTop;
+        var maxTop = vh - safeBottom - menuH;
+        if (maxTop < minTop) maxTop = minTop;
+        if (top < minTop) top = minTop;
+        if (top > maxTop) top = maxTop;
+
         msgContextMenu.style.top = top + 'px';
 
         if (isMe) {
@@ -4104,7 +4111,7 @@ function showChatNotification(chat) {
         var senderName = chat.lastMessageSenderName || chat.lastMessageSenderLogin || 'Сообщение';
         body  = senderName + ': ' + text;
         icon  = chat.avatar ||
-            ((chat.type === 'group' || chat.type === 'groupCustom') ? '/logo.png' : '/default-avatar.png');
+            ((chat.type === 'group' || chat.type === 'groupCustom') ? '/group-avatar.png' : '/default-avatar.png');
     }
 
     try {
@@ -4621,7 +4628,7 @@ async function openUserInfoModal(login, fromGroup) {
             let src = user.avatar || '/img/default-avatar.png';
             chatUserAvatar.onerror = function () {
                 this.onerror = null;
-                this.src = '/logo.png';
+                this.src = '/group-avatar.png';
             };
             chatUserAvatar.src = src;
         }
@@ -5087,7 +5094,7 @@ function renderFeedPost(post) {
     img.src = '/group-avatar.png';
     img.loading = 'lazy';
     img.decoding = 'async';
-    img.onerror = function () { this.onerror = null; this.src = '/logo.png'; };
+    img.onerror = function () { this.onerror = null; this.src = '/group-avatar.png'; };
     aw.appendChild(img);
 
     var nameEl = document.createElement('div');
@@ -5436,7 +5443,7 @@ async function openChat(chat) {
     var avatar;
 
     if (chat.type === 'group') {
-        avatar = defaultGroupAvatar;
+    avatar = defaultGroupAvatar;
     } else if (chat.type === 'groupCustom') {
         avatar = chat.avatar || defaultGroupAvatar;
     } else {
@@ -6032,10 +6039,10 @@ if (editGroupAvatarBtn && groupAvatarInput) {
             if (currentChat && currentChat.type === 'groupCustom' && currentChat.id === currentGroupName) {
                 currentChat.avatar = data.avatar || currentChat.avatar;
                 if (chatHeaderAvatar) {
-                    chatHeaderAvatar.src = currentChat.avatar || '/logo.png';
+                    chatHeaderAvatar.src = currentChat.avatar || '/group-avatar.png';
                     chatHeaderAvatar.onerror = function () {
                         this.onerror = null;
-                        this.src = '/logo.png';
+                        this.src = '/group-avatar.png';
                     };
                 }
             }
@@ -6670,6 +6677,7 @@ if (chatInputForm && chatInput) {
         var baseText  = chatInput.value.trim();
         var finalText = baseText;
 
+        // ---- REPLY ----
         if (currentReplyTarget) {
             var sName  = currentReplyTarget.senderName  || currentReplyTarget.senderLogin || '';
             var sLogin = currentReplyTarget.senderLogin || '';
@@ -6684,14 +6692,14 @@ if (chatInputForm && chatInput) {
             finalText = header + sName + '\n' + sLogin + '\n' + quoted + '\n[/r]\n' + baseText;
         }
 
-        // Вложения
+        // ---------- ВЛОЖЕНИЯ (фото/видео/файлы) ----------
         if (pendingAttachments && pendingAttachments.length) {
             // Копируем список и СРАЗУ очищаем превью
             var usedAttachments = pendingAttachments.slice();
             pendingAttachments = [];
             renderAttachPreviewBar();    // превью исчезают сразу
 
-            // Показываем индикатор загрузки на время отправки файлов
+            // Включаем оверлей загрузки
             setChatLoading(true);
 
             try {
@@ -6703,6 +6711,7 @@ if (chatInputForm && chatInput) {
                     formData.append('login', currentUser.login);
                     formData.append('chatId', currentChat.id);
 
+                    // В ТЕКСТ ПИШЕМ ТОЛЬКО В ПОСЛЕДНЕМ ФАЙЛЕ
                     if (i === usedAttachments.length - 1) {
                         formData.append('text', finalText);
                     } else {
@@ -6729,19 +6738,21 @@ if (chatInputForm && chatInput) {
                 setChatLoading(false);
             }
 
+            // Сброс инпута и reply
             chatInput.value = '';
             autoResizeChatInput();
             clearReply();
             keepKeyboardAfterSend();
 
+            // ОДИН раз подтягиваем все новые сообщения
             await refreshMessages(false);
             if (chatContent) chatContent.scrollTop = chatContent.scrollHeight;
             return;
         }
 
+        // ---------- ТОЛЬКО ТЕКСТ ----------
         if (!finalText) return;
 
-        // Только текст — добавляем временное сообщение сразу
         var tempId = 'tmp-' + Date.now();
         var tempMsg = {
             id: tempId,
@@ -6776,7 +6787,6 @@ if (chatInputForm && chatInput) {
             var data2 = await resp2.json();
 
             if (!resp2.ok || !data2.ok) {
-                // ошибка — убираем временное сообщение
                 if (chatContent) {
                     var tmpElErr = chatContent.querySelector('.msg-item[data-msg-id="' + tempId + '"]');
                     if (tmpElErr && tmpElErr.parentNode) tmpElErr.parentNode.removeChild(tmpElErr);
@@ -6785,7 +6795,6 @@ if (chatInputForm && chatInput) {
                 return;
             }
 
-            // успех — убираем временное и перерисовываем с сервера
             if (chatContent) {
                 var tmpEl = chatContent.querySelector('.msg-item[data-msg-id="' + tempId + '"]');
                 if (tmpEl && tmpEl.parentNode) tmpEl.parentNode.removeChild(tmpEl);

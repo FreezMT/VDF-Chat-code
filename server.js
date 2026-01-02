@@ -777,9 +777,9 @@ async function sendPushForMessage(row) {
               'SELECT avatar FROM created_groups WHERE name = ?',
               [chatId]
             );
-            groupAvatarCache[chatId] = (g && g.avatar) ? g.avatar : '/logo.png';
+            groupAvatarCache[chatId] = (g && g.avatar) ? g.avatar : '/group-avatar.png';
           } catch (e) {
-            groupAvatarCache[chatId] = '/logo.png';
+            groupAvatarCache[chatId] = '/group-avatar.png';
           }
         }
         icon = groupAvatarCache[chatId];
@@ -1367,72 +1367,6 @@ app.post('/api/chats', requireAuth, async (req, res) => {
 
         chats.push(chat);
       }
-
-      // 1.1) Для тренера: чаты с другими тренерами, которые ведут те же команды
-      const teamsOfTrainer = await all(
-        db,
-        'SELECT DISTINCT team FROM trainer_teams WHERE trainer_id = ?',
-        [userId]
-      );
-      const trainerChatIds = new Set(chats.map(c => c.id));
-      for (const tr of teamsOfTrainer) {
-        const teamKey = tr.team;
-        const otherTrainers = await all(
-          db,
-          'SELECT u.id, u.first_name, u.last_name, u.login, u.avatar ' +
-          'FROM trainer_teams tt ' +
-          'JOIN users u ON u.id = tt.trainer_id ' +
-          'WHERE LOWER(tt.team) = LOWER(?)',
-          [teamKey]
-        );
-        for (const ot of otherTrainers) {
-          if (ot.id === userId) continue;
-          const chatId = `trainer-${ot.id}-${userId}`;
-          if (trainerChatIds.has(chatId)) continue;
-          trainerChatIds.add(chatId);
-
-          const chat = {
-            id:           chatId,
-            type:         'trainer',
-            title:        (ot.first_name + ' ' + ot.last_name).trim(),
-            subtitle:     '',
-            avatar:       ot.avatar || '/img/default-avatar.png',
-            trainerId:    ot.id,
-            trainerLogin: ot.login,
-            partnerId:    userId,
-            partnerLogin: user.login
-          };
-
-          const last = await getMsg(
-            'SELECT sender_login, text, created_at, attachment_type ' +
-            'FROM messages ' +
-            'WHERE chat_id = ? AND (deleted IS NULL OR deleted = 0) ' +
-            'ORDER BY created_at DESC, id DESC LIMIT 1',
-            [chatId]
-          );
-          if (last) {
-            chat.lastMessageSenderLogin    = last.sender_login;
-            chat.lastMessageText           = last.text;
-            chat.lastMessageCreatedAt      = last.created_at;
-            chat.lastMessageAttachmentType = last.attachment_type;
-            try {
-              const lu = await get(
-                db,
-                'SELECT first_name, last_name FROM users WHERE login = ?',
-                [last.sender_login]
-              );
-              if (lu) {
-                chat.lastMessageSenderName = (lu.first_name + ' ' + lu.last_name).trim();
-              }
-            } catch (e2) {
-              console.error('CHATS last sender name error (trainer-trainer):', e2);
-            }
-          }
-
-          chats.push(chat);
-        }
-      }
-
       // 2) кастомные группы, созданные этим тренером
       const groups = await all(
         db,
@@ -1456,7 +1390,7 @@ app.post('/api/chats', requireAuth, async (req, res) => {
           type:     'groupCustom',
           title:    g.name,
           subtitle: subtitle,
-          avatar:   g.avatar || '/logo.png'
+          avatar:   g.avatar || '/group-avatar.png'
         };
 
         const last = await getMsg(
@@ -1518,7 +1452,7 @@ app.post('/api/chats', requireAuth, async (req, res) => {
         type:     'group',
         title:    user.team,
         subtitle: membersCount ? membersCount + ' участников' : 'Групповой чат',
-        avatar:   '/logo.png'
+        avatar:   '/group-avatar.png'
       };
 
       const lastGroup = await getMsg(
@@ -1768,29 +1702,46 @@ app.post('/api/chat/personal', requireAuth, async (req, res) => {
     const r1 = (u1.role || '').toLowerCase();
     const r2 = (u2.role || '').toLowerCase();
 
+    const isTrainer1 = (r1 === 'trainer' || r1 === 'тренер' || u1.login === ANGELINA_LOGIN);
+    const isTrainer2 = (r2 === 'trainer' || r2 === 'тренер' || u2.login === ANGELINA_LOGIN);
+
     let chatId;
     let type;
     let trainerUser = null;
     let otherUser   = null;
 
-    if (r1 === 'trainer' || r1 === 'тренер' || u1.login === ANGELINA_LOGIN ||
-        r2 === 'trainer' || r2 === 'тренер' || u2.login === ANGELINA_LOGIN) {
-
-      if (r1 === 'trainer' || r1 === 'тренер' || u1.login === ANGELINA_LOGIN) {
-        trainerUser = u1;
-        otherUser   = u2;
-      } else {
-        trainerUser = u2;
-        otherUser   = u1;
-      }
-
-      if (trainerUser.login === ANGELINA_LOGIN && (otherUser.role || '').toLowerCase() === 'parent') {
-        chatId = 'angelina-' + trainerUser.id + '-' + otherUser.id;
-      } else {
-        chatId = 'trainer-' + trainerUser.id + '-' + otherUser.id;
-      }
+    // Есть хотя бы один тренер / Ангелина
+    if (isTrainer1 || isTrainer2) {
       type = 'trainer';
+
+      // Оба — тренеры (тренер ↔ тренер) — делаем симметричный chatId
+      if (isTrainer1 && isTrainer2) {
+        const lowId  = Math.min(u1.id, u2.id);
+        const highId = Math.max(u1.id, u2.id);
+
+        chatId = 'trainer-' + lowId + '-' + highId;
+
+        // для консистентности: "trainerUser" с меньшим id, "otherUser" с большим
+        trainerUser = (u1.id === lowId) ? u1 : u2;
+        otherUser   = (u1.id === lowId) ? u2 : u1;
+      } else {
+        // Ровно один тренер
+        if (isTrainer1) {
+          trainerUser = u1;
+          otherUser   = u2;
+        } else {
+          trainerUser = u2;
+          otherUser   = u1;
+        }
+
+        if (trainerUser.login === ANGELINA_LOGIN && (otherUser.role || '').toLowerCase() === 'parent') {
+          chatId = 'angelina-' + trainerUser.id + '-' + otherUser.id;
+        } else {
+          chatId = 'trainer-' + trainerUser.id + '-' + otherUser.id;
+        }
+      }
     } else {
+      // Личный PM-чат
       const low  = Math.min(u1.id, u2.id);
       const high = Math.max(u1.id, u2.id);
       chatId = 'pm-' + low + '-' + high;
@@ -2773,7 +2724,7 @@ app.post('/api/group/info', requireAuth, async (req, res) => {
     }
 
     let groupName   = teamKey;
-    let groupAvatar = '/logo.png';
+    let groupAvatar = '/group-avatar.png';
     let members     = [];
 
     if (isCustom) {
@@ -2784,7 +2735,7 @@ app.post('/api/group/info', requireAuth, async (req, res) => {
       );
       if (groupRow) {
         groupName   = groupRow.name;
-        groupAvatar = groupRow.avatar || '/logo.png';
+        groupAvatar = groupRow.avatar || '/group-avatar.png';
       }
 
       members = await all(
@@ -2835,7 +2786,7 @@ app.post('/api/group/info', requireAuth, async (req, res) => {
       );
       if (groupRow) {
         groupName   = groupRow.name;
-        groupAvatar = groupRow.avatar || '/logo.png';
+        groupAvatar = groupRow.avatar || '/group-avatar.png';
         audience    = groupRow.audience || null;
         age         = groupRow.age || null;
       }
@@ -3555,7 +3506,7 @@ app.post('/api/feed/list', requireAuth, async (req, res) => {
       createdAt:    r.created_at,
       authorLogin:  r.author_login,
       authorName:   'Vinyl Dance Family',
-      authorAvatar: '/logo.png',
+      authorAvatar: '/group-avatar.png',
       imageUrl:     r.image || null
     }));
 
@@ -3637,7 +3588,7 @@ app.post('/api/feed/create', requireAuth, upload.single('image'), async (req, re
         createdAt:    row.created_at,
         authorLogin:  row.author_login,
         authorName:   'Vinyl Dance Family',
-        authorAvatar: '/logo.png',
+        authorAvatar: '/group-avatar.png',
         imageUrl:     row.image || null
       }
     });
