@@ -505,22 +505,12 @@ attachIdCopyHandler(chatUserId);
 function applyKeyboardOffset() {
     var offset = keyboardOffset || 0;
 
-    // поднимаем инпут
-    if (chatInputForm) {
-        chatInputForm.style.transform = offset ? ('translateY(-' + offset + 'px)') : '';
-    }
-    // поднимаем reply/preview-бары
-    if (replyBar) {
-        replyBar.style.transform = offset ? ('translateY(-' + offset + 'px)') : '';
-    }
-    if (attachPreviewBar) {
-        attachPreviewBar.style.transform = offset ? ('translateY(-' + offset + 'px)') : '';
-    }
-    // уменьшаем доступную высоту контента
-    if (chatContent) {
-        var baseBottom = 80; // как в CSS
-        chatContent.style.bottom = (baseBottom + offset) + 'px';
-    }
+    if (chatInputForm) chatInputForm.style.transform = offset ? ('translateY(-' + offset + 'px)') : '';
+    if (replyBar) replyBar.style.transform = offset ? ('translateY(-' + offset + 'px)') : '';
+    if (attachPreviewBar) attachPreviewBar.style.transform = offset ? ('translateY(-' + offset + 'px)') : '';
+
+    // пересчитываем общий bottom с учётом offset
+    updateFloatingBarsPosition();
 }
 
 if (window.visualViewport) {
@@ -1549,29 +1539,32 @@ function scrollToRepliedMessage(replyInfo) {
 }
 
 function updateFloatingBarsPosition() {
-    if (!chatInputForm) return;
+    if (!chatInputForm || !chatContent) return;
 
     var inputRect   = chatInputForm.getBoundingClientRect();
-    var inputHeight = inputRect.height;
+    var inputHeight = inputRect.height || 0;
 
     var attachH = 0;
-    if (attachPreviewBar && attachPreviewBar.style.display !== 'none') {
-        attachH = attachPreviewBar.getBoundingClientRect().height;
-    }
-
-    var replyH = 0;
-    if (replyBar && replyBar.style.display !== 'none') {
-        replyH = replyBar.getBoundingClientRect().height;
-    }
-
     if (attachPreviewBar) {
+        if (attachPreviewBar.style.display !== 'none') {
+            var ar = attachPreviewBar.getBoundingClientRect();
+            attachH = ar.height || 0;
+        }
         attachPreviewBar.style.bottom = inputHeight + 'px';
     }
 
+    var replyH = 0;
     if (replyBar) {
-        var offset = inputHeight + (attachH || 0);
-        replyBar.style.bottom = offset + 'px';
+        if (replyBar.style.display !== 'none') {
+            var rr = replyBar.getBoundingClientRect();
+            replyH = rr.height || 0;
+        }
+        replyBar.style.bottom = (inputHeight + attachH) + 'px';
     }
+
+    // Общая высота всех элементов снизу + учёт поднятия над клавиатурой
+    var bottom = inputHeight + attachH + replyH + (keyboardOffset || 0);
+    chatContent.style.bottom = bottom + 'px';
 }
 
 function updateReadStatusInDom(messages) {
@@ -3481,9 +3474,14 @@ function hideMsgContextMenu() {
 function showMsgContextMenu(msgInfo, item) {
     if (!msgInfo || !currentUser || !item) return;
     createMsgContextMenu();
+    var hasMedia = (msgInfo.attachmentType === 'image' || msgInfo.attachmentType === 'video');
+
+    var spaceAbove = rect.top    - safeTop;
+    var spaceBelow = vh - safeBottom - rect.bottom;
 
     currentMsgContext     = msgInfo;
     currentMsgContextItem = item;
+    item._suppressNextMediaClick = true;
 
     item.classList.add('msg-item-pressed');
 
@@ -3565,6 +3563,12 @@ function showMsgContextMenu(msgInfo, item) {
 
         var shouldForceAbove = isLastMessage || isPreLastMessage;
 
+        // Если это фото/видео и снизу мало места, а сверху влезает — ставим сразу над сообщением
+        if (hasMedia && spaceBelow < menuH + margin && spaceAbove >= menuH + margin) {
+            top = rect.top - menuH - margin;
+            // дальше просто перейдём к clamping и exit
+        }
+
         // Если последнее/предпоследнее — стараемся ставить меню наверху
         if (shouldForceAbove && spaceAbove >= menuH + margin) {
             top = rect.top - menuH - margin;
@@ -3614,6 +3618,7 @@ function showMsgContextMenu(msgInfo, item) {
         }
 
         // Гарантируем, что меню не выйдет за границы экрана
+        // Гарантируем, что меню не выйдет за границы экрана
         var minTop = safeTop;
         var maxTop = vh - safeBottom - menuH;
         if (maxTop < minTop) maxTop = minTop;
@@ -3621,6 +3626,8 @@ function showMsgContextMenu(msgInfo, item) {
         if (top > maxTop) top = maxTop;
 
         msgContextMenu.style.top = top + 'px';
+
+        
 
         if (isMe) {
             msgContextMenu.style.right = '12px';
@@ -4863,8 +4870,14 @@ async function openGroupModal() {
         var members        = data.members || [];
         var membersCount   = data.membersCount || members.length;
 
+        currentGroupName     = groupName;
         currentGroupAudience = data.audience || null;
         currentGroupAge      = data.age || null;
+        currentGroupInfo     = {
+            name: groupName,
+            avatar: groupAvatarUrl,
+            membersCount: membersCount
+        };
 
         if (groupAvatar) {
             groupAvatar.src = groupAvatarUrl;
@@ -4874,33 +4887,19 @@ async function openGroupModal() {
             };
         }
 
-        if (groupNameTitle) groupNameTitle.textContent = groupName;
+        if (groupNameTitle) {
+            groupNameTitle.textContent = groupName;
+        }
 
-        // Показ возраста рядом с именем, если группа для танцоров
         if (groupAgeLabel) {
-        if (currentGroupAudience === 'dancers' && currentGroupAge) {
-            groupAgeLabel.textContent = currentGroupAge;
-            groupAgeLabel.style.display = 'inline-block';
-        } else {
-            groupAgeLabel.textContent = '';
-            groupAgeLabel.style.display = 'none';
+            if (currentGroupAudience === 'dancers' && currentGroupAge) {
+                groupAgeLabel.textContent = currentGroupAge;
+                groupAgeLabel.style.display = 'inline-block';
+            } else {
+                groupAgeLabel.textContent = '';
+                groupAgeLabel.style.display = 'none';
+            }
         }
-        }
-
-        currentGroupName = groupName;
-        currentGroupInfo = {
-            name: groupName,
-            avatar: groupAvatarUrl,
-            membersCount: membersCount
-        };
-
-
-
-        if (groupNameEditInput) {
-            groupNameEditInput.value = currentGroupName;
-            groupNameEditInput.style.display = 'none';
-        }
-        if (groupNameSaveBtn) groupNameSaveBtn.style.display = 'none';
 
         if (groupMembersCount) {
             groupMembersCount.textContent = membersCount + ' участников';

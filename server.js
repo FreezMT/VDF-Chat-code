@@ -1424,6 +1424,77 @@ app.post('/api/chats', requireAuth, async (req, res) => {
 
       // 3) личные pm-чаты
       await appendPersonalChatsForUser(user, chats);
+      // 4) чаты "тренер ↔ тренер" по общим командам (даже если ещё нет сообщений)
+      const teamsOfTrainer = await all(
+        db,
+        'SELECT DISTINCT team FROM trainer_teams WHERE trainer_id = ?',
+        [userId]
+      );
+
+      // idSet уже нужен для недублирования
+      const idSet = new Set(chats.map(c => c.id));
+
+      for (const row of teamsOfTrainer) {
+        const teamKey = row.team;
+
+        const otherTrainers = await all(
+          db,
+          'SELECT u.id, u.first_name, u.last_name, u.login, u.avatar ' +
+          'FROM trainer_teams tt ' +
+          'JOIN users u ON u.id = tt.trainer_id ' +
+          'WHERE LOWER(tt.team) = LOWER(?) AND u.id <> ?',
+          [teamKey, userId]
+        );
+
+        for (const ot of otherTrainers) {
+          const lowId  = Math.min(userId, ot.id);
+          const highId = Math.max(userId, ot.id);
+
+          const chatId = 'trainer-' + lowId + '-' + highId;
+          if (idSet.has(chatId)) continue; // уже есть
+          idSet.add(chatId);
+
+          const chat = {
+            id:           chatId,
+            type:         'trainer',
+            title:        (ot.first_name + ' ' + ot.last_name).trim(),
+            subtitle:     '',
+            avatar:       ot.avatar || '/img/default-avatar.png',
+            trainerId:    ot.id,
+            trainerLogin: ot.login,
+            partnerId:    ot.id === userId ? lowId : ot.id,
+            partnerLogin: ot.login
+          };
+
+          const last = await getMsg(
+            'SELECT sender_login, text, created_at, attachment_type ' +
+            'FROM messages ' +
+            'WHERE chat_id = ? AND (deleted IS NULL OR deleted = 0) ' +
+            'ORDER BY created_at DESC, id DESC LIMIT 1',
+            [chatId]
+          );
+          if (last) {
+            chat.lastMessageSenderLogin    = last.sender_login;
+            chat.lastMessageText           = last.text;
+            chat.lastMessageCreatedAt      = last.created_at;
+            chat.lastMessageAttachmentType = last.attachment_type;
+            try {
+              const lu = await get(
+                db,
+                'SELECT first_name, last_name FROM users WHERE login = ?',
+                [last.sender_login]
+              );
+              if (lu) {
+                chat.lastMessageSenderName = (lu.first_name + ' ' + lu.last_name).trim();
+              }
+            } catch (e2) {
+              console.error('CHATS last sender name error (trainer-trainer):', e2);
+            }
+          }
+
+          chats.push(chat);
+        }
+      }
 
       await enrichChatsWithUnreadAndSort(login, chats);
       return res.json({ ok: true, chats });
@@ -1714,14 +1785,12 @@ app.post('/api/chat/personal', requireAuth, async (req, res) => {
     if (isTrainer1 || isTrainer2) {
       type = 'trainer';
 
-      // Оба — тренеры (тренер ↔ тренер) — делаем симметричный chatId
+      // Тренер ↔ тренер: симметричный chatId вида trainer-lowId-highId
       if (isTrainer1 && isTrainer2) {
         const lowId  = Math.min(u1.id, u2.id);
         const highId = Math.max(u1.id, u2.id);
-
         chatId = 'trainer-' + lowId + '-' + highId;
 
-        // для консистентности: "trainerUser" с меньшим id, "otherUser" с большим
         trainerUser = (u1.id === lowId) ? u1 : u2;
         otherUser   = (u1.id === lowId) ? u2 : u1;
       } else {
@@ -1741,7 +1810,7 @@ app.post('/api/chat/personal', requireAuth, async (req, res) => {
         }
       }
     } else {
-      // Личный PM-чат
+      // Обычный личный чат
       const low  = Math.min(u1.id, u2.id);
       const high = Math.max(u1.id, u2.id);
       chatId = 'pm-' + low + '-' + high;
