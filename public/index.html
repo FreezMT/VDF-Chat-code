@@ -408,29 +408,30 @@
         </div>
 
         <!-- MODAL WITH GROUP INFO -->
-        <div id="groupModal" class="chat-user-modal" aria-hidden="true">
-            <div class="group-modal-backdrop"></div>
-            <div class="group-modal-card" role="dialog" aria-modal="true">
-                <button type="button" id="groupBackBtn" class="group-back-btn" aria-label="Назад">←</button>
+        <div class="group-avatar-row">
+            <div class="group-avatar-wrapper">
+                <img id="groupAvatar" src="/group-avatar.png" alt="Аватар группы" class="group-avatar">
+            </div>
+            <button type="button" class="edit-icon" id="editGroupAvatarBtn" aria-label="Изменить аватар группы"></button>
+        </div>
 
-                <div class="group-avatar-row">
-                    <div class="group-avatar-wrapper">
-                        <img id="groupAvatar" src="/group-avatar.png" alt="Аватар группы" class="group-avatar">
-                    </div>
-                    <button type="button" class="edit-icon" id="editGroupAvatarBtn" aria-label="Изменить аватар группы"></button>
-                </div>
+        <!-- Строка с названием группы и возрастом -->
+        <div class="group-name-row">
+            <div id="groupNameTitle" class="group-name"></div>
+            <span id="groupAgeLabel" class="group-age group-age-editable"></span>
+            <button type="button" class="edit-icon" id="editGroupNameBtn" aria-label="Изменить название группы"></button>
+        </div>
 
+        <!-- выбор новой аватарки -->
+        <input type="file" id="groupAvatarInput" accept="image/*" style="display:none">
 
-                <!-- выбор новой аватарки -->
-                <input type="file" id="groupAvatarInput" accept="image/*" style="display:none">
+        <!-- редактирование названия -->
+        <input type="text" id="groupNameEditInput" class="group-name-input" style="display:none">
+        <button type="button" id="groupNameSaveBtn" class="group-name-save-btn" style="display:none">
+            Сохранить
+        </button>
 
-                <!-- редактирование названия -->
-                <input type="text" id="groupNameEditInput" class="group-name-input" style="display:none">
-                <button type="button" id="groupNameSaveBtn" class="group-name-save-btn" style="display:none">
-                    Сохранить
-                </button>
-
-                <div class="chat-user-pill" id="groupMembersCount"></div>
+        <div class="chat-user-pill" id="groupMembersCount"></div>
 
                 <div class="chat-attachments" id="groupAttachments">
                     <div class="chat-attachments-tabs">
@@ -606,10 +607,10 @@
             <img id="navAddIcon" src="icons/plus.png" alt="Создать группу">
         </button>
         <button class="nav-btn nav-list" id="navListBtn" type="button">
-            <img id="navListIcon" src="icons/list-gray.png" alt="Чаты">
+            <img id="navListIcon" src="icons/list-gray.png" alt="Лента">
         </button>
         <button class="nav-btn nav-home" id="navHomeBtn" type="button">
-            <img id="navHomeIcon" src="icons/home.png" alt="Главная">
+            <img id="navHomeIcon" src="icons/home.png" alt="Чаты">
         </button>
         <button class="nav-btn nav-profile" id="navProfileBtn" type="button">
             <img id="navProfileIcon" src="icons/user.png" alt="Профиль">

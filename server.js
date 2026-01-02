@@ -2014,7 +2014,7 @@ app.post('/api/messages/send-file', requireAuth, upload.single('file'), async (r
     }
 
     const attachmentUrl = '/avatars/' + req.file.filename;
-    const cleanText     = sanitizeText(String(text).trim());
+    const cleanText     = String(text || '').trim();
 
     await updateLastSeen(senderLogin);
 
@@ -2525,7 +2525,7 @@ app.post('/api/messages/forward', requireAuth, async (req, res) => {
         [
           cid,
           login,
-          sanitizeText(src.text || ''),
+          String(src.text || '').trim(),
           src.attachment_type || null,
           src.attachment_url || null,
           src.attachment_name || null,
@@ -3542,14 +3542,13 @@ app.post('/api/feed/edit', requireAuth, async (req, res) => {
       return res.status(403).json({ ok: false, error: 'Вы не являетесь автором этого поста' });
     }
 
-    const clean = sanitizeText(String(text).trim());
+    const clean = String(text || '').trim();
     if (!clean) {
       return res.status(400).json({ ok: false, error: 'Текст поста не может быть пустым' });
     }
     if (clean.length > 2000) {
       return res.status(400).json({ ok: false, error: 'Текст поста слишком длинный' });
     }
-
     await run(
       db,
       'UPDATE posts SET text = ? WHERE id = ?',
@@ -3557,6 +3556,7 @@ app.post('/api/feed/edit', requireAuth, async (req, res) => {
     );
 
     res.json({ ok: true });
+    broadcastFeedUpdated();
   } catch (e) {
     console.error('FEED EDIT ERROR:', e);
     res.status(500).json({ ok: false, error: 'Ошибка сервера при редактировании поста' });
@@ -3606,6 +3606,7 @@ app.post('/api/feed/delete', requireAuth, async (req, res) => {
     );
 
     res.json({ ok: true });
+    broadcastFeedUpdated();
   } catch (e) {
     console.error('FEED DELETE ERROR:', e);
     res.status(500).json({ ok: false, error: 'Ошибка сервера при удалении поста' });
@@ -3684,7 +3685,10 @@ app.post('/api/feed/create', requireAuth, upload.single('image'), async (req, re
       return res.status(403).json({ error: 'Создавать посты могут только тренера' });
     }
 
-    const clean = sanitizeText(String(text).trim());
+    const clean = String(text || '').trim();
+    if (!clean) {
+      return res.status(400).json({ error: 'Текст поста не может быть пустым' });
+    }
     if (clean.length > 2000) {
       return res.status(400).json({ error: 'Текст поста слишком длинный' });
     }
@@ -3735,6 +3739,7 @@ app.post('/api/feed/create', requireAuth, upload.single('image'), async (req, re
         imageUrl:     row.image || null
       }
     });
+    broadcastFeedUpdated();
   } catch (e) {
     console.error('FEED CREATE ERROR:', e);
     res.status(500).json({ error: 'Ошибка сервера при создании поста' });

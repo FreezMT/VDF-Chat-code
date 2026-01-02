@@ -45,14 +45,24 @@ if (GLOBAL_CONTEXT_LOCK_ENABLED) {
 // ---------- АВТО-ВОССТАНОВЛЕНИЕ СЕССИИ / СПЛЭШ ----------
 
 window.addEventListener('load', function () {
-    setTimeout(async function () {
-        var splash  = document.getElementById('splash');
-        var welcome = document.getElementById('welcome');
+    var splash  = document.getElementById('splash');
+    var welcome = document.getElementById('welcome');
+
+    (async function () {
+        var t0 = Date.now();
+
+        // пробуем восстановить сессию
+        var restored = await tryRestoreSession();
+
+        // минимальная пауза, чтобы не мигало (400ms)
+        var elapsed   = Date.now() - t0;
+        var minDelay  = 400;
+        if (elapsed < minDelay) {
+            await new Promise(function (r) { setTimeout(r, minDelay - elapsed); });
+        }
 
         if (splash)  splash.style.display  = 'none';
-        if (welcome) welcome.style.display = 'none'; // гарантированно прячем на старте
-
-        var restored = await tryRestoreSession();
+        if (welcome) welcome.style.display = 'none';
 
         if (!restored) {
             if (welcome) welcome.style.display = 'flex';
@@ -60,7 +70,7 @@ window.addEventListener('load', function () {
         } else {
             document.body.classList.remove('welcome-active');
         }
-    }, 2000);
+    })();
 });
 
 // Попытка зафиксировать экран в портретной ориентации (где поддерживается)
@@ -3187,9 +3197,18 @@ function renderPinnedTop(msg) {
     if (text.length > 80) text = text.slice(0, 77) + '…';
 
     pinnedTopBar.style.display = 'block';
-    pinnedTopBar.innerHTML =
-        '<div class="pinned-top-label">Закреплённое сообщение</div>' +
-        '<div class="pinned-top-text">' + text + '</div>';
+    pinnedTopBar.innerHTML = '';
+
+    var labelEl = document.createElement('div');
+    labelEl.className = 'pinned-top-label';
+    labelEl.textContent = 'Закреплённое сообщение';
+
+    var textEl = document.createElement('div');
+    textEl.className = 'pinned-top-text';
+    textEl.textContent = text;
+
+    pinnedTopBar.appendChild(labelEl);
+    pinnedTopBar.appendChild(textEl);
 
     pinnedTopBar.onclick = function () {
         if (!chatContent) return;
@@ -6211,8 +6230,9 @@ if (ageField && ageText && ageValue) {
     });
 }
 
-if (createGroupBtn) {
-    createGroupBtn.addEventListener('click', async function (e) {
+var createGroupForm = document.querySelector('.create-group-form');
+if (createGroupForm && createGroupBtn) {
+    createGroupForm.addEventListener('submit', async function (e) {
         e.preventDefault();
         if (!currentUser) {
             alert('Авторизуйтесь, чтобы создавать группы');
@@ -6411,9 +6431,9 @@ if (teamSelect && teamText && teamValue) {
     });
 }
 
-var parentContinueBtn = document.getElementById('parentContinueBtn');
-if (parentContinueBtn && parentFirstNameInput && parentLastNameInput && teamValue) {
-    parentContinueBtn.addEventListener('click', async function (e) {
+var parentFormEl = document.querySelector('.parent-form');
+if (parentFormEl && parentFirstNameInput && parentLastNameInput && teamValue) {
+    parentFormEl.addEventListener('submit', async function (e) {
         e.preventDefault();
         var firstName = parentFirstNameInput.value.trim();
         var lastName  = parentLastNameInput.value.trim();
@@ -6542,9 +6562,9 @@ if (dancerDobField && dancerDobInput && dancerDobText && dancerDobBtn) {
     });
 }
 
-var dancerContinueBtn = document.getElementById('dancerContinueBtn');
-if (dancerContinueBtn && dancerFirstNameInput && dancerLastNameInput && dancerTeamValue && dancerDobInput) {
-    dancerContinueBtn.addEventListener('click', async function (e) {
+var dancerFormEl = document.querySelector('.dancer-form');
+if (dancerFormEl && dancerFirstNameInput && dancerLastNameInput && dancerTeamValue && dancerDobInput) {
+    dancerFormEl.addEventListener('submit', async function (e) {
         e.preventDefault();
         var firstName = dancerFirstNameInput.value.trim();
         var lastName  = dancerLastNameInput.value.trim();
@@ -6611,8 +6631,9 @@ if (loginScreenPassword) {
     });
 }
 
-if (loginContinueBtn && loginScreenLogin && loginScreenPassword) {
-    loginContinueBtn.addEventListener('click', async function (e) {
+var loginForm = document.querySelector('.login-form');
+if (loginForm && loginScreenLogin && loginScreenPassword) {
+    loginForm.addEventListener('submit', async function (e) {
         e.preventDefault();
         var login    = loginScreenLogin.value.trim();
         var password = loginScreenPassword.value;
@@ -6649,6 +6670,8 @@ if (loginContinueBtn && loginScreenLogin && loginScreenPassword) {
             alert('Сетевая ошибка');
         }
     });
+
+    // Чтобы клик по кнопке тоже триггерил submit, достаточно type="submit" в HTML
 }
 
 // ---------- ОТПРАВКА СООБЩЕНИЯ ----------
@@ -7221,14 +7244,9 @@ document.addEventListener('keydown', function (e) {
     setChatLoading = function(isLoading) {
         orig(isLoading);
         if (chatInputForm) {
-            chatInputForm.style.visibility = isLoading ? 'hidden' : 'visible';
+            chatInputForm.style.opacity = isLoading ? '0.6' : '1';
         }
-        if (replyBar) {
-            replyBar.style.visibility = isLoading ? 'hidden' : 'visible';
-        }
-        if (attachPreviewBar) {
-            attachPreviewBar.style.visibility = isLoading ? 'hidden' : 'visible';
-        }
+        // replyBar и attachPreviewBar оставляем как есть, чтобы пользователь видел, что именно отправляется
     };
 })();
 
