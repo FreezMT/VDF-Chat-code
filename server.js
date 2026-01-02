@@ -1422,6 +1422,72 @@ app.post('/api/chats', requireAuth, async (req, res) => {
         chats.push(chat);
       }
 
+      // 2.1) кастомные группы, где тренер является УЧАСТНИКОМ (но не владельцем)
+      const ownedNames = new Set((groups || []).map(g => g.name));
+
+      const trainerCustomMemberships = await all(
+        db,
+        'SELECT group_name FROM group_custom_members WHERE LOWER(user_login) = LOWER(?)',
+        [login]
+      );
+
+      for (const m of trainerCustomMemberships) {
+        const groupName = m.group_name;
+        // если тренер и так владелец, группа уже добавлена
+        if (ownedNames.has(groupName)) continue;
+
+        const g = await get(
+          db,
+          'SELECT name, audience, age, avatar FROM created_groups WHERE name = ?',
+          [groupName]
+        );
+        if (!g) continue;
+
+        const chatId = g.name;
+        let subtitle;
+        if (g.audience === 'parents') {
+          subtitle = 'Группа для родителей';
+        } else {
+          subtitle = 'Группа для танцоров ' + (g.age || '');
+        }
+
+        const chat = {
+          id:       chatId,
+          type:     'groupCustom',
+          title:    g.name,
+          subtitle: subtitle,
+          avatar:   g.avatar || '/group-avatar.png'
+        };
+
+        const last = await getMsg(
+          'SELECT sender_login, text, created_at, attachment_type ' +
+          'FROM messages ' +
+          'WHERE chat_id = ? AND (deleted IS NULL OR deleted = 0) ' +
+          'ORDER BY created_at DESC, id DESC LIMIT 1',
+          [chatId]
+        );
+        if (last) {
+          chat.lastMessageSenderLogin    = last.sender_login;
+          chat.lastMessageText           = last.text;
+          chat.lastMessageCreatedAt      = last.created_at;
+          chat.lastMessageAttachmentType = last.attachment_type;
+          try {
+            const lu = await get(
+              db,
+              'SELECT first_name, last_name FROM users WHERE login = ?',
+              [last.sender_login]
+            );
+            if (lu) {
+              chat.lastMessageSenderName = (lu.first_name + ' ' + lu.last_name).trim();
+            }
+          } catch (e2) {
+            console.error('CHATS last sender name error (trainer groupCustom member):', e2);
+          }
+        }
+
+        chats.push(chat);
+      }
+
       // 3) личные pm-чаты
       await appendPersonalChatsForUser(user, chats);
       // 4) чаты "тренер ↔ тренер" по общим командам (даже если ещё нет сообщений)

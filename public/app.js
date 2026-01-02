@@ -3373,16 +3373,18 @@ function attachMessageInteractions(item, msg) {
         attachmentSize: typeof msg.attachment_size === 'number' ? msg.attachment_size : null
     };
 
-    // Правый клик (desktop) — контекстное меню
+    // ПК: правый клик
     item.addEventListener('contextmenu', function (e) {
         e.preventDefault();
         showMsgContextMenu(item._msgInfo, item);
     });
 
+    // --- LONG PRESS: мышь ---
     var mouseTimer = null;
     item.addEventListener('mousedown', function (e) {
         if (e.button !== 0) return;
 
+        // если меню уже открыто на этом же айтеме — закрываем
         if (msgContextOverlay &&
             msgContextOverlay.classList.contains('visible') &&
             currentMsgContextItem === item) {
@@ -3409,6 +3411,7 @@ function attachMessageInteractions(item, msg) {
         });
     });
 
+    // --- LONG PRESS: тач ---
     var touchTimer = null;
     item.addEventListener('touchstart', function (e) {
         if (msgContextOverlay &&
@@ -3444,6 +3447,7 @@ function attachMessageInteractions(item, msg) {
         }
     });
 
+    // Даблклик — ответ
     item.addEventListener('dblclick', function () {
         startReplyFromElement(item);
     });
@@ -3455,9 +3459,7 @@ function hideMsgContextMenu() {
     msgContextMenu.classList.remove('open');
     msgContextOverlay.classList.remove('visible');
 
-    // подавляем клик по медиа только для этого элемента
     if (currentMsgContextItem) {
-        currentMsgContextItem._suppressNextMediaClick = true;
         currentMsgContextItem.classList.remove('msg-item-pressed');
         if (currentMsgContextItem._oldZIndex !== undefined) {
             currentMsgContextItem.style.zIndex = currentMsgContextItem._oldZIndex || '';
@@ -3474,17 +3476,14 @@ function hideMsgContextMenu() {
 function showMsgContextMenu(msgInfo, item) {
     if (!msgInfo || !currentUser || !item) return;
     createMsgContextMenu();
-    var hasMedia = (msgInfo.attachmentType === 'image' || msgInfo.attachmentType === 'video');
-
-    var spaceAbove = rect.top    - safeTop;
-    var spaceBelow = vh - safeBottom - rect.bottom;
 
     currentMsgContext     = msgInfo;
     currentMsgContextItem = item;
+
+    // подавляем следующий клик по медиа (чтобы не открыть viewer сразу после long-press)
     item._suppressNextMediaClick = true;
 
-    item.classList.add('msg-item-pressed');
-
+    // pressed-класс добавляет attachMessageInteractions, тут просто усиливаем z-index
     if (item._oldZIndex === undefined) {
         item._oldZIndex = item.style.zIndex || '';
     }
@@ -3493,24 +3492,19 @@ function showMsgContextMenu(msgInfo, item) {
     var isMe          = String(msgInfo.senderLogin).toLowerCase() === String(currentUser.login).toLowerCase();
     var hasText       = msgInfo.text && String(msgInfo.text).trim().length > 0;
     var hasAttachment = !!msgInfo.attachmentType;
+    var hasMedia      = (msgInfo.attachmentType === 'image' || msgInfo.attachmentType === 'video');
 
+    // видимость пунктов меню
     msgCtxEditBtn.style.display   = (isMe && (hasText || hasAttachment)) ? '' : 'none';
     msgCtxDeleteBtn.style.display = isMe ? '' : 'none';
-
-    msgCtxPinBtn.textContent = msgInfo.isPinned ? 'Открепить сообщение' : 'Закрепить сообщение';
-
-    if (hasAttachment && msgInfo.attachmentUrl) {
-        msgCtxDownloadBtn.style.display = '';
-    } else {
-        msgCtxDownloadBtn.style.display = 'none';
-    }
-
-    msgCtxCopyBtn.style.display = hasText ? '' : 'none';
+    msgCtxPinBtn.textContent      = msgInfo.isPinned ? 'Открепить сообщение' : 'Закрепить сообщение';
+    msgCtxDownloadBtn.style.display = (hasAttachment && msgInfo.attachmentUrl) ? '' : 'none';
+    msgCtxCopyBtn.style.display     = hasText ? '' : 'none';
 
     msgContextOverlay.classList.add('visible');
     msgContextMenu.classList.remove('open');
 
-    function positionMenu(allowScroll) {
+    function positionMenu() {
         if (!msgContextMenu || !currentMsgContextItem) return;
 
         var refEl = currentMsgContextItem.querySelector('.msg-col') ||
@@ -3518,20 +3512,10 @@ function showMsgContextMenu(msgInfo, item) {
                     currentMsgContextItem;
 
         var rect = refEl.getBoundingClientRect();
-        var vh   = window.innerHeight;
+        var vh   = window.innerHeight || document.documentElement.clientHeight || 600;
 
         var menuH  = msgContextMenu.offsetHeight || 160;
         var margin = 8;
-
-        var isLastMessage = false;
-        var isPreLastMessage = false;
-        if (chatContent) {
-            var items = Array.from(chatContent.querySelectorAll('.msg-item'));
-            var lastItem = items[items.length - 1] || null;
-            var preLastItem = items[items.length - 2] || null;
-            if (lastItem === currentMsgContextItem) isLastMessage = true;
-            if (preLastItem === currentMsgContextItem) isPreLastMessage = true;
-        }
 
         var headerH = 64;
         var pinnedH = 0;
@@ -3561,64 +3545,24 @@ function showMsgContextMenu(msgInfo, item) {
 
         var top;
 
-        var shouldForceAbove = isLastMessage || isPreLastMessage;
-
-        // Если это фото/видео и снизу мало места, а сверху влезает — ставим сразу над сообщением
+        // Для фото/видео, если снизу мало места, а сверху хватает — сразу ставим сверху
         if (hasMedia && spaceBelow < menuH + margin && spaceAbove >= menuH + margin) {
             top = rect.top - menuH - margin;
-            // дальше просто перейдём к clamping и exit
         }
-
-        // Если последнее/предпоследнее — стараемся ставить меню наверху
-        if (shouldForceAbove && spaceAbove >= menuH + margin) {
-            top = rect.top - menuH - margin;
-        }
-        // 1) если нормально влезает СНИЗУ — ставим под сообщением
-        else if (!shouldForceAbove && spaceBelow >= menuH + margin) {
+        // если снизу хватает места — ставим под сообщением
+        else if (spaceBelow >= menuH + margin) {
             top = rect.bottom + margin;
         }
-        // 2) иначе, если влезает СВЕРХУ — ставим над сообщением
+        // иначе, если сверху хватает — ставим над сообщением
         else if (spaceAbove >= menuH + margin) {
-            // если это ПОСЛЕДНЕЕ сообщение и allowScroll — можем немного скроллить
-            if ((isLastMessage || isPreLastMessage) && allowScroll && chatContent) {
-                var msgBottom = currentMsgContextItem.offsetTop + currentMsgContextItem.offsetHeight;
-                var desiredGap = menuH + 32;
-                var targetScroll = msgBottom + desiredGap - chatContent.clientHeight;
-                if (targetScroll < 0) targetScroll = 0;
-
-                chatContent.scrollTo({ top: targetScroll, behavior: 'smooth' });
-                setTimeout(function () {
-                    positionMenu(false);
-                }, 260);
-                return;
-            }
             top = rect.top - menuH - margin;
         }
-        // 3) общий случай: пробуем немного проскроллить, чтобы освободить место
-        else if (allowScroll && chatContent) {
-            var needExtraAbove = (menuH + margin) - Math.max(spaceAbove, 0);
-            var newScrollTop   = chatContent.scrollTop + needExtraAbove;
-            if (newScrollTop < 0) newScrollTop = 0;
-
-            if (typeof chatContent.scrollTo === 'function') {
-                chatContent.scrollTo({ top: newScrollTop, behavior: 'smooth' });
-            } else {
-                chatContent.scrollTop = newScrollTop;
-            }
-
-            setTimeout(function () {
-                positionMenu(false);
-            }, 260);
-            return;
-        } else {
+        // иначе — ставим максимально доступно сверху/снизу
+        else {
             top = rect.top - menuH - margin;
-            if (top < safeTop) {
-                top = rect.bottom + margin;
-            }
         }
 
-        // Гарантируем, что меню не выйдет за границы экрана
-        // Гарантируем, что меню не выйдет за границы экрана
+        // Клап по экрану
         var minTop = safeTop;
         var maxTop = vh - safeBottom - menuH;
         if (maxTop < minTop) maxTop = minTop;
@@ -3626,8 +3570,6 @@ function showMsgContextMenu(msgInfo, item) {
         if (top > maxTop) top = maxTop;
 
         msgContextMenu.style.top = top + 'px';
-
-        
 
         if (isMe) {
             msgContextMenu.style.right = '12px';
@@ -3644,9 +3586,7 @@ function showMsgContextMenu(msgInfo, item) {
         });
     }
 
-    requestAnimationFrame(function () {
-        positionMenu(true);
-    });
+    requestAnimationFrame(positionMenu);
 }
 
 // --- действия над сообщениями ---
