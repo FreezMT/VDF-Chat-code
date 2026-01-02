@@ -99,6 +99,8 @@ var chatUserMediaGrid     = document.getElementById('chatUserMediaGrid');
 var chatUserFilesList     = document.getElementById('chatUserFilesList');
 var chatUserAudioList     = document.getElementById('chatUserAudioList');
 
+var keyboardOffset = 0;
+
 // вложения в модалке группы
 var groupAttachments      = document.getElementById('groupAttachments');
 var groupMembersTab       = document.getElementById('groupMembersTab');
@@ -407,6 +409,87 @@ var chatLoadingOverlay = document.getElementById('chatLoadingOverlay');
 var micTouchStartX = null;
 var micTouchStartY = null;
 var micGestureActive = false;
+
+function attachIdCopyHandler(el) {
+    if (!el) return;
+    el.style.cursor = 'pointer';
+    el.addEventListener('click', function () {
+        var text = el.textContent || '';
+        var match = text.match(/\d{5,}/); // ищем хотя бы 5 подряд идущих цифр
+        if (!match) return;
+        var id = match[0];
+
+        function done() { showInfoBanner('ID скопирован'); }
+
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(id).then(done).catch(done);
+        } else {
+            var ta = document.createElement('textarea');
+            ta.value = id;
+            ta.style.position = 'fixed';
+            ta.style.left = '-9999px';
+            document.body.appendChild(ta);
+            ta.select();
+            try { document.execCommand('copy'); } catch (e) {}
+            document.body.removeChild(ta);
+            done();
+        }
+    });
+}
+
+// Вызов
+attachIdCopyHandler(profileIdEl);
+attachIdCopyHandler(chatUserId);
+
+function applyKeyboardOffset() {
+    var offset = keyboardOffset || 0;
+
+    // поднимаем инпут
+    if (chatInputForm) {
+        chatInputForm.style.transform = offset ? ('translateY(-' + offset + 'px)') : '';
+    }
+    // поднимаем reply/preview-бары
+    if (replyBar) {
+        replyBar.style.transform = offset ? ('translateY(-' + offset + 'px)') : '';
+    }
+    if (attachPreviewBar) {
+        attachPreviewBar.style.transform = offset ? ('translateY(-' + offset + 'px)') : '';
+    }
+    // уменьшаем доступную высоту контента
+    if (chatContent) {
+        var baseBottom = 80; // как в CSS
+        chatContent.style.bottom = (baseBottom + offset) + 'px';
+    }
+}
+
+if (window.visualViewport) {
+    visualViewport.addEventListener('resize', function () {
+        // На многих браузерах высота visualViewport уменьшается при появлении клавиатуры
+        var offset = window.innerHeight - visualViewport.height;
+        keyboardOffset = offset > 0 ? offset : 0;
+        applyKeyboardOffset();
+    });
+
+    visualViewport.addEventListener('scroll', function () {
+        // На iOS иногда ещё и сдвигается сам visual viewport
+        var offset = window.innerHeight - visualViewport.height;
+        keyboardOffset = offset > 0 ? offset : 0;
+        applyKeyboardOffset();
+    });
+}
+
+// На фокус в textarea скроллим контент к низу
+if (chatInput) {
+    chatInput.addEventListener('focus', function () {
+        if (chatContent) {
+            chatContent.scrollTop = chatContent.scrollHeight;
+        }
+    });
+    chatInput.addEventListener('blur', function () {
+        keyboardOffset = 0;
+        applyKeyboardOffset();
+    });
+}
 
 function connectWebSocket() {
     if (!('WebSocket' in window)) return;
@@ -774,6 +857,18 @@ function showNetworkErrorBanner(message) {
     if (networkBannerTimer) clearTimeout(networkBannerTimer);
     networkBannerTimer = setTimeout(function () {
         if (networkBanner) networkBanner.classList.remove('show');
+    }, 2000);
+}
+
+// Информационный баннер (синий) — для "ID скопирован" и т.п.
+function showInfoBanner(message) {
+    if (!networkBanner) return;
+    networkBanner.textContent = message || '';
+    networkBanner.classList.add('info', 'show');
+
+    if (networkBannerTimer) clearTimeout(networkBannerTimer);
+    networkBannerTimer = setTimeout(function () {
+        if (networkBanner) networkBanner.classList.remove('show', 'info');
     }, 2000);
 }
 
@@ -2228,10 +2323,10 @@ function setNavActive(tab) {
     } else if (tab === 'plus') {
         navAddIcon.src = 'icons/plus-active.png';
     } else if (tab === 'list') {
-        // Список (лента)
+        // СПИСОК (лента постов)
         navListIcon.src = 'icons/list.png';
     } else if (tab === 'home') {
-        // Домик (чаты)
+        // ДОМИК (чаты)
         navHomeIcon.src = 'icons/home.png';
     }
 }
@@ -5183,7 +5278,7 @@ async function openChatsScreen() {
     mainScreen.setAttribute('aria-hidden','false');
     showBottomNav();
 
-    setNavActive('list');
+    setNavActive('home'); // чаты = домик;
 
     hideChatUserModal();
     hideGroupModal();
@@ -5217,7 +5312,7 @@ async function openFeedScreen() {
     stopMessagePolling();
     stopChatListPolling();
 
-    setNavActive('home');
+    setNavActive('list'); // лента = список;
 
     if (createPostBtn) {
         var roleLower = (currentUser.role || '').toLowerCase();
@@ -6501,18 +6596,24 @@ if (chatInputForm && chatInput) {
 
         // Вложения
         if (pendingAttachments && pendingAttachments.length) {
+            // Копируем список и СРАЗУ очищаем превью
             var usedAttachments = pendingAttachments.slice();
+            pendingAttachments = [];
+            renderAttachPreviewBar();    // превью исчезают сразу
+
+            // Показываем индикатор загрузки на время отправки файлов
+            setChatLoading(true);
 
             try {
-                for (var i = 0; i < pendingAttachments.length; i++) {
-                    var att = pendingAttachments[i];
+                for (var i = 0; i < usedAttachments.length; i++) {
+                    var att = usedAttachments[i];
 
                     var formData = new FormData();
                     formData.append('file',  att.file);
                     formData.append('login', currentUser.login);
                     formData.append('chatId', currentChat.id);
 
-                    if (i === pendingAttachments.length - 1) {
+                    if (i === usedAttachments.length - 1) {
                         formData.append('text', finalText);
                     } else {
                         formData.append('text', '');
@@ -6535,10 +6636,8 @@ if (chatInputForm && chatInput) {
                 usedAttachments.forEach(function (a) {
                     cleanupAttachmentObjectUrl(a);
                 });
+                setChatLoading(false);
             }
-
-            pendingAttachments = [];
-            renderAttachPreviewBar();
 
             chatInput.value = '';
             autoResizeChatInput();
