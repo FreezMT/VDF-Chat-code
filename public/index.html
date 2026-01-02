@@ -367,71 +367,37 @@
             </div>
         </div>
 
-        <!-- MODAL WITH USER INFO -->
-        <div id="chatUserModal" class="chat-user-modal" aria-hidden="true">
-            <div class="chat-user-modal-backdrop"></div>
-            <div class="chat-user-modal-card" role="dialog" aria-modal="true">
-                <button type="button" id="chatUserBackBtn" class="chat-user-back-btn" aria-label="Назад">←</button>
-
-                <div class="chat-user-avatar-wrapper">
-                    <img id="chatUserAvatar" src="/img/default-avatar.png" alt="Аватар" class="chat-user-avatar">
-                </div>
-                <div class="chat-user-name" id="chatUserName"></div>
-                <div class="chat-user-pill" id="chatUserId"></div>
-                <div class="chat-user-pill" id="chatUserTeam"></div>
-                <div class="chat-user-pill" id="chatUserDob"></div>
-
-                <!-- Вложения пользователя в текущем чате -->
-                <div class="chat-attachments" id="chatUserAttachments">
-                    <div class="chat-attachments-tabs">
-                        <button type="button" class="chat-attachments-tab chat-attachments-tab-active" id="chatUserMediaTab">
-                            Медиа
-                        </button>
-                        <button type="button" class="chat-attachments-tab" id="chatUserFilesTab">
-                            Файлы
-                        </button>
-                        <button type="button" class="chat-attachments-tab" id="chatUserAudioTab">
-                            Аудио
-                        </button>
-                    </div>
-
-                    <div class="chat-attachments-content">
-                        <div class="chat-attachments-media-grid" id="chatUserMediaGrid"></div>
-                        <div class="chat-attachments-files-list" id="chatUserFilesList"></div>
-                        <div class="chat-attachments-audio-list" id="chatUserAudioList"></div>
-                    </div>
-                </div>
-
-                <button type="button" class="chat-user-write-btn" id="chatUserWriteBtn">Написать</button>
-                <button type="button" class="chat-user-remove-btn" id="chatUserRemoveBtn">Удалить из группы</button>
-            </div>
-        </div>
 
         <!-- MODAL WITH GROUP INFO -->
-        <div class="group-avatar-row">
-            <div class="group-avatar-wrapper">
-                <img id="groupAvatar" src="/group-avatar.png" alt="Аватар группы" class="group-avatar">
-            </div>
-            <button type="button" class="edit-icon" id="editGroupAvatarBtn" aria-label="Изменить аватар группы"></button>
-        </div>
+        <div id="groupModal" class="chat-user-modal" aria-hidden="true">
+            <div class="group-modal-backdrop"></div>
+            <div class="group-modal-card" role="dialog" aria-modal="true">
+                <button type="button" id="groupBackBtn" class="group-back-btn" aria-label="Назад">←</button>
 
-        <!-- Строка с названием группы и возрастом -->
-        <div class="group-name-row">
-            <div id="groupNameTitle" class="group-name"></div>
-            <span id="groupAgeLabel" class="group-age group-age-editable"></span>
-            <button type="button" class="edit-icon" id="editGroupNameBtn" aria-label="Изменить название группы"></button>
-        </div>
+                <div class="group-avatar-row">
+                    <div class="group-avatar-wrapper">
+                        <img id="groupAvatar" src="/group-avatar.png" alt="Аватар группы" class="group-avatar">
+                    </div>
+                    <button type="button" class="edit-icon" id="editGroupAvatarBtn" aria-label="Изменить аватар группы"></button>
+                </div>
 
-        <!-- выбор новой аватарки -->
-        <input type="file" id="groupAvatarInput" accept="image/*" style="display:none">
+                <!-- строка с названием и возрастом -->
+                <div class="group-name-row">
+                    <div id="groupNameTitle" class="group-name"></div>
+                    <span id="groupAgeLabel" class="group-age group-age-editable"></span>
+                    <button type="button" class="edit-icon" id="editGroupNameBtn" aria-label="Изменить название группы"></button>
+                </div>
 
-        <!-- редактирование названия -->
-        <input type="text" id="groupNameEditInput" class="group-name-input" style="display:none">
-        <button type="button" id="groupNameSaveBtn" class="group-name-save-btn" style="display:none">
-            Сохранить
-        </button>
+                <!-- выбор новой аватарки -->
+                <input type="file" id="groupAvatarInput" accept="image/*" style="display:none">
 
-        <div class="chat-user-pill" id="groupMembersCount"></div>
+                <!-- редактирование названия -->
+                <input type="text" id="groupNameEditInput" class="group-name-input" style="display:none">
+                <button type="button" id="groupNameSaveBtn" class="group-name-save-btn" style="display:none">
+                    Сохранить
+                </button>
+
+                <div class="chat-user-pill" id="groupMembersCount"></div>
 
                 <div class="chat-attachments" id="groupAttachments">
                     <div class="chat-attachments-tabs">
@@ -449,7 +415,7 @@
                         </button>
                     </div>
                     <div class="chat-attachments-content">
-                        <!-- Вкладка "Участники" -->
+                        <!-- вкладка "Участники" -->
                         <div class="chat-attachments-members-list" id="groupMembersPane">
                             <button type="button" class="group-add-member-btn" id="groupAddMemberBtn">
                                 Добавить участника
