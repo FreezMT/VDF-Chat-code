@@ -14,12 +14,18 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="VDF Chat">
-    <link rel="apple-touch-icon" href="/icons/icon-192.png">
+    <link rel="apple-touch-icon" href="/logo.png">
 
     <title>VDF Chat</title>
 
     <link href="https://fonts.googleapis.com/css2?family=Jost:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="style.css">
+    <!-- Favicon (браузерная иконка) -->
+    <link rel="icon" type="image/png" sizes="32x32" href="/logo.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="/logo.png">
+
+    <!-- Иконка для iOS (Add to Home Screen) -->
+    <link rel="apple-touch-icon" href="/logo.png">
 </head>
 <body>
     <noscript>Для работы приложения необходим JavaScript.</noscript>
@@ -414,11 +420,6 @@
                     <button type="button" class="edit-icon" id="editGroupAvatarBtn" aria-label="Изменить аватар группы"></button>
                 </div>
 
-                <div class="group-name-row">
-                    <div class="group-name" id="groupNameTitle"></div>
-                    <div class="group-age" id="groupAgeLabel"></div>
-                    <button type="button" class="edit-icon" id="editGroupNameBtn"></button>
-                </div>
 
                 <!-- выбор новой аватарки -->
                 <input type="file" id="groupAvatarInput" accept="image/*" style="display:none">
