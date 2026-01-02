@@ -4043,7 +4043,7 @@ function showChatNotification(chat) {
         var senderName = chat.lastMessageSenderName || chat.lastMessageSenderLogin || 'Сообщение';
         body  = senderName + ': ' + text;
         icon  = chat.avatar ||
-            ((chat.type === 'group' || chat.type === 'groupCustom') ? '/logo.png' : '/img/default-avatar.png');
+            ((chat.type === 'group' || chat.type === 'groupCustom') ? '/logo.png' : '/default-avatar.png');
     }
 
     try {
@@ -5000,7 +5000,7 @@ function renderFeedPost(post) {
 
     var img = document.createElement('img');
     img.className = 'feed-post-avatar';
-    img.src = '/logo.png';
+    img.src = '/group-avatar.png';
     img.loading = 'lazy';
     img.decoding = 'async';
     img.onerror = function () { this.onerror = null; this.src = '/logo.png'; };
@@ -5767,18 +5767,24 @@ if (navAddBtn) {
 }
 
 // клик по шапке чата
-document.addEventListener('click', function (e) {
-    var header = e.target.closest('.chat-header');
-    if (!header) return;
-    if (e.target.closest('.chat-back')) return;
-    if (!currentChat) return;
+// клик по шапке чата (отдельный обработчик только для chat-header)
+var chatHeaderEl = document.querySelector('.chat-header');
+if (chatHeaderEl) {
+    chatHeaderEl.addEventListener('click', function (e) {
+        // Если нажали на кнопку "назад" — не открываем модалку
+        if (e.target.closest('.chat-back')) return;
+        if (!currentChat) return;
 
-    if (currentChat.type === 'trainer' || currentChat.type === 'personal') {
-        openChatUserModal();
-    } else if (currentChat.type === 'group' || currentChat.type === 'groupCustom') {
-        openGroupModal();
-    }
-});
+        // Личные чаты / тренерские — открываем модалку пользователя
+        if (currentChat.type === 'trainer' || currentChat.type === 'personal') {
+            openChatUserModal();
+        }
+        // Группы — модалка группы
+        else if (currentChat.type === 'group' || currentChat.type === 'groupCustom') {
+            openGroupModal();
+        }
+    });
+}
 
 // закрытие модалок по фону
 if (chatUserBackdrop && chatUserModal) {
@@ -5935,7 +5941,7 @@ if (editGroupAvatarBtn && groupAvatarInput) {
                 groupAvatar.src = data.avatar;
                 groupAvatar.onerror = function () {
                     this.onerror = null;
-                    this.src = '/logo.png';
+                    this.src = '/group-avatar.png';
                 };
             }
 
@@ -6955,6 +6961,16 @@ if (postSubmitBtn) {
             formData.append('image', currentPostImageFile);
         }
 
+        // СРАЗУ закрываем модалку
+        hidePostModal();
+
+        // Показываем синий баннер "Публикация..."
+        if (networkBanner) {
+            if (networkBannerTimer) clearTimeout(networkBannerTimer);
+            networkBanner.textContent = 'Публикация...';
+            networkBanner.classList.add('info', 'show');
+        }
+
         try {
             var resp = await fetch('/api/feed/create', {
                 method: 'POST',
@@ -6966,10 +6982,14 @@ if (postSubmitBtn) {
                 return;
             }
 
-            hidePostModal();
             await loadFeed();
         } catch (e) {
             alert('Сетевая ошибка при создании поста');
+        } finally {
+            // Убираем баннер "Публикация..."
+            if (networkBanner) {
+                networkBanner.classList.remove('show', 'info');
+            }
         }
     });
 }
