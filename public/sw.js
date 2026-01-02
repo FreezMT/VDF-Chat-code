@@ -2,7 +2,7 @@
 
 // ====== PWA / OFFLINE КЭШИРОВАНИЕ ======
 
-const STATIC_CACHE_VERSION = 'v1';
+const STATIC_CACHE_VERSION = 'v2';
 const STATIC_CACHE_NAME    = 'vdf-chat-static-' + STATIC_CACHE_VERSION;
 const RUNTIME_CACHE_NAME   = 'vdf-chat-runtime-' + STATIC_CACHE_VERSION;
 
