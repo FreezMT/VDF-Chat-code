@@ -82,6 +82,11 @@ if ('serviceWorker' in navigator) {
 
 // ---------- ГЛОБАЛЬНОЕ СОСТОЯНИЕ ----------
 
+// Определяем, запущено ли приложение как standalone PWA (iOS/Android)
+var IS_STANDALONE_PWA =
+    (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
+    (window.navigator && window.navigator.standalone === true);
+
 // состояние рендера сообщений по чатам
 var chatRenderState = {}; // { [chatId]: { initialized, lastId, pinnedId } }
 var messagesById    = {}; // { [messageId]: messageRow }
@@ -3600,11 +3605,11 @@ function createMsgContextMenu() {
     (chatScreen || document.body).appendChild(msgContextOverlay);
 
     // Клик по фону:
-    // 1) первый клик после открытия меню всегда игнорируем (это "отпускание пальца" после long‑press);
-    // 2) последующие клики по самому фону (target === overlay) — закрывают меню.
+    //  - В обычном браузере: закрывает меню.
+    //  - В PWA (standalone): НИЧЕГО не делает, чтобы не ловить "лишний" клик от iOS.
     msgContextOverlay.addEventListener('click', function (e) {
-        if (suppressNextMsgOverlayClick) {
-            suppressNextMsgOverlayClick = false;
+        if (IS_STANDALONE_PWA) {
+            // В PWA клики по фону игнорируем, меню закрывается только по кнопкам.
             e.preventDefault();
             e.stopPropagation();
             return;
