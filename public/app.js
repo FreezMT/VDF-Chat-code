@@ -618,10 +618,19 @@ function initGroupAgeEditing() {
 
 function showMediaContextMenu(msgInfo, item){
     ensureMediaMsgOverlay();
+    if (!mediaMsgOverlay || !mediaMsgPreview || !mediaMsgMenu) return;
+    if (!msgInfo || !item) return;
+
     currentMediaMsg = { info: msgInfo, item: item };
 
     var type   = msgInfo.attachmentType || item.dataset.msgAttachmentType || '';
     var attUrl = msgInfo.attachmentUrl  || item.dataset.msgAttachmentUrl  || '';
+
+    // Пытаемся взять URL превью (для видео) из messagesById
+    var previewUrl = null;
+    if (messagesById && msgInfo.id && messagesById[msgInfo.id]) {
+        previewUrl = messagesById[msgInfo.id].attachment_preview || null;
+    }
 
     mediaMsgPreview.innerHTML = '';
     mediaMsgMenu.innerHTML    = '';
@@ -630,8 +639,9 @@ function showMediaContextMenu(msgInfo, item){
     var mediaEl = item.querySelector('.msg-attachment-image') ||
                   item.querySelector('.msg-attachment-video');
     if (!mediaEl) {
-        // если что‑то пошло не так — просто fallback на обычное меню
-        showMsgContextMenuFallback(msgInfo, item);
+        // если что‑то пошло не так – просто показываем обычное меню без превью
+        // (через стандартный контекст, без media‑оверлея)
+        showMsgContextMenu(msgInfo, item);
         return;
     }
 
@@ -642,35 +652,24 @@ function showMediaContextMenu(msgInfo, item){
     var vw   = window.innerWidth  || 375;
     var vh   = window.innerHeight || 667;
 
-    // создаём превью (img или video)
-    var inner;
-    if (type === 'image') {
-        inner = document.createElement('img');
-        inner.src = attUrl;
-        inner.style.width  = '100%';
-        inner.style.height = '100%';
-        inner.style.objectFit = 'contain';
-        inner.onerror = function(){ this.style.display='none'; };
-        mediaMsgPreview.appendChild(inner);
-    } else if (type === 'video') {
-        inner = document.createElement('video');
-        inner.src = attUrl;
-        inner.style.width  = '100%';
-        inner.style.height = '100%';
-        inner.style.objectFit = 'contain';
-        inner.playsInline = true;
-        inner.setAttribute('playsinline','true');
-        inner.setAttribute('webkit-playsinline','true');
-        inner.muted = true;
-        inner.preload = 'metadata';
-        mediaMsgPreview.appendChild(inner);
-    }
+    var startTop    = rect.top;
+    var startLeft   = rect.left;
+    var startWidth  = rect.width;
+    var startHeight = rect.height;
 
-    // Ставим превью поверх исходного медиа
-    var startTop   = rect.top;
-    var startLeft  = rect.left;
-    var startWidth = rect.width;
-    var startHeight= rect.height;
+    // Создаём превью КАРТИНКУ.
+    // Для фото – само изображение,
+    // Для видео – jpeg-превью, если есть, иначе сам видео-файл (покажется первый кадр).
+    var inner = document.createElement('img');
+    inner.style.width      = '100%';
+    inner.style.height     = '100%';
+    inner.style.objectFit  = 'contain';
+    inner.style.display    = 'block';
+    inner.src = (type === 'video' && previewUrl) ? previewUrl : attUrl;
+    inner.onerror = function () { this.style.display = 'none'; };
+
+    mediaMsgPreview.innerHTML = '';
+    mediaMsgPreview.appendChild(inner);
 
     mediaMsgPreview.style.top    = startTop   + 'px';
     mediaMsgPreview.style.left   = startLeft  + 'px';
@@ -678,10 +677,14 @@ function showMediaContextMenu(msgInfo, item){
     mediaMsgPreview.style.height = startHeight+ 'px';
     mediaMsgPreview.style.opacity= '1';
 
+    mediaMsgOverlay.classList.add('visible');
+
     // Целевое положение — сверху по центру
-    var targetWidth  = Math.min(startWidth, vw * 0.9);
-    var aspect       = startHeight > 0 ? (startWidth / startHeight) : 1;
-    var targetHeight = targetWidth / (aspect || 1);
+    var targetWidth  = Math.min(startWidth || (vw * 0.9), vw * 0.9);
+    var aspect       = (startHeight > 0 && startWidth > 0) ? (startWidth / startHeight) : 1;
+    if (!isFinite(aspect) || aspect <= 0) aspect = 1;
+
+    var targetHeight = targetWidth / aspect;
     if (targetHeight > vh * 0.5) {
         targetHeight = vh * 0.5;
         targetWidth  = targetHeight * aspect;
@@ -690,20 +693,18 @@ function showMediaContextMenu(msgInfo, item){
     var targetTop  = 80; // отступ сверху
     var targetLeft = (vw - targetWidth) / 2;
 
-    mediaMsgOverlay.classList.add('visible');
-
     // Плавная анимация в следующий кадр
     requestAnimationFrame(function(){
         mediaMsgPreview.style.top    = targetTop   + 'px';
         mediaMsgPreview.style.left   = targetLeft  + 'px';
         mediaMsgPreview.style.width  = targetWidth + 'px';
         mediaMsgPreview.style.height = targetHeight+ 'px';
+
+        var menuTop = targetTop + targetHeight + 12;
+        mediaMsgMenu.style.top = menuTop + 'px';
     });
 
-    // Меню под превью
-    var menuTop = targetTop + targetHeight + 12;
-    mediaMsgMenu.style.top = menuTop + 'px';
-
+    // Собираем кнопки меню (Открыть, Ответить, Переслать, Скачать, Закрепить, Редактировать, Удалить, реакции)
     buildMediaMsgMenuButtons(msgInfo, type, attUrl);
 }
 
