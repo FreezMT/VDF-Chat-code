@@ -2613,6 +2613,22 @@ textarea {
     background-color:rgba(59,169,255,0.95);
 }
 
+/* Плавное появление карточек модалок (пост / пересылка) */
+.post-modal-card,
+.forward-card {
+    transform: translateY(10px);
+    opacity: 0;
+    transition:
+        opacity 0.22s ease-out,
+        transform 0.22s cubic-bezier(.25,.8,.25,1);
+}
+
+.post-modal.visible .post-modal-card,
+.forward-modal.visible .forward-card {
+    transform: translateY(0);
+    opacity: 1;
+}
+
 /* ГЛОБАЛЬНОЕ СКРЫТИЕ СКРОЛЛБАРОВ — ТОЛЬКО НА МОБИЛЬНЫХ */
 @media (max-width: 900px) {
     * {

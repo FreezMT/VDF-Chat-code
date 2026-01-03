@@ -429,6 +429,8 @@ var chatLoadingOverlay = document.getElementById('chatLoadingOverlay');
 
 var voiceRecordHint = document.querySelector('.voice-record-hint');
 
+var suppressFeedReloadUntil = 0; // тайм-аут, пока не перерисовывать ленту по feedUpdated
+
 // --- управление микрофоном: удержание + свайп влево для отмены ---
 
 var micTouchStartX = null;
@@ -813,6 +815,11 @@ function connectWebSocket() {
         } else if (data.type === 'feedUpdated') {
             // если мы на экране ленты
             if (feedScreen && feedScreen.style.display !== 'none') {
+                var now = Date.now();
+                // если только что сами нажимали лайк — пропускаем этот feedUpdated, чтобы не было мигания
+                if (now < suppressFeedReloadUntil) {
+                    return;
+                }
                 loadFeed();
             }
         }
@@ -5542,7 +5549,13 @@ function renderFeedPost(post) {
                 alert(data.error || 'Ошибка лайка');
                 return;
             }
+
+            // локально сразу обновляем визуал
             renderLikeState(data.liked, data.likesCount || 0);
+
+            // и на короткое время блокируем перерисовку ленты от feedUpdated,
+            // чтобы не было "мигания" карточки
+            suppressFeedReloadUntil = Date.now() + 600;
         } catch (e) {
             alert('Сетевая ошибка при лайке');
         }
