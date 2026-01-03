@@ -478,6 +478,10 @@ textarea {
     display:block;
 }
 
+.nav-btn-active{
+    transform:translateY(-2px) scale(1.05);
+}
+
 /* ========== CHAT SCREEN ========== */
 .chat-screen{
     position:fixed;
@@ -1391,6 +1395,11 @@ textarea {
     border-radius:999px;
     background-color:rgba(0,0,0,0.2);
     color:#FFFFFF;
+    transition:
+        transform 0.12s ease-out,
+        background-color 0.12s ease-out,
+        box-shadow 0.12s ease-out,
+        border-color 0.12s ease-out;
 }
 .msg-item.msg-me .msg-reaction{
     background-color:rgba(255,255,255,0.5);
@@ -1398,6 +1407,11 @@ textarea {
 }
 .msg-reaction.my{
     border:1px solid #3BA9FF;
+    transform:scale(1.06);
+    box-shadow:0 0 0 1px rgba(59,169,255,0.4);
+}
+.msg-reaction.my:active{
+    transform:scale(0.96);
 }
 
 /* reply */
@@ -1676,7 +1690,18 @@ textarea {
     backdrop-filter:blur(4px);
     z-index:9;
     display:none;
+    opacity:0;
+    transform:translateY(-100%);
+    transition:
+        opacity 0.2s ease-out,
+        transform 0.2s ease-out;
 }
+.pinned-top-bar.pinned-visible{
+    display:block;
+    opacity:1;
+    transform:translateY(0);
+}
+
 .pinned-top-label{
     font-size:11px;
     color:rgba(255,255,255,0.6);
@@ -2603,7 +2628,7 @@ textarea {
     position:fixed;
     left:50%;
     top:10px;
-    transform:translateX(-50%);
+    transform:translateX(-50%) translateY(-6px);
     padding:6px 12px;
     border-radius:999px;
     background-color:rgba(255,59,48,0.95);
@@ -2611,9 +2636,15 @@ textarea {
     font-size:12px;
     z-index:200;
     display:none;
+    opacity:0;
+    transition:
+        opacity 0.18s ease-out,
+        transform 0.18s ease-out;
 }
 .network-banner.show{
     display:block;
+    opacity:1;
+    transform:translateX(-50%) translateY(0);
 }
 .network-banner.info{
     background-color:rgba(59,169,255,0.95);

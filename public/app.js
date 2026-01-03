@@ -1018,6 +1018,7 @@ if (chatScreen) {
         chatSwipeStartY = t.clientY;
         chatSwipeDx     = 0;
 
+        // на время жеста убираем transition, чтобы не мешал
         chatScreen.style.transition = 'none';
     }, { passive:true });
 
@@ -1027,6 +1028,7 @@ if (chatScreen) {
         var dx = t.clientX - chatSwipeStartX;
         var dy = t.clientY - chatSwipeStartY;
 
+        // свайп должен быть вправо и более горизонтальный, чем вертикальный
         if (dx <= 0 || Math.abs(dy) > Math.abs(dx)) {
             chatSwipeDx = 0;
             chatScreen.style.transform = 'translateX(0px)';
@@ -1040,13 +1042,29 @@ if (chatScreen) {
     }, { passive:true });
 
     function finishChatSwipe(shouldClose) {
+        if (!chatScreen) return;
+
+        var duration = 250;
         chatScreen.style.transition = 'transform 0.25s cubic-bezier(.4,0,.2,1)';
 
         if (shouldClose) {
-            chatScreen.style.transform = '';
-            closeChatScreenToMain();
+            // плавно доводим экран до правого края
+            var maxW = window.innerWidth || 375;
+            chatScreen.style.transform = 'translateX(' + maxW + 'px)';
+
+            setTimeout(function () {
+                // сбрасываем inline‑transition/transform, а потом уже закрываем экран
+                chatScreen.style.transition = '';
+                chatScreen.style.transform  = '';
+                closeChatScreenToMain();
+            }, duration);
         } else {
+            // возвращаем назад
             chatScreen.style.transform = 'translateX(0px)';
+
+            setTimeout(function () {
+                chatScreen.style.transition = '';
+            }, duration);
         }
 
         chatSwipeStartX = chatSwipeStartY = null;
@@ -1058,7 +1076,7 @@ if (chatScreen) {
 
         var maxW    = window.innerWidth || 375;
         var current = Math.min(Math.max(chatSwipeDx, 0), maxW);
-        var threshold = maxW * 0.25;
+        var threshold = maxW * 0.25; // 25% ширины — порог закрытия
 
         var shouldClose = current >= threshold;
         finishChatSwipe(shouldClose);
@@ -2679,22 +2697,30 @@ function hideBottomNav() {
 function setNavActive(tab) {
     if (!navHomeIcon || !navProfileIcon || !navAddIcon || !navListIcon) return;
 
-    // базовые (неактивные) состояния
+    // базовые (неактивные) иконки
     navHomeIcon.src   = 'icons/home-gray.png';
     navProfileIcon.src= 'icons/user.png';
     navAddIcon.src    = 'icons/plus.png';
     navListIcon.src   = 'icons/list-gray.png';
 
+    // убираем active‑класс со всех кнопок
+    if (navHomeBtn)    navHomeBtn.classList.remove('nav-btn-active');
+    if (navProfileBtn) navProfileBtn.classList.remove('nav-btn-active');
+    if (navAddBtn)     navAddBtn.classList.remove('nav-btn-active');
+    if (navListBtn)    navListBtn.classList.remove('nav-btn-active');
+
     if (tab === 'profile') {
         navProfileIcon.src = 'icons/user-active.png';
+        if (navProfileBtn) navProfileBtn.classList.add('nav-btn-active');
     } else if (tab === 'plus') {
         navAddIcon.src = 'icons/plus-active.png';
+        if (navAddBtn) navAddBtn.classList.add('nav-btn-active');
     } else if (tab === 'chats') {
-        // домик = чаты
         navHomeIcon.src = 'icons/home.png';
+        if (navHomeBtn) navHomeBtn.classList.add('nav-btn-active');
     } else if (tab === 'feed') {
-        // список = лента
         navListIcon.src = 'icons/list.png';
+        if (navListBtn) navListBtn.classList.add('nav-btn-active');
     }
 }
 
@@ -3464,7 +3490,7 @@ function renderPinnedTop(msg) {
     if (!pinnedTopBar) return;
 
     if (!msg) {
-        pinnedTopBar.style.display = 'none';
+        pinnedTopBar.classList.remove('pinned-visible');
         pinnedTopBar.innerHTML = '';
         updateChatTopForPinned();
         return;
@@ -3483,7 +3509,6 @@ function renderPinnedTop(msg) {
 
     if (text.length > 80) text = text.slice(0, 77) + '…';
 
-    pinnedTopBar.style.display = 'block';
     pinnedTopBar.innerHTML = '';
 
     var labelEl = document.createElement('div');
@@ -3496,6 +3521,8 @@ function renderPinnedTop(msg) {
 
     pinnedTopBar.appendChild(labelEl);
     pinnedTopBar.appendChild(textEl);
+
+    pinnedTopBar.classList.add('pinned-visible');
 
     pinnedTopBar.onclick = function () {
         if (!chatContent) return;
