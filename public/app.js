@@ -4748,6 +4748,9 @@ function renderOrCreateChatItem(chat) {
         });
 
         chatItemsById[chat.id] = item;
+
+        // Плавное появление только при первом создании
+        item._appeared = false;
     }
 
     var avatarWrapperEl = item.querySelector('.chat-avatar');
@@ -4812,13 +4815,16 @@ function renderOrCreateChatItem(chat) {
     }
 
     item.classList.toggle('chat-pinned', isChatPinned(chat.id));
-    requestAnimationFrame(function () {
-        item.classList.add('chat-item-visible');
-    });
+
+    // первый раз после создания — мягко показать
+    if (!item._appeared) {
+        item._appeared = true;
+        requestAnimationFrame(function () {
+            item.classList.add('chat-item-visible');
+        });
+    }
 
     return item;
-    // плавное появление
-
 }
 
 function renderChatListFromLastChats() {
@@ -5495,7 +5501,7 @@ function renderFeedPost(post) {
     var footer = document.createElement('div');
     footer.className = 'feed-post-footer';
 
-    // ЛАЙКИ (одна пилюля слева)
+    // ЛАЙК
     var likesRow = document.createElement('div');
     likesRow.className = 'feed-post-likes';
 
@@ -5506,7 +5512,6 @@ function renderFeedPost(post) {
         if (count < 0) count = 0;
 
         if (count === 0) {
-            // При 0 лайков показываем только сердечко
             likePill.textContent = '❤️';
         } else {
             likePill.textContent = '❤️ ' + String(count);
@@ -5519,7 +5524,6 @@ function renderFeedPost(post) {
         }
     }
 
-    // начальное состояние из backend
     renderLikeState(!!post.likedByMe, post.likesCount || 0);
 
     async function toggleLike() {
@@ -5545,7 +5549,7 @@ function renderFeedPost(post) {
     }
 
     likePill.addEventListener('click', function (e) {
-        e.stopPropagation(); // чтобы клик по лайку не считался дабл‑тапом по карточке
+        e.stopPropagation();
         toggleLike();
     });
 
@@ -5606,13 +5610,15 @@ function renderFeedPost(post) {
         }
         lastTapTime = now;
     });
-    // плавное появление
+
+    feedList.appendChild(card);
+
+    // Плавное появление поста
     requestAnimationFrame(function () {
         card.classList.add('feed-post-visible');
     });
-
-    feedList.appendChild(card);
 }
+
 function openInlinePostEditor(card) {
     if (!card || !currentUser || !currentUser.login) return;
     if (card.querySelector('.feed-post-edit-wrapper')) return;

@@ -2856,3 +2856,22 @@ textarea {
 .msg-item.msg-media-hidden .msg-media-wrapper{
     visibility:hidden;
 }
+
+/* Плавное появление чатов и постов (iOS‑style) */
+.chat-item,
+.feed-post {
+    opacity: 0;
+    transform: translateY(6px);
+    transition:
+        opacity 0.18s ease-out,
+        transform 0.18s cubic-bezier(.25,.8,.25,1),
+        background-color 0.14s ease-out,
+        box-shadow 0.14s ease-out;
+}
+
+.chat-item.chat-item-visible,
+.feed-post.feed-post-visible {
+    opacity: 1;
+    transform: translateY(0);
+}
+
