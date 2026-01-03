@@ -3596,19 +3596,22 @@ function createMsgContextMenu() {
 
     (chatScreen || document.body).appendChild(msgContextOverlay);
 
-    // ВАЖНО: первые ~300 мс после открытия игнорируем любые click внутри оверлея,
-    // чтобы "синтетический" клиk после long‑press не нажимал кнопки и не закрывал меню.
+    // Клик по фону:
+    // 1) если прошёл МЕНЬШЕ 800 мс с момента открытия — это "отпускание пальца" ⇒ игнорируем полностью;
+    // 2) если больше 800 мс и клик именно по фону (target === overlay) — закрываем меню.
     msgContextOverlay.addEventListener('click', function (e) {
         var elapsed = Date.now() - msgCtxOpenedAt;
 
-        if (elapsed < 300) {
+        // игнорируем первый синтетический click сразу после long‑press
+        if (elapsed < 800) {
             e.preventDefault();
             e.stopPropagation();
             return;
         }
 
-        // Клик по фону (не по самой карточке меню) — закрываем
         if (e.target === msgContextOverlay) {
+            e.preventDefault();
+            e.stopPropagation();
             hideMsgContextMenu();
         }
     });

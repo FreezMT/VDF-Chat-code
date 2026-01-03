@@ -1,17 +1,14 @@
-// public/sw.js
-
 // ====== PWA / OFFLINE КЭШИРОВАНИЕ ======
 
-const STATIC_CACHE_VERSION = 'v7';
+const STATIC_CACHE_VERSION = 'v6';
 const STATIC_CACHE_NAME    = 'vdf-chat-static-' + STATIC_CACHE_VERSION;
 const RUNTIME_CACHE_NAME   = 'vdf-chat-runtime-' + STATIC_CACHE_VERSION;
 
 // Минимальный набор файлов для оффлайн-оболочки
+// ВАЖНО: здесь НЕТ /app.js и /style.css — они обрабатываются отдельно (network-first)
 const STATIC_ASSETS = [
   '/',
   '/index.html',
-  '/style.css',
-  '/app.js',
   '/manifest.webmanifest',
 
   // базовые картинки
@@ -20,7 +17,7 @@ const STATIC_ASSETS = [
   '/img/default-avatar.png',
   '/img/chat-bg.png',
 
-  // иконки навигации/кнопок (если пути другие — поправь под свой проект)
+  // иконки навигации/кнопок
   '/icons/home.png',
   '/icons/home-gray.png',
   '/icons/user.png',
@@ -71,7 +68,7 @@ self.addEventListener('activate', event => {
   );
 });
 
-// Обработка запросов: только GET, без API/POST
+// Обработка запросов
 self.addEventListener('fetch', event => {
   const req = event.request;
 
@@ -82,6 +79,24 @@ self.addEventListener('fetch', event => {
 
   // Только наш origin
   if (url.origin !== self.location.origin) return;
+
+  // app.js и style.css — network-first:
+  // всегда пытаемся взять свежую версию из сети,
+  // при оффлайне — из runtime-кэша.
+  if (url.pathname === '/app.js' || url.pathname === '/style.css') {
+    event.respondWith(
+      fetch(req)
+        .then(res => {
+          const clone = res.clone();
+          caches.open(RUNTIME_CACHE_NAME)
+            .then(cache => cache.put(req, clone))
+            .catch(() => {});
+          return res;
+        })
+        .catch(() => caches.match(req))
+    );
+    return;
+  }
 
   // Навигация (переходы по страницам) — network-first, fallback на кэш
   if (req.mode === 'navigate') {
@@ -121,7 +136,7 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // Остальные GET (картинки, аватары и т.п.) — network-first с runtime-кэшем
+  // Остальные GET (картинки, аватары, медиа и т.п.) — network-first с runtime-кэшем
   event.respondWith(
     fetch(req)
       .then(res => {
@@ -131,7 +146,7 @@ self.addEventListener('fetch', event => {
         }).catch(() => {});
         return res;
       })
-            .catch(() => {
+      .catch(() => {
         return caches.match(req).then(match => {
           if (match) return match;
 
