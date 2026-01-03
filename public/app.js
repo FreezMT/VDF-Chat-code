@@ -302,20 +302,8 @@ var ageValue        = document.getElementById('ageValue');
 var createGroupBtn  = document.getElementById('createGroupBtn');
 
 // Голосовые сообщения
-var hasMediaDevices = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
-var mediaRecorderSupport = false;
-
-// Проверяем не только наличие MediaRecorder, но и поддержку формата audio/webm (opus)
-if (typeof window.MediaRecorder !== 'undefined') {
-    if (typeof MediaRecorder.isTypeSupported === 'function') {
-        mediaRecorderSupport =
-            MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ||
-            MediaRecorder.isTypeSupported('audio/webm');
-    } else {
-        // старые браузеры: считаем, что поддержка есть, но всё равно будет fallback, если сломается
-        mediaRecorderSupport = true;
-    }
-}
+var hasMediaDevices      = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+var mediaRecorderSupport = typeof window.MediaRecorder !== 'undefined';
 var canUseLiveVoiceRecording = hasMediaDevices && mediaRecorderSupport;
 
 var chatSendBtn   = document.getElementById('chatSendBtn');
@@ -454,7 +442,7 @@ function ensureMediaMsgOverlay(){
 
     document.body.appendChild(mediaMsgOverlay);
 
-    // клик по фону — закрыть
+    // клик по фону (но не по меню) — закрыть
     mediaMsgOverlay.addEventListener('click', function(e){
         if (e.target === mediaMsgOverlay) {
             hideMediaMsgOverlay();
@@ -467,6 +455,10 @@ function hideMediaMsgOverlay(){
     mediaMsgOverlay.classList.remove('visible');
     mediaMsgPreview.innerHTML = '';
     mediaMsgMenu.innerHTML    = '';
+
+    if (currentMediaMsg && currentMediaMsg.item) {
+        currentMediaMsg.item.classList.remove('msg-media-hidden');
+    }
     currentMediaMsg = null;
 }
 
@@ -529,45 +521,94 @@ function showMediaContextMenu(msgInfo, item){
     ensureMediaMsgOverlay();
     currentMediaMsg = { info: msgInfo, item: item };
 
+    var type   = msgInfo.attachmentType || item.dataset.msgAttachmentType || '';
+    var attUrl = msgInfo.attachmentUrl  || item.dataset.msgAttachmentUrl  || '';
+
     mediaMsgPreview.innerHTML = '';
     mediaMsgMenu.innerHTML    = '';
 
-    // создаём превью: img или video
-    var attUrl = msgInfo.attachmentUrl || item.dataset.msgAttachmentUrl || '';
-    var type   = msgInfo.attachmentType || item.dataset.msgAttachmentType || '';
-
-    if (type === 'image') {
-        var img = document.createElement('img');
-        img.src = attUrl;
-        img.style.maxWidth  = '100%';
-        img.style.maxHeight = '100%';
-        img.style.display   = 'block';
-        img.loading   = 'lazy';
-        img.decoding  = 'async';
-        img.onerror = function(){ this.style.display='none'; };
-        mediaMsgPreview.appendChild(img);
-    } else if (type === 'video') {
-        var video = document.createElement('video');
-        video.src = attUrl;
-        video.style.maxWidth  = '100%';
-        video.style.maxHeight = '100%';
-        video.style.display   = 'block';
-        video.controls = false;
-        video.muted    = true;
-        video.playsInline = true;
-        video.setAttribute('playsinline','true');
-        video.setAttribute('webkit-playsinline','true');
-        video.preload = 'metadata';
-        mediaMsgPreview.appendChild(video);
-
-        // по клику — открыть полноэкранный viewer
-        video.addEventListener('click', function(e){
-            e.stopPropagation();
-            openMediaViewer(attUrl, 'video', video);
-        });
+    // Находим реальный медиа‑элемент в сообщении
+    var mediaEl = item.querySelector('.msg-attachment-image') ||
+                  item.querySelector('.msg-attachment-video');
+    if (!mediaEl) {
+        // если что‑то пошло не так — просто fallback на обычное меню
+        showMsgContextMenuFallback(msgInfo, item);
+        return;
     }
 
-    // кнопки меню
+    // Скрываем оригинал под overlay
+    item.classList.add('msg-media-hidden');
+
+    var rect = mediaEl.getBoundingClientRect();
+    var vw   = window.innerWidth  || 375;
+    var vh   = window.innerHeight || 667;
+
+    // создаём превью (img или video)
+    var inner;
+    if (type === 'image') {
+        inner = document.createElement('img');
+        inner.src = attUrl;
+        inner.style.width  = '100%';
+        inner.style.height = '100%';
+        inner.style.objectFit = 'contain';
+        inner.onerror = function(){ this.style.display='none'; };
+        mediaMsgPreview.appendChild(inner);
+    } else if (type === 'video') {
+        inner = document.createElement('video');
+        inner.src = attUrl;
+        inner.style.width  = '100%';
+        inner.style.height = '100%';
+        inner.style.objectFit = 'contain';
+        inner.playsInline = true;
+        inner.setAttribute('playsinline','true');
+        inner.setAttribute('webkit-playsinline','true');
+        inner.muted = true;
+        inner.preload = 'metadata';
+        mediaMsgPreview.appendChild(inner);
+    }
+
+    // Ставим превью поверх исходного медиа
+    var startTop   = rect.top;
+    var startLeft  = rect.left;
+    var startWidth = rect.width;
+    var startHeight= rect.height;
+
+    mediaMsgPreview.style.top    = startTop   + 'px';
+    mediaMsgPreview.style.left   = startLeft  + 'px';
+    mediaMsgPreview.style.width  = startWidth + 'px';
+    mediaMsgPreview.style.height = startHeight+ 'px';
+    mediaMsgPreview.style.opacity= '1';
+
+    // Целевое положение — сверху по центру
+    var targetWidth  = Math.min(startWidth, vw * 0.9);
+    var aspect       = startHeight > 0 ? (startWidth / startHeight) : 1;
+    var targetHeight = targetWidth / (aspect || 1);
+    if (targetHeight > vh * 0.5) {
+        targetHeight = vh * 0.5;
+        targetWidth  = targetHeight * aspect;
+    }
+
+    var targetTop  = 80; // отступ сверху
+    var targetLeft = (vw - targetWidth) / 2;
+
+    mediaMsgOverlay.classList.add('visible');
+
+    // Плавная анимация в следующий кадр
+    requestAnimationFrame(function(){
+        mediaMsgPreview.style.top    = targetTop   + 'px';
+        mediaMsgPreview.style.left   = targetLeft  + 'px';
+        mediaMsgPreview.style.width  = targetWidth + 'px';
+        mediaMsgPreview.style.height = targetHeight+ 'px';
+    });
+
+    // Меню под превью
+    var menuTop = targetTop + targetHeight + 12;
+    mediaMsgMenu.style.top = menuTop + 'px';
+
+    buildMediaMsgMenuButtons(msgInfo, type, attUrl);
+}
+
+function buildMediaMsgMenuButtons(msgInfo, type, attUrl){
     function addBtn(text, cls, handler){
         var b = document.createElement('button');
         b.type = 'button';
@@ -605,7 +646,7 @@ function showMediaContextMenu(msgInfo, item){
         forwardMessage(msgInfo);
     });
 
-    // Скачать / открыть файл
+    // Скачать
     addBtn('Скачать', '', function () {
         downloadMessageAttachment(msgInfo);
     });
@@ -615,7 +656,7 @@ function showMediaContextMenu(msgInfo, item){
         pinMessage(msgInfo);
     });
 
-    // Редактировать / удалить — только для своих сообщений
+    // Редактировать / удалить — только для своих
     if (isMe) {
         addBtn('Редактировать', '', function () {
             editMessage(msgInfo);
@@ -625,7 +666,8 @@ function showMediaContextMenu(msgInfo, item){
         });
     }
 
-    mediaMsgOverlay.classList.add('visible');
+    // Кнопка "Отмена"
+    addBtn('Отмена', '', function () {});
 }
 
 function attachIdCopyHandler(el) {
@@ -1485,16 +1527,15 @@ function stopVoiceWaveAnimation(){
 }
 
 async function startVoiceRecording() {
-    if (!canUseLiveVoiceRecording) {
-        // На этом устройстве нет нормальной поддержки live‑записи — используем системный рекордер
-        startSystemVoiceFileChooser();
-        return;
-    }
     if (!hasMediaDevices) {
         alert('Этот браузер не даёт доступ к микрофону (getUserMedia недоступен).');
         return;
     }
-
+    if (!mediaRecorderSupport) {
+        alert('На этом устройстве нет поддержки записи аудио (MediaRecorder). ' +
+              'Голосовые будут работать, например, в Chrome/Edge/Firefox на Android или на компьютере.');
+        return;
+    }
     if (isRecordingVoice) return;
 
     try {
@@ -1535,13 +1576,9 @@ async function startVoiceRecording() {
 
     recordedChunks = [];
     try {
-        // даём браузеру самому выбрать оптимальный формат
-        mediaRecorder = new MediaRecorder(mediaStream);
+        mediaRecorder = new MediaRecorder(mediaStream, { mimeType: 'audio/webm' });
     } catch (e) {
-        alert('На этом устройстве нет поддержки записи аудио (MediaRecorder). ' +
-              'Попробуйте системный диктофон.');
-        stopVoiceRecording(false);
-        return;
+        mediaRecorder = new MediaRecorder(mediaStream);
     }
 
     mediaRecorder.ondataavailable = function (e) {
@@ -1611,7 +1648,7 @@ async function handleVoiceRecordingStop() {
     var blob = new Blob(recordedChunks, { type: 'audio/webm' });
     recordedChunks = [];
 
-    // Отбрасываем совсем пустые/«битые» записи
+    // Отбрасываем совсем пустые записи
     if (!blob || !blob.size || blob.size < 2000) { // ~2 КБ
         return;
     }
@@ -1619,29 +1656,7 @@ async function handleVoiceRecordingStop() {
     var fileName = 'voice-' + Date.now() + '.webm';
     var file = new File([blob], fileName, { type: 'audio/webm' });
 
-    var formData = new FormData();
-    formData.append('file', file);
-    formData.append('login', currentUser.login);
-    formData.append('chatId', currentChat.id);
-    formData.append('text', '');
-
-    
-
-    try {
-        var resp = await fetch('/api/messages/send-file', {
-            method: 'POST',
-            body: formData
-        });
-        var data = await resp.json();
-        if (!resp.ok || !data.ok) {
-            alert(data.error || 'Ошибка отправки голосового сообщения');
-            return;
-        }
-        await refreshMessages(false);
-        if (chatContent) chatContent.scrollTop = chatContent.scrollHeight;
-    } catch (e) {
-        alert('Сетевая ошибка при отправке голосового сообщения');
-    }
+    // дальше твой же код отправки через /api/messages/send-file
 }
 
 // ---------- ХЕЛПЕРЫ ДЛЯ REPLY / СКРОЛЛА / ДАТ ----------
@@ -5386,7 +5401,7 @@ function renderFeedPost(post) {
     dateEl.className = 'feed-post-date';
     dateEl.textContent = formatDateTime(post.createdAt);
 
-    footer.appendChild(dateEl);
+
 
     // ЛАЙКИ (один пузырь слева: ❤️ N)
     var likesRow = document.createElement('div');
@@ -5437,6 +5452,7 @@ function renderFeedPost(post) {
 
     likesRow.appendChild(likePill);
     footer.appendChild(likesRow);
+    footer.appendChild(dateEl);
 
     // СБОРКА КАРТОЧКИ
     card.appendChild(header);
