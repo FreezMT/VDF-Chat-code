@@ -5998,6 +5998,7 @@ async function openMainScreen(user) {
         currentUser.avatar       = user.avatar    || currentUser.avatar;
         currentUser.publicId     = user.publicId  || currentUser.publicId;
     }
+    feedInitialized = false;
 
     hideAllMainScreens();
     hideChatUserModal();
@@ -6655,6 +6656,9 @@ if (logoutBtn) {
         if (chatContent) chatContent.innerHTML = '';
         if (chatList)    chatList.innerHTML    = '';
         if (feedList)    feedList.innerHTML    = '';
+
+        lastRenderedChatId   = null;
+        feedInitialized      = false;
 
         hideAllMainScreens();
         if (welcomeScreen) {
