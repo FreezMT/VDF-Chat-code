@@ -3376,9 +3376,9 @@ function createMsgContextMenu() {
     (chatScreen || document.body).appendChild(msgContextOverlay);
 
     msgContextOverlay.addEventListener('click', function (e) {
-        // На мобильных синтетический click может прилететь через 300–500 мс после long‑press.
-        // Не закрываем меню в течение 700 мс после открытия.
-        if (Date.now() - msgCtxOpenedAt < 700) {
+        // На мобильных синтетический click после long‑press может прилететь с большой задержкой.
+        // Делаем "окно защиты" подлиннее — 1500 мс, чтобы меню не закрывалось сразу после открытия.
+        if (Date.now() - msgCtxOpenedAt < 1500) {
             return;
         }
         if (e.target === msgContextOverlay) hideMsgContextMenu();
@@ -5245,8 +5245,54 @@ function renderFeedPost(post) {
 
     footer.appendChild(dateEl);
 
-        var likesRow = document.createElement('div');
+    // ЛАЙКИ
+    var likesRow = document.createElement('div');
     likesRow.className = 'feed-post-likes';
+
+    var likePill = document.createElement('div');
+    likePill.className = 'feed-like-pill';
+
+    function renderLikeState(liked, count) {
+        if (count < 0) count = 0;
+        likePill.textContent = '❤️ ' + String(count || 0);
+        if (liked) {
+            likePill.classList.add('liked');
+        } else {
+            likePill.classList.remove('liked');
+        }
+    }
+
+    renderLikeState(!!post.likedByMe, post.likesCount || 0);
+
+    async function toggleLike() {
+        if (!currentUser || !currentUser.login) return;
+        try {
+            var resp = await fetch('/api/feed/like', {
+                method:'POST',
+                headers:{'Content-Type':'application/json'},
+                body:JSON.stringify({
+                    login: currentUser.login,
+                    postId: Number(post.id)
+                })
+            });
+            var data = await resp.json();
+            if (!resp.ok || !data.ok) {
+                alert(data.error || 'Ошибка лайка');
+                return;
+            }
+            renderLikeState(data.liked, data.likesCount || 0);
+        } catch (e) {
+            alert('Сетевая ошибка при лайке');
+        }
+    }
+
+    likePill.addEventListener('click', function (e) {
+        e.stopPropagation();
+        toggleLike();
+    });
+
+    likesRow.appendChild(likePill);
+    footer.appendChild(likesRow);
 
     var likeBtn = document.createElement('button');
     likeBtn.type = 'button';

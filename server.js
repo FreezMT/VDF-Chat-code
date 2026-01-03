@@ -1972,6 +1972,7 @@ app.post('/api/chat/personal', requireAuth, async (req, res) => {
 // ---------- MESSAGES: send-file / list / send / forward ----------
 
 // /api/messages/send-file
+// /api/messages/send-file
 app.post('/api/messages/send-file', requireAuth, upload.single('file'), async (req, res) => {
   try {
     const chatId      = req.body.chatId;
@@ -1982,6 +1983,7 @@ app.post('/api/messages/send-file', requireAuth, upload.single('file'), async (r
       return res.status(400).json({ error: 'Нет chatId или логина отправителя' });
     }
 
+    // проверяем, что отправитель состоит в чате
     const participants = await getChatParticipantsLogins(chatId);
     const lowerSender  = String(senderLogin || '').toLowerCase();
     const inChat = participants.some(l => String(l || '').toLowerCase() === lowerSender);
@@ -1993,10 +1995,11 @@ app.post('/api/messages/send-file', requireAuth, upload.single('file'), async (r
       return res.status(400).json({ error: 'Файл не загружен' });
     }
 
-    const mime      = req.file.mimetype || '';
-    let   sizeMB    = req.file.size / (1024 * 1024);
-    const origName  = req.file.originalname || null;
-    let   attachmentType = 'file';
+    const mime     = req.file.mimetype || '';
+    let   sizeMB   = req.file.size / (1024 * 1024);
+    const origName = req.file.originalname || null;
+
+    let attachmentType = 'file';
 
     if (mime.startsWith('image/')) {
       if (sizeMB > 25) {
@@ -2020,7 +2023,6 @@ app.post('/api/messages/send-file', requireAuth, upload.single('file'), async (r
         sizeMB = st.size / (1024 * 1024);
       } catch (e) {
         console.error('IMAGE RESIZE ERROR (send-file):', e);
-        // при ошибке сжатия продолжаем с оригинальным файлом
       }
     } else if (mime.startsWith('video/')) {
       if (sizeMB > 150) {
@@ -2042,7 +2044,9 @@ app.post('/api/messages/send-file', requireAuth, upload.single('file'), async (r
     let attachmentUrl = '/avatars/' + req.file.filename;
     const cleanText   = String(text || '').trim();
 
-    // Для аудио: перекодируем в m4a, чтобы все браузеры (включая iOS Safari) нормально проигрывали
+    await updateLastSeen(senderLogin);
+
+    // AUDIO: перекодируем в m4a, чтобы работало везде (iOS/Android/десктоп)
     if (attachmentType === 'audio') {
       try {
         const srcPath  = req.file.path;
@@ -2053,9 +2057,27 @@ app.post('/api/messages/send-file', requireAuth, upload.single('file'), async (r
         await transcodeAudioToM4A(srcPath, outPath);
         await fs.promises.unlink(srcPath).catch(() => {});
         attachmentUrl = '/avatars/' + outName;
+
+        const st2 = await fs.promises.stat(outPath);
+        sizeMB = st2.size / (1024 * 1024);
       } catch (e) {
         console.error('AUDIO TRANSCODE ERROR:', e);
-        // если перекодирование упало — оставляем original webm как есть
+        // если ошибка — оставляем original webm
+      }
+    }
+
+    // VIDEO PREVIEW
+    let previewUrl = null;
+    if (attachmentType === 'video') {
+      try {
+        const baseName    = path.basename(req.file.filename, path.extname(req.file.filename));
+        const previewName = baseName + '-preview.jpg';
+        const previewPath = path.join(videoPreviewDir, previewName);
+
+        await generateVideoPreview(req.file.path, previewPath);
+        previewUrl = '/video-previews/' + previewName;
+      } catch (e) {
+        console.error('VIDEO PREVIEW ERROR:', e);
       }
     }
 
@@ -2087,6 +2109,7 @@ app.post('/api/messages/send-file', requireAuth, upload.single('file'), async (r
       [insert.lastID]
     );
 
+    // Если у фото/видео нет имени — генерируем
     if (row && (row.attachment_type === 'image' || row.attachment_type === 'video')) {
       const id      = row.id;
       const extSrc  = origName && origName.includes('.') ? origName.substring(origName.lastIndexOf('.')) : '';
@@ -2121,6 +2144,7 @@ app.post('/api/messages/send-file', requireAuth, upload.single('file'), async (r
         row.sender_name = row.sender_login;
       }
 
+      // сразу отмечаем прочитанным для отправителя
       try {
         const existing = await getMsg(
           'SELECT id FROM chat_reads WHERE chat_id = ? AND user_login = ?',
