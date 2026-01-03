@@ -3605,21 +3605,21 @@ function createMsgContextMenu() {
     (chatScreen || document.body).appendChild(msgContextOverlay);
 
     // Клик по фону:
-    //  - В обычном браузере: закрывает меню.
-    //  - В PWA (standalone): НИЧЕГО не делает, чтобы не ловить "лишний" клик от iOS.
+    // 1) если прошёл МЕНЬШЕ 400 мс с момента открытия — игнорируем (это отпускание пальца после long‑press);
+    // 2) если больше 400 мс и клик именно по фону — закрываем меню.
     msgContextOverlay.addEventListener('click', function (e) {
-        if (IS_STANDALONE_PWA) {
-            // В PWA клики по фону игнорируем, меню закрывается только по кнопкам.
+        if (e.target !== msgContextOverlay) return;
+
+        var elapsed = Date.now() - msgCtxOpenedAt;
+        if (elapsed < 400) {
             e.preventDefault();
             e.stopPropagation();
             return;
         }
 
-        if (e.target === msgContextOverlay) {
-            e.preventDefault();
-            e.stopPropagation();
-            hideMsgContextMenu();
-        }
+        e.preventDefault();
+        e.stopPropagation();
+        hideMsgContextMenu();
     });
 
     msgCtxReplyBtn.onclick = function () {
@@ -3717,15 +3717,7 @@ function attachMessageInteractions(item, msg) {
     item.addEventListener('mousedown', function (e) {
         if (e.button !== 0) return;
 
-        // если меню уже открыто на этом же айтеме — закрываем
-        if (msgContextOverlay &&
-            msgContextOverlay.classList.contains('visible') &&
-            currentMsgContextItem === item) {
-            e.preventDefault();
-            hideMsgContextMenu();
-            return;
-        }
-
+        // Больше НЕ закрываем меню при повторном mousedown по сообщению.
         mouseTimer = setTimeout(function () {
             item.classList.add('msg-item-pressed');
             showMsgContextMenu(item._msgInfo, item);
@@ -3748,13 +3740,8 @@ function attachMessageInteractions(item, msg) {
     var touchTimer = null;
 
     item.addEventListener('touchstart', function (e) {
-        if (msgContextOverlay &&
-            msgContextOverlay.classList.contains('visible') &&
-            currentMsgContextItem === item) {
-            hideMsgContextMenu();
-            return;
-        }
-
+        // Раньше тут был код "если меню уже открыто на этом сообщении — закрыть".
+        // Убираем его полностью, чтобы синтетический второй touchstart не закрывал меню.
         touchTimer = setTimeout(function () {
             item.classList.add('msg-item-pressed');
             showMsgContextMenu(item._msgInfo, item);
@@ -3831,13 +3818,12 @@ function showMsgContextMenu(msgInfo, item) {
 
     createMsgContextMenu();
 
-    msgCtxOpenedAt = Date.now();           // можно оставить, если ещё где-то используется
-    suppressNextMsgOverlayClick = true;    // первый click по фону игнорируем
+    msgCtxOpenedAt = Date.now();
 
     currentMsgContext     = msgInfo;
     currentMsgContextItem = item;
 
-    // подавляем следующий клик по медиа после long‑press
+    // подавляем следующий клик по медиа (чтобы не открыть viewer сразу после long-press)
     item._suppressNextMediaClick = true;
 
     var isMe          = String(msgInfo.senderLogin).toLowerCase() === String(currentUser.login).toLowerCase();
