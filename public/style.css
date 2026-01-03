@@ -1309,15 +1309,21 @@ textarea {
 }
 
 /* ========== CHAT MESSAGES / MEDIA / REPLY / FILES ========== */
+/* Сообщения: мягкий "подъём" и fade-in */
 .msg-item{
     display:block;
     padding:2px 12px;
     margin-bottom:4px;
-    transition:transform 0.14s ease-out, filter 0.14s ease-out, opacity 0.16s ease-out;
     opacity:0;
+    transform:translateY(6px) scale(0.98);
+    transition:
+        opacity 0.22s ease-out,
+        transform 0.22s cubic-bezier(.25,.8,.25,1),
+        filter 0.14s ease-out;
 }
 .msg-item.msg-visible{
     opacity:1;
+    transform:translateY(0) scale(1);
 }
 .msg-item.msg-item-pressed{
     transform:scale(0.97);
@@ -1930,7 +1936,7 @@ textarea {
     align-items:center;
     justify-content:center;
     padding:0 10px;
-    position:relative;
+    position:relative; /* важно для лоадера */
 }
 .media-viewer-img,
 .media-viewer-video{
@@ -1969,7 +1975,7 @@ textarea {
     height:40px;
     border-radius:20px;
     border:none;
-    background-color:rgba(0,0,0,0.75);
+    background-color:rgba(0,0,0,0.75); /* тёмный фон */
     background-position:center;
     background-repeat:no-repeat;
     background-size:20px 20px;
@@ -2613,22 +2619,6 @@ textarea {
     background-color:rgba(59,169,255,0.95);
 }
 
-/* Плавное появление карточек модалок (пост / пересылка) */
-.post-modal-card,
-.forward-card {
-    transform: translateY(10px);
-    opacity: 0;
-    transition:
-        opacity 0.22s ease-out,
-        transform 0.22s cubic-bezier(.25,.8,.25,1);
-}
-
-.post-modal.visible .post-modal-card,
-.forward-modal.visible .forward-card {
-    transform: translateY(0);
-    opacity: 1;
-}
-
 /* ГЛОБАЛЬНОЕ СКРЫТИЕ СКРОЛЛБАРОВ — ТОЛЬКО НА МОБИЛЬНЫХ */
 @media (max-width: 900px) {
     * {
@@ -2693,6 +2683,7 @@ textarea {
     }
 }
 
+/* дублирующийся блок network-banner (оставляем как есть для совместимости) */
 .network-banner{
     position:fixed;
     left:50%;
@@ -2757,7 +2748,6 @@ textarea {
     to { transform: rotate(360deg); }
 }
 
-
 .feed-post-likes{
     margin-top:0;
     display:flex;
@@ -2799,7 +2789,6 @@ textarea {
     border-color:#000000;
     background-image:url("icons/play.png");
 }
-
 .msg-item.msg-other .msg-voice-play.playing{
     background-image:url("icons/pause.png");
 }
@@ -2811,7 +2800,6 @@ textarea {
     display:none;
     z-index:95;
 }
-
 .media-msg-overlay.visible{
     display:block;
 }
@@ -2844,7 +2832,6 @@ textarea {
     opacity:0;
     transition:opacity 0.22s ease-out, transform 0.22s ease-out;
 }
-
 .media-msg-overlay.visible .media-msg-menu{
     opacity:1;
     transform:translateX(-50%) translateY(0);
@@ -2873,21 +2860,52 @@ textarea {
     visibility:hidden;
 }
 
-/* Плавное появление чатов и постов (iOS‑style) */
+/* Плавное появление чатов и постов */
 .chat-item,
 .feed-post {
     opacity: 0;
-    transform: translateY(6px);
+    transform: translateY(10px);
     transition:
-        opacity 0.18s ease-out,
-        transform 0.18s cubic-bezier(.25,.8,.25,1),
+        opacity 0.22s ease-out,
+        transform 0.22s cubic-bezier(.25,.8,.25,1),
         background-color 0.14s ease-out,
         box-shadow 0.14s ease-out;
 }
-
 .chat-item.chat-item-visible,
 .feed-post.feed-post-visible {
     opacity: 1;
     transform: translateY(0);
 }
 
+/* Анимация основных экранов */
+@keyframes screenFadeSlideUp {
+    from {
+        opacity: 0;
+        transform: translateY(16px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+.feed-screen,
+.main-screen,
+.profile-screen,
+.create-group-screen {
+    animation: screenFadeSlideUp 0.26s cubic-bezier(.25,.8,.25,1);
+}
+
+/* Плавное открытие карточек модалок: пост и пересылка */
+.post-modal-card,
+.forward-card {
+    transform: translateY(20px) scale(0.96);
+    opacity: 0;
+    transition:
+        opacity 0.24s ease-out,
+        transform 0.24s cubic-bezier(.25,.8,.25,1);
+}
+.post-modal.visible .post-modal-card,
+.forward-modal.visible .forward-card {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+}
