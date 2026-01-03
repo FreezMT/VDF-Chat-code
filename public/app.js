@@ -891,20 +891,15 @@ function connectWebSocket() {
         }
 
         if (data.type === 'chatUpdated' && data.chatId) {
-            // если сейчас открыт этот чат — обновляем сообщения
             if (currentChat && currentChat.id === data.chatId) {
                 refreshMessages(false);
             }
-            // и в любом случае обновляем список чатов (превью, непрочитанные)
             reloadChatList();
         } else if (data.type === 'feedUpdated') {
-            // если мы на экране ленты
             if (feedScreen && feedScreen.style.display !== 'none') {
                 var now = Date.now();
-                // если только что сами нажимали лайк — пропускаем этот feedUpdated, чтобы не было мигания
-                if (now < suppressFeedReloadUntil) {
-                    return;
-                }
+                // если только что сами лайкали пост – не перерисовываем ленту
+                if (now < suppressFeedReloadUntil) return;
                 loadFeed();
             }
         }
@@ -3558,9 +3553,6 @@ function renderMessage(msg) {
     item.addEventListener('touchend',   onMsgTouchEnd);
     item.addEventListener('touchcancel',onMsgTouchEnd);
 
-    item.addEventListener('dblclick', function () {
-        startReplyFromElement(item);
-    });
 
     attachMessageInteractions(item, msg);
 
@@ -3876,7 +3868,6 @@ function attachMessageInteractions(item, msg) {
     item.addEventListener('mousedown', function (e) {
         if (e.button !== 0) return;
 
-        // Больше НЕ закрываем меню при повторном mousedown по сообщению.
         mouseTimer = setTimeout(function () {
             item.classList.add('msg-item-pressed');
             showMsgContextMenu(item._msgInfo, item);
@@ -3899,8 +3890,6 @@ function attachMessageInteractions(item, msg) {
     var touchTimer = null;
 
     item.addEventListener('touchstart', function (e) {
-        // Раньше тут был код "если меню уже открыто на этом сообщении — закрыть".
-        // Убираем его полностью, чтобы синтетический второй touchstart не закрывал меню.
         touchTimer = setTimeout(function () {
             item.classList.add('msg-item-pressed');
             showMsgContextMenu(item._msgInfo, item);
@@ -3923,8 +3912,6 @@ function attachMessageInteractions(item, msg) {
             touchTimer = null;
         }
 
-        // Если сейчас открыто контекстное меню именно для этого сообщения,
-        // блокируем синтетический click, чтобы меню не схлопывалось.
         if (msgContextOverlay &&
             msgContextOverlay.classList.contains('visible') &&
             currentMsgContextItem === item) {
@@ -3937,7 +3924,7 @@ function attachMessageInteractions(item, msg) {
         }
     }, { passive: false });
 
-    // Даблклик — реакция ❤️
+    // Двойной клик / даблтап — только реакция ❤️
     item.addEventListener('dblclick', function (e) {
         e.preventDefault();
         e.stopPropagation();
@@ -5756,12 +5743,12 @@ function renderFeedPost(post) {
                 return;
             }
 
-            // локально сразу обновляем визуал
+            // локально сразу обновляем лайк
             renderLikeState(data.liked, data.likesCount || 0);
 
-            // и на короткое время блокируем перерисовку ленты от feedUpdated,
-            // чтобы не было "мигания" карточки
-            suppressFeedReloadUntil = Date.now() + 600;
+            // в течение 2 секунд игнорируем feedUpdated по WebSocket,
+            // чтобы не было мигания ленты
+            suppressFeedReloadUntil = Date.now() + 2000;
         } catch (e) {
             alert('Сетевая ошибка при лайке');
         }
@@ -7425,7 +7412,6 @@ if (chatInputForm && chatInput) {
                 var tempId = 'tmp-file-' + Date.now() + '-' + Math.random().toString(16).slice(2);
                 tempIds.push(tempId);
 
-                // текст добавляем только к последнему файлу, как и на сервере
                 var textForThis = (index === usedAttachments.length - 1) ? finalText : '';
 
                 var tempMsg = {
@@ -7435,8 +7421,8 @@ if (chatInputForm && chatInput) {
                     sender_name: senderName,
                     text: textForThis,
                     created_at: new Date().toISOString(),
-                    attachment_type: att.type,        // 'image' | 'video' | 'file'
-                    attachment_url:  att.url,         // objectURL
+                    attachment_type: att.type,
+                    attachment_url:  att.url,
                     attachment_name: att.name,
                     attachment_size: att.sizeMB,
                     edited: false,
@@ -7457,10 +7443,7 @@ if (chatInputForm && chatInput) {
             clearReply();
             keepKeyboardAfterSend();
 
-            setChatLoading(true);
-
             try {
-                // отправляем файлы последовательно на сервер
                 for (var i = 0; i < usedAttachments.length; i++) {
                     var att = usedAttachments[i];
 
@@ -7482,7 +7465,6 @@ if (chatInputForm && chatInput) {
                     var data = await resp.json();
 
                     if (!resp.ok || !data.ok) {
-                        // при ошибке удаляем оптимистичные сообщения этой пачки
                         tempIds.forEach(function (id) {
                             var el = chatContent && chatContent.querySelector('.msg-item[data-msg-id="' + id + '"]');
                             if (el && el.parentNode) el.parentNode.removeChild(el);
@@ -7492,7 +7474,6 @@ if (chatInputForm && chatInput) {
                     }
                 }
 
-                // подтягиваем реальные сообщения и удаляем pending (см. refreshMessages ниже)
                 await refreshMessages(false);
                 if (chatContent) chatContent.scrollTop = chatContent.scrollHeight;
             } catch (e2) {
@@ -7505,7 +7486,6 @@ if (chatInputForm && chatInput) {
                 usedAttachments.forEach(function (a) {
                     cleanupAttachmentObjectUrl(a);
                 });
-                setChatLoading(false);
             }
 
             return;
