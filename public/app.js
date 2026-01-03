@@ -624,6 +624,9 @@ function buildMediaMsgMenuButtons(msgInfo, type, attUrl){
         mediaMsgMenu.appendChild(b);
     }
 
+    // очищаем меню перед построением
+    mediaMsgMenu.innerHTML = '';
+
     var isMe = currentUser &&
         String(msgInfo.senderLogin).toLowerCase() === String(currentUser.login).toLowerCase();
 
@@ -648,7 +651,7 @@ function buildMediaMsgMenuButtons(msgInfo, type, attUrl){
         forwardMessage(msgInfo);
     });
 
-    // Скачать
+    // Скачать / открыть файл
     addBtn('Скачать', '', function () {
         downloadMessageAttachment(msgInfo);
     });
@@ -658,7 +661,7 @@ function buildMediaMsgMenuButtons(msgInfo, type, attUrl){
         pinMessage(msgInfo);
     });
 
-    // Редактировать / удалить — только для своих
+    // Редактировать / удалить — только свои
     if (isMe) {
         addBtn('Редактировать', '', function () {
             editMessage(msgInfo);
@@ -668,8 +671,23 @@ function buildMediaMsgMenuButtons(msgInfo, type, attUrl){
         });
     }
 
-    // Кнопка "Отмена"
-    addBtn('Отмена', '', function () {});
+    // ВМЕСТО "Отмена": строка реакций
+    var emojiRow = document.createElement('div');
+    emojiRow.className = 'msg-context-emoji-row';
+
+    (msgReactionsList || ['❤️','👍','👎','😂','🔥']).forEach(function (em) {
+        var span = document.createElement('span');
+        span.className = 'msg-context-emoji';
+        span.textContent = em;
+        span.addEventListener('click', function(e){
+            e.stopPropagation();
+            hideMediaMsgOverlay();
+            reactToMessage(msgInfo, em);
+        });
+        emojiRow.appendChild(span);
+    });
+
+    mediaMsgMenu.appendChild(emojiRow);
 }
 
 function attachIdCopyHandler(el) {
@@ -866,7 +884,7 @@ if (voiceFileInput) {
 // --- управление микрофоном: удержание + свайп влево для отмены ---
 
 if (chatMicBtn) {
-    // ТАЧ‑устройства: удержание
+    // ТАЧ‑устройства: удержание для записи
     chatMicBtn.addEventListener('touchstart', function (e) {
         if (!canUseLiveVoiceRecording) {
             startSystemVoiceFileChooser();
@@ -890,7 +908,7 @@ if (chatMicBtn) {
         var dx = t.clientX - micTouchStartX;
         var dy = t.clientY - micTouchStartY;
 
-        // Если вертикальное движение больше — считаем, что жест не про отмену
+        // если вертикальное движение больше — считаем, что жест не про отмену
         if (Math.abs(dy) > Math.abs(dx)) {
             updateVoiceCancelPreview(0);
             return;
@@ -903,7 +921,6 @@ if (chatMicBtn) {
             micGestureActive = false;
             stopVoiceRecording(false);
             if (voiceTimerEl) voiceTimerEl.textContent = 'Отменено';
-            // мягкая подсказка пользователю
             showInfoBanner('Голосовое отменено');
         }
     }, { passive:true });
@@ -913,17 +930,22 @@ if (chatMicBtn) {
         micGestureActive = false;
 
         if (isRecordingVoice) {
+            // обычное отпускание — отправляем голосовое
             stopVoiceRecording(true);
         } else {
             updateVoiceCancelPreview(0);
         }
     });
 
+    // В PWA / некоторых браузерах вместо touchend приходит touchcancel,
+    // поэтому здесь тоже считаем это нормальным отпусканием, а не отменой.
     chatMicBtn.addEventListener('touchcancel', function () {
+        if (!micGestureActive) return;
         micGestureActive = false;
+
         if (isRecordingVoice) {
-            stopVoiceRecording(false);
-            if (voiceTimerEl) voiceTimerEl.textContent = 'Отменено';
+            // считаем, что пользователь просто отпустил кнопку
+            stopVoiceRecording(true);
         } else {
             updateVoiceCancelPreview(0);
         }
@@ -1682,7 +1704,6 @@ async function handleVoiceRecordingStop() {
     formData.append('file', file);
     formData.append('login', currentUser.login);
     formData.append('chatId', currentChat.id);
-    // Для голосового текст не отправляем
     formData.append('text', '');
 
     try {
@@ -3377,10 +3398,6 @@ function renderMessage(msg) {
     item.addEventListener('touchend',   onMsgTouchEnd);
     item.addEventListener('touchcancel',onMsgTouchEnd);
 
-    item.addEventListener('dblclick', function () {
-        startReplyFromElement(item);
-    });
-
     attachMessageInteractions(item, msg);
 
     adjustMediaBlurForMessage(item);
@@ -3579,13 +3596,21 @@ function createMsgContextMenu() {
 
     (chatScreen || document.body).appendChild(msgContextOverlay);
 
+    // ВАЖНО: первые ~300 мс после открытия игнорируем любые click внутри оверлея,
+    // чтобы "синтетический" клиk после long‑press не нажимал кнопки и не закрывал меню.
     msgContextOverlay.addEventListener('click', function (e) {
-        // На мобильных синтетический click после long‑press может прилететь с большой задержкой.
-        // Делаем "окно защиты" подлиннее — 1500 мс, чтобы меню не закрывалось сразу после открытия.
-        if (Date.now() - msgCtxOpenedAt < 1500) {
+        var elapsed = Date.now() - msgCtxOpenedAt;
+
+        if (elapsed < 300) {
+            e.preventDefault();
+            e.stopPropagation();
             return;
         }
-        if (e.target === msgContextOverlay) hideMsgContextMenu();
+
+        // Клик по фону (не по самой карточке меню) — закрываем
+        if (e.target === msgContextOverlay) {
+            hideMsgContextMenu();
+        }
     });
 
     msgCtxReplyBtn.onclick = function () {
@@ -3757,9 +3782,12 @@ function attachMessageInteractions(item, msg) {
         }
     }, { passive: false });
 
-    // Даблклик — ответ
-    item.addEventListener('dblclick', function () {
-        startReplyFromElement(item);
+    // Даблклик — реакция ❤️
+    item.addEventListener('dblclick', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (!item._msgInfo) return;
+        reactToMessage(item._msgInfo, '❤️');
     });
 }
 

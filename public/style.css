@@ -2177,13 +2177,25 @@ textarea {
     margin-top:8px;
     object-fit:cover;
 }
+/* футер поста: одна строка на всю ширину карточки */
 .feed-post-footer{
     margin-top:6px;
     display:flex;
     align-items:center;
-    justify-content:space-between; /* лайк слева, дата справа */
 }
+
+/* блок с лайком — просто слева, без растягивания */
+.feed-post-likes{
+    display:flex;
+    align-items:center;
+    justify-content:flex-start;
+    margin-top:0;
+    margin-right:8px;   /* маленький отступ от даты */
+}
+
+/* дата уезжает вправо за счёт auto‑margin */
 .feed-post-date{
+    margin-left:auto;
     font-size:12px;
     color:rgba(255,255,255,0.6);
 }
@@ -2779,13 +2791,6 @@ textarea {
     to { transform: rotate(360deg); }
 }
 
-
-.feed-post-likes{
-    display:flex;
-    align-items:center;
-    justify-content:flex-start;
-    margin-top:0;
-}
 
 .feed-like-pill{
     display:inline-flex;
