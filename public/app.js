@@ -73,16 +73,6 @@ window.addEventListener('load', function () {
     })();
 });
 
-// Попытка зафиксировать экран в портретной ориентации (где поддерживается)
-if (screen.orientation && screen.orientation.lock) {
-    screen.orientation.lock('portrait').catch(function(){});
-}
-window.addEventListener('orientationchange', function () {
-    if (screen.orientation && screen.orientation.lock) {
-        screen.orientation.lock('portrait').catch(function(){});
-    }
-});
-
 // РЕГИСТРАЦИЯ service worker РАНЬШЕ (для PWA/кэша, не только для пушей)
 if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js').catch(function(e){
@@ -197,6 +187,11 @@ var mediaViewerTimelineThumb = document.getElementById('mediaViewerTimelineThumb
 var mediaViewerCurrentTime = document.getElementById('mediaViewerCurrentTime');
 var mediaViewerTotalTime   = document.getElementById('mediaViewerTotalTime');
 var mediaViewerControls    = document.getElementById('mediaViewerControls');
+
+var mediaMsgOverlay = null;
+var mediaMsgPreview = null;
+var mediaMsgMenu    = null;
+var currentMediaMsg = null;
 
 var mediaViewerLoader   = document.getElementById('mediaViewerLoader');
 
@@ -442,6 +437,39 @@ var micTouchStartX = null;
 var micTouchStartY = null;
 var micGestureActive = false;
 
+function ensureMediaMsgOverlay(){
+    if (mediaMsgOverlay) return;
+
+    mediaMsgOverlay = document.createElement('div');
+    mediaMsgOverlay.className = 'media-msg-overlay';
+
+    mediaMsgPreview = document.createElement('div');
+    mediaMsgPreview.className = 'media-msg-preview';
+
+    mediaMsgMenu = document.createElement('div');
+    mediaMsgMenu.className = 'media-msg-menu';
+
+    mediaMsgOverlay.appendChild(mediaMsgPreview);
+    mediaMsgOverlay.appendChild(mediaMsgMenu);
+
+    document.body.appendChild(mediaMsgOverlay);
+
+    // клик по фону — закрыть
+    mediaMsgOverlay.addEventListener('click', function(e){
+        if (e.target === mediaMsgOverlay) {
+            hideMediaMsgOverlay();
+        }
+    });
+}
+
+function hideMediaMsgOverlay(){
+    if (!mediaMsgOverlay) return;
+    mediaMsgOverlay.classList.remove('visible');
+    mediaMsgPreview.innerHTML = '';
+    mediaMsgMenu.innerHTML    = '';
+    currentMediaMsg = null;
+}
+
 function initGroupAgeEditing() {
     if (!groupAgeLabel) return;
 
@@ -495,6 +523,109 @@ function initGroupAgeEditing() {
             alert('Сетевая ошибка при изменении возраста группы');
         }
     });
+}
+
+function showMediaContextMenu(msgInfo, item){
+    ensureMediaMsgOverlay();
+    currentMediaMsg = { info: msgInfo, item: item };
+
+    mediaMsgPreview.innerHTML = '';
+    mediaMsgMenu.innerHTML    = '';
+
+    // создаём превью: img или video
+    var attUrl = msgInfo.attachmentUrl || item.dataset.msgAttachmentUrl || '';
+    var type   = msgInfo.attachmentType || item.dataset.msgAttachmentType || '';
+
+    if (type === 'image') {
+        var img = document.createElement('img');
+        img.src = attUrl;
+        img.style.maxWidth  = '100%';
+        img.style.maxHeight = '100%';
+        img.style.display   = 'block';
+        img.loading   = 'lazy';
+        img.decoding  = 'async';
+        img.onerror = function(){ this.style.display='none'; };
+        mediaMsgPreview.appendChild(img);
+    } else if (type === 'video') {
+        var video = document.createElement('video');
+        video.src = attUrl;
+        video.style.maxWidth  = '100%';
+        video.style.maxHeight = '100%';
+        video.style.display   = 'block';
+        video.controls = false;
+        video.muted    = true;
+        video.playsInline = true;
+        video.setAttribute('playsinline','true');
+        video.setAttribute('webkit-playsinline','true');
+        video.preload = 'metadata';
+        mediaMsgPreview.appendChild(video);
+
+        // по клику — открыть полноэкранный viewer
+        video.addEventListener('click', function(e){
+            e.stopPropagation();
+            openMediaViewer(attUrl, 'video', video);
+        });
+    }
+
+    // кнопки меню
+    function addBtn(text, cls, handler){
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'media-msg-menu-btn' + (cls ? ' ' + cls : '');
+        b.textContent = text;
+        b.addEventListener('click', function(e){
+            e.stopPropagation();
+            hideMediaMsgOverlay();
+            handler && handler();
+        });
+        mediaMsgMenu.appendChild(b);
+    }
+
+    var isMe = currentUser &&
+        String(msgInfo.senderLogin).toLowerCase() === String(currentUser.login).toLowerCase();
+
+    // Открыть в полноэкранном просмотре
+    addBtn('Открыть', '', function () {
+        openMediaViewer(attUrl, type === 'video' ? 'video' : 'image');
+    });
+
+    // Ответить
+    addBtn('Ответить', '', function () {
+        startReplyForMessage({
+            id:             msgInfo.id,
+            senderLogin:    msgInfo.senderLogin,
+            senderName:     msgInfo.senderName,
+            text:           msgInfo.text,
+            attachmentType: msgInfo.attachmentType
+        });
+    });
+
+    // Переслать
+    addBtn('Переслать', '', function () {
+        forwardMessage(msgInfo);
+    });
+
+    // Скачать / открыть файл
+    addBtn('Скачать', '', function () {
+        downloadMessageAttachment(msgInfo);
+    });
+
+    // Закрепить / открепить
+    addBtn(msgInfo.isPinned ? 'Открепить сообщение' : 'Закрепить сообщение', '', function () {
+        pinMessage(msgInfo);
+    });
+
+    // Редактировать / удалить — только для своих сообщений
+    if (isMe) {
+        addBtn('Редактировать', '', function () {
+            editMessage(msgInfo);
+        });
+        addBtn('Удалить', 'media-msg-menu-btn-danger', function () {
+            deleteMessage(msgInfo);
+        });
+    }
+
+    mediaMsgOverlay.classList.add('visible');
 }
 
 function attachIdCopyHandler(el) {
@@ -3581,6 +3712,11 @@ function hideMsgContextMenu() {
 // Позиционирование меню сообщений с возможным скроллом
 function showMsgContextMenu(msgInfo, item) {
     if (!msgInfo || !currentUser || !item) return;
+    if (msgInfo.attachmentType === 'image' || msgInfo.attachmentType === 'video') {
+        showMediaContextMenu(msgInfo, item);
+        return;
+    }
+
     createMsgContextMenu();
 
     msgCtxOpenedAt = Date.now();
@@ -5195,6 +5331,7 @@ function renderFeedPost(post) {
     card.dataset.postId   = String(post.id);
     card.dataset.postText = post.text || '';
 
+    // HEADER
     var header = document.createElement('div');
     header.className = 'feed-post-header';
 
@@ -5206,7 +5343,10 @@ function renderFeedPost(post) {
     img.src = '/group-avatar.png';
     img.loading = 'lazy';
     img.decoding = 'async';
-    img.onerror = function () { this.onerror = null; this.src = '/group-avatar.png'; };
+    img.onerror = function () {
+        this.onerror = null;
+        this.src = '/group-avatar.png';
+    };
     aw.appendChild(img);
 
     var nameEl = document.createElement('div');
@@ -5216,6 +5356,7 @@ function renderFeedPost(post) {
     header.appendChild(aw);
     header.appendChild(nameEl);
 
+    // КАРТИНКА ПОСТА
     var imgPost = null;
     if (post.imageUrl) {
         imgPost = document.createElement('img');
@@ -5225,17 +5366,19 @@ function renderFeedPost(post) {
         imgPost.decoding = 'async';
         imgPost.onerror = function () { this.style.display = 'none'; };
 
-        // По клику на картинку поста — открываем медиавьюер
+        // По клику по картинке — медиавьюер
         imgPost.addEventListener('click', function (e) {
             e.stopPropagation();
             openMediaViewer(post.imageUrl, 'image', imgPost);
         });
     }
 
+    // ТЕКСТ
     var textEl = document.createElement('div');
     textEl.className = 'feed-post-text';
     textEl.textContent = post.text || '';
 
+    // FOOTER
     var footer = document.createElement('div');
     footer.className = 'feed-post-footer';
 
@@ -5245,7 +5388,7 @@ function renderFeedPost(post) {
 
     footer.appendChild(dateEl);
 
-    // ЛАЙКИ
+    // ЛАЙКИ (один пузырь слева: ❤️ N)
     var likesRow = document.createElement('div');
     likesRow.className = 'feed-post-likes';
 
@@ -5262,15 +5405,16 @@ function renderFeedPost(post) {
         }
     }
 
+    // начальное состояние из backend (может быть undefined)
     renderLikeState(!!post.likedByMe, post.likesCount || 0);
 
     async function toggleLike() {
         if (!currentUser || !currentUser.login) return;
         try {
             var resp = await fetch('/api/feed/like', {
-                method:'POST',
-                headers:{'Content-Type':'application/json'},
-                body:JSON.stringify({
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
                     login: currentUser.login,
                     postId: Number(post.id)
                 })
@@ -5287,38 +5431,20 @@ function renderFeedPost(post) {
     }
 
     likePill.addEventListener('click', function (e) {
-        e.stopPropagation();
+        e.stopPropagation(); // чтобы клик по лайку не считался дабл‑тапом по карточке
         toggleLike();
     });
 
     likesRow.appendChild(likePill);
     footer.appendChild(likesRow);
 
-    var likeBtn = document.createElement('button');
-    likeBtn.type = 'button';
-    likeBtn.className = 'feed-like-btn';
-    likeBtn.textContent = '❤️';
-
-    var likeCountEl = document.createElement('span');
-    likeCountEl.className = 'feed-like-count';
-    likeCountEl.textContent = String(post.likesCount || 0);
-
-    if (post.likedByMe) {
-        likeBtn.classList.add('liked');
-    }
-
-    likesRow.appendChild(likeBtn);
-    likesRow.appendChild(likeCountEl);
-
-    footer.appendChild(dateEl);
-    footer.appendChild(likesRow);
-
+    // СБОРКА КАРТОЧКИ
     card.appendChild(header);
     if (imgPost) card.appendChild(imgPost);
     card.appendChild(textEl);
     card.appendChild(footer);
 
-    // long-press для тренеров -> inline editor
+    // LONG‑PRESS для тренеров -> inline editor
     var pressTimer = null;
 
     function startPressTimer() {
@@ -5346,44 +5472,12 @@ function renderFeedPost(post) {
 
     card.addEventListener('touchstart', function () {
         startPressTimer();
-    }, { passive:true });
-    card.addEventListener('touchmove', clearPressTimer, { passive:true });
+    }, { passive: true });
+    card.addEventListener('touchmove', clearPressTimer, { passive: true });
     card.addEventListener('touchend', clearPressTimer);
     card.addEventListener('touchcancel', clearPressTimer);
 
-        async function toggleLike() {
-        if (!currentUser || !currentUser.login) return;
-        try {
-            var resp = await fetch('/api/feed/like', {
-                method:'POST',
-                headers:{'Content-Type':'application/json'},
-                body:JSON.stringify({
-                    login: currentUser.login,
-                    postId: Number(post.id)
-                })
-            });
-            var data = await resp.json();
-            if (!resp.ok || !data.ok) {
-                alert(data.error || 'Ошибка лайка');
-                return;
-            }
-            likeCountEl.textContent = String(data.likesCount || 0);
-            if (data.liked) {
-                likeBtn.classList.add('liked');
-            } else {
-                likeBtn.classList.remove('liked');
-            }
-        } catch (e) {
-            alert('Сетевая ошибка при лайке');
-        }
-    }
-
-    likeBtn.addEventListener('click', function (e) {
-        e.stopPropagation();
-        toggleLike();
-    });
-
-        // дабл‑тап по карточке -> лайк
+    // ДАБЛ‑ТАП по карточке -> лайк
     var lastTapTime = 0;
     card.addEventListener('click', function () {
         var now = Date.now();
@@ -5392,7 +5486,6 @@ function renderFeedPost(post) {
         }
         lastTapTime = now;
     });
-    
 
     feedList.appendChild(card);
 }

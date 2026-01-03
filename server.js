@@ -2046,25 +2046,6 @@ app.post('/api/messages/send-file', requireAuth, upload.single('file'), async (r
 
     await updateLastSeen(senderLogin);
 
-    // AUDIO: перекодируем в m4a, чтобы работало везде (iOS/Android/десктоп)
-    if (attachmentType === 'audio') {
-      try {
-        const srcPath  = req.file.path;
-        const baseName = path.basename(srcPath, path.extname(srcPath));
-        const outName  = baseName + '.m4a';
-        const outPath  = path.join(avatarsDir, outName);
-
-        await transcodeAudioToM4A(srcPath, outPath);
-        await fs.promises.unlink(srcPath).catch(() => {});
-        attachmentUrl = '/avatars/' + outName;
-
-        const st2 = await fs.promises.stat(outPath);
-        sizeMB = st2.size / (1024 * 1024);
-      } catch (e) {
-        console.error('AUDIO TRANSCODE ERROR:', e);
-        // если ошибка — оставляем original webm
-      }
-    }
 
     // VIDEO PREVIEW
     let previewUrl = null;

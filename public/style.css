@@ -2777,54 +2777,12 @@ textarea {
     to { transform: rotate(360deg); }
 }
 
-.feed-post-likes{
-    margin-top:4px;
-    display:flex;
-    align-items:center;
-    justify-content:flex-start;
-    gap:6px;
-}
-
-.feed-like-btn{
-    border:none;
-    background:transparent;
-    cursor:pointer;
-    font-size:18px;
-    line-height:1;
-    padding:0;
-    transition:transform 0.12s ease-out;
-}
-
-.feed-like-btn.liked{
-    filter: drop-shadow(0 0 6px rgba(255,0,0,0.6));
-}
-
-.feed-like-btn:active{
-    transform:scale(1.15);
-}
-
-.feed-like-count{
-    font-size:13px;
-    color:rgba(255,255,255,0.8);
-}
-
-.profile-id-hint{
-    font-size:12px;
-    color:rgba(255,255,255,0.6);
-    margin-bottom:12px;
-}
-
-/* скрывать пустые "пилюли" */
-.profile-pill:empty,
-.chat-user-pill:empty {
-    display: none;
-}
 
 .feed-post-likes{
     margin-top:4px;
     display:flex;
     align-items:center;
-    justify-content:flex-start;
+    justify-content:flex-start; /* слева */
 }
 
 .feed-like-pill{
@@ -2834,7 +2792,7 @@ textarea {
     padding:4px 10px;
     border-radius:999px;
     background-color:rgba(0,0,0,0.3);
-    font-size:14px;          /* чуть больше, чем msg-reaction */
+    font-size:14px;
     cursor:pointer;
     user-select:none;
     transition:background-color 0.15s ease, transform 0.12s ease-out;
@@ -2847,4 +2805,90 @@ textarea {
 
 .feed-like-pill:active{
     transform:scale(1.05);
+}
+
+/* скрывать пустые "пилюли" с ID / доп. инфой */
+.profile-pill:empty,
+.chat-user-pill:empty {
+    display: none;
+}
+
+/* Голосовые у собеседника – белый кружок и тёмная "play" */
+.msg-item.msg-other .msg-voice-play{
+    background-color:#FFFFFF;
+    border-color:#000000;
+    background-image:url("icons/play.png");
+}
+
+.msg-item.msg-other .msg-voice-play.playing{
+    background-image:url("icons/pause.png");
+}
+
+.media-msg-overlay{
+    position:fixed;
+    inset:0;
+    background:rgba(0,0,0,0.75);
+    display:none;
+    flex-direction:column;
+    align-items:center;
+    justify-content:flex-start;
+    padding-top:80px;
+    z-index:95;
+}
+
+.media-msg-overlay.visible{
+    display:flex;
+}
+
+.media-msg-preview{
+    max-width:90vw;
+    max-height:40vh;
+    border-radius:16px;
+    overflow:hidden;
+    box-shadow:0 12px 40px rgba(0,0,0,0.8);
+    transform:scale(0.9);
+    opacity:0;
+    animation:media-msg-appear 0.18s ease-out forwards;
+}
+
+@keyframes media-msg-appear{
+    to { transform:scale(1); opacity:1; }
+}
+
+.media-msg-menu{
+    width:90vw;
+    max-width:360px;
+    margin-top:12px;
+    border-radius:16px;
+    background-color:#101010;
+    box-shadow:0 18px 60px rgba(0,0,0,0.7);
+    overflow:hidden;
+    transform:translateY(8px);
+    opacity:0;
+    animation:media-msg-menu-appear 0.18s ease-out forwards;
+    animation-delay:0.05s;
+}
+
+@keyframes media-msg-menu-appear{
+    to { transform:translateY(0); opacity:1; }
+}
+
+.media-msg-menu-btn{
+    width:100%;
+    padding:12px 16px;
+    border:none;
+    background:transparent;
+    color:#FFFFFF;
+    font-size:15px;
+    text-align:left;
+    border-bottom:1px solid rgba(255,255,255,0.1);
+    cursor:pointer;
+}
+
+.media-msg-menu-btn:last-child{
+    border-bottom:none;
+}
+
+.media-msg-menu-btn-danger{
+    color:#FF6B6B;
 }
