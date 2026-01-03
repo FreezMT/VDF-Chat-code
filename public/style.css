@@ -242,6 +242,7 @@ textarea {
     user-select:none;
     border-radius:14px;
 }
+
 .select-display{
     display:flex;
     align-items:center;
@@ -2179,7 +2180,8 @@ textarea {
 .feed-post-footer{
     margin-top:6px;
     display:flex;
-    justify-content:flex-end;
+    align-items:center;
+    justify-content:space-between; /* лайк слева, дата справа */
 }
 .feed-post-date{
     font-size:12px;
@@ -2779,10 +2781,10 @@ textarea {
 
 
 .feed-post-likes{
-    margin-top:4px;
     display:flex;
     align-items:center;
-    justify-content:flex-start; /* слева */
+    justify-content:flex-start;
+    margin-top:0;
 }
 
 .feed-like-pill{
@@ -2891,4 +2893,8 @@ textarea {
 /* при открытом media‑меню скрываем оригинальный медиа‑элемент в сообщении */
 .msg-item.msg-media-hidden .msg-media-wrapper{
     visibility:hidden;
+}
+
+.field.field-error{
+    border-color:#FF3B30 !important;
 }

@@ -1298,15 +1298,6 @@ app.post('/api/messages/pin', requireAuth, async (req, res) => {
 
 // server.js — PART 2/2
 
-// Небольшой helper для XSS-защиты текстовых полей (сообщения, посты и т.п.)
-function sanitizeText(str) {
-  if (typeof str !== 'string') return '';
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
-}
 
 // ---------- /api/chats ----------
 
@@ -1972,7 +1963,6 @@ app.post('/api/chat/personal', requireAuth, async (req, res) => {
 // ---------- MESSAGES: send-file / list / send / forward ----------
 
 // /api/messages/send-file
-// /api/messages/send-file
 app.post('/api/messages/send-file', requireAuth, upload.single('file'), async (req, res) => {
   try {
     const chatId      = req.body.chatId;
@@ -2041,11 +2031,42 @@ app.post('/api/messages/send-file', requireAuth, upload.single('file'), async (r
       attachmentType = 'file';
     }
 
+    // Голосовые / webm- и ogg‑аудио перекодируем в m4a для кросс‑браузерной поддержки (iOS/Safari)
+    if (attachmentType === 'audio') {
+      const needsTranscode =
+        mime.includes('webm') ||
+        mime.includes('ogg')  ||
+        mime.includes('opus') ||
+        (!mime || mime === 'application/octet-stream');
+
+      if (needsTranscode) {
+        const srcPath = req.file.path;
+        const base    = path.basename(srcPath, path.extname(srcPath));
+        const outName = base + '.m4a';
+        const outPath = path.join(avatarsDir, outName);
+
+        try {
+          await transcodeAudioToM4A(srcPath, outPath);
+
+          // Удаляем исходный webm/ogg и подменяем пути/имена на m4a
+          try { await fs.promises.unlink(srcPath); } catch (_) {}
+
+          req.file.filename = outName;
+          req.file.path     = outPath;
+
+          const st = await fs.promises.stat(outPath);
+          sizeMB = st.size / (1024 * 1024);
+        } catch (e) {
+          console.error('AUDIO TRANSCODE ERROR:', e);
+          // Если перекодирование не удалось — оставляем исходный файл, он всё равно будет работать в Chrome/Android.
+        }
+      }
+    }
+
     let attachmentUrl = '/avatars/' + req.file.filename;
     const cleanText   = String(text || '').trim();
 
     await updateLastSeen(senderLogin);
-
 
     // VIDEO PREVIEW
     let previewUrl = null;
@@ -2404,7 +2425,9 @@ app.post('/api/messages/send', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'Пустое сообщение или нет данных чата' });
     }
 
-    const cleanText = sanitizeText(String(text).trim());
+    // Храним текст как есть, без HTML‑экранирования.
+    // На фронте он всегда выводится через textContent, так что XSS не будет.
+    const cleanText = String(text).trim();
 
     const participants = await getChatParticipantsLogins(chatId);
     const lowerSender  = String(senderLogin || '').toLowerCase();

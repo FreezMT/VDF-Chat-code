@@ -419,6 +419,8 @@ var chatJustOpenedAt = 0;
 
 var chatLoadingOverlay = document.getElementById('chatLoadingOverlay');
 
+var voiceRecordHint = document.querySelector('.voice-record-hint');
+
 // --- управление микрофоном: удержание + свайп влево для отмены ---
 
 var micTouchStartX = null;
@@ -888,6 +890,7 @@ if (chatMicBtn) {
         var dx = t.clientX - micTouchStartX;
         var dy = t.clientY - micTouchStartY;
 
+        // Если вертикальное движение больше — считаем, что жест не про отмену
         if (Math.abs(dy) > Math.abs(dx)) {
             updateVoiceCancelPreview(0);
             return;
@@ -895,10 +898,13 @@ if (chatMicBtn) {
 
         updateVoiceCancelPreview(dx);
 
+        // Если сильно ушли влево — отменяем запись
         if (dx < -80) {
             micGestureActive = false;
             stopVoiceRecording(false);
             if (voiceTimerEl) voiceTimerEl.textContent = 'Отменено';
+            // мягкая подсказка пользователю
+            showInfoBanner('Голосовое отменено');
         }
     }, { passive:true });
 
@@ -1097,6 +1103,20 @@ function initAttachmentTabs() {
 }
 
 // ---------- СЕТЕВОЙ БАННЕР ----------
+
+function markFieldError(inputEl) {
+    if (!inputEl) return;
+    var wrap = inputEl.closest('.field') || inputEl;
+    wrap.classList.add('field-error');
+
+    try {
+        inputEl.focus();
+    } catch (e) {}
+
+    setTimeout(function () {
+        wrap.classList.remove('field-error');
+    }, 2000);
+}
 
 function showNetworkErrorBanner(message) {
     if (!networkBanner) return;
@@ -1532,8 +1552,10 @@ async function startVoiceRecording() {
         return;
     }
     if (!mediaRecorderSupport) {
-        alert('На этом устройстве нет поддержки записи аудио (MediaRecorder). ' +
-              'Голосовые будут работать, например, в Chrome/Edge/Firefox на Android или на компьютере.');
+        alert(
+            'На этом устройстве нет поддержки записи аудио (MediaRecorder). ' +
+            'Голосовые будут работать, например, в Chrome/Edge/Firefox на Android или на компьютере.'
+        );
         return;
     }
     if (isRecordingVoice) return;
@@ -1656,7 +1678,36 @@ async function handleVoiceRecordingStop() {
     var fileName = 'voice-' + Date.now() + '.webm';
     var file = new File([blob], fileName, { type: 'audio/webm' });
 
-    // дальше твой же код отправки через /api/messages/send-file
+    var formData = new FormData();
+    formData.append('file', file);
+    formData.append('login', currentUser.login);
+    formData.append('chatId', currentChat.id);
+    // Для голосового текст не отправляем
+    formData.append('text', '');
+
+    try {
+        setChatLoading(true);
+
+        var resp = await fetch('/api/messages/send-file', {
+            method: 'POST',
+            body: formData
+        });
+        var data = await resp.json();
+
+        if (!resp.ok || !data.ok) {
+            alert(data.error || 'Ошибка отправки голосового сообщения');
+            return;
+        }
+
+        await refreshMessages(false);
+        if (chatContent) {
+            chatContent.scrollTop = chatContent.scrollHeight;
+        }
+    } catch (e) {
+        alert('Сетевая ошибка при отправке голосового сообщения');
+    } finally {
+        setChatLoading(false);
+    }
 }
 
 // ---------- ХЕЛПЕРЫ ДЛЯ REPLY / СКРОЛЛА / ДАТ ----------
@@ -2043,6 +2094,10 @@ function openMediaViewer(url, type, sourceEl) {
         }
         if (mediaViewerTitle) mediaViewerTitle.textContent = 'Видео';
 
+        // сбрасываем старые обработчики прогресса, чтобы они не накапливались
+        mediaViewerVideo.ontimeupdate = null;
+        mediaViewerVideo.onended      = null;
+
         mediaViewerVideo.addEventListener('loadedmetadata', function onMeta() {
             mediaViewerVideo.removeEventListener('loadedmetadata', onMeta);
             var dur = mediaViewerVideo.duration;
@@ -2063,24 +2118,27 @@ function openMediaViewer(url, type, sourceEl) {
             }
         });
 
-        mediaViewerVideo.addEventListener('timeupdate', function onTime() {
+        // обновление таймлайна и времени — единичный обработчик
+        mediaViewerVideo.ontimeupdate = function () {
             var cur = mediaViewerVideo.currentTime || 0;
             var dur = mediaViewerVideo.duration || 0;
-            if (mediaViewerCurrentTime) mediaViewerCurrentTime.textContent = formatSecondsToMMSS(cur);
+            if (mediaViewerCurrentTime) {
+                mediaViewerCurrentTime.textContent = formatSecondsToMMSS(cur);
+            }
             if (dur && mediaViewerTimelineFill && mediaViewerTimelineThumb) {
                 var ratio = Math.max(0, Math.min(1, cur / dur));
                 var pct   = ratio * 100;
                 mediaViewerTimelineFill.style.width = pct + '%';
                 mediaViewerTimelineThumb.style.left = pct + '%';
             }
-        });
+        };
 
-        mediaViewerVideo.addEventListener('ended', function onEnd() {
+        mediaViewerVideo.onended = function () {
             if (mediaViewerPlayPause) {
                 mediaViewerPlayPause.classList.remove('pause');
                 mediaViewerPlayPause.classList.add('play');
             }
-        });
+        };
 
         mediaViewerVideo.play().then(function () {
             if (mediaViewerLoader) mediaViewerLoader.classList.remove('show');
@@ -4752,6 +4810,7 @@ function renderChatListFromLastChats() {
     }
 
     var term = (currentChatSearch || '').trim().toLowerCase();
+    var appended = 0;
 
     lastChats.forEach(function (chat) {
         if (term) {
@@ -4759,8 +4818,21 @@ function renderChatListFromLastChats() {
             if (title.indexOf(term) === -1) return;
         }
         var item = renderOrCreateChatItem(chat);
-        if (item) chatList.appendChild(item);
+        if (item) {
+            chatList.appendChild(item);
+            appended++;
+        }
     });
+
+    // Если чаты есть, но под фильтр ничего не подошло — показываем сообщение
+    if (!appended) {
+        var empty = document.createElement('div');
+        empty.style.padding = '24px 16px';
+        empty.style.color = 'rgba(255,255,255,0.6)';
+        empty.style.fontSize = '14px';
+        empty.textContent = 'Ничего не найдено';
+        chatList.appendChild(empty);
+    }
 }
 
 async function reloadChatList() {
@@ -5397,13 +5469,7 @@ function renderFeedPost(post) {
     var footer = document.createElement('div');
     footer.className = 'feed-post-footer';
 
-    var dateEl = document.createElement('div');
-    dateEl.className = 'feed-post-date';
-    dateEl.textContent = formatDateTime(post.createdAt);
-
-
-
-    // ЛАЙКИ (один пузырь слева: ❤️ N)
+    // ЛАЙКИ (одна пилюля слева)
     var likesRow = document.createElement('div');
     likesRow.className = 'feed-post-likes';
 
@@ -5412,7 +5478,14 @@ function renderFeedPost(post) {
 
     function renderLikeState(liked, count) {
         if (count < 0) count = 0;
-        likePill.textContent = '❤️ ' + String(count || 0);
+
+        if (count === 0) {
+            // При 0 лайков показываем только сердечко
+            likePill.textContent = '❤️';
+        } else {
+            likePill.textContent = '❤️ ' + String(count);
+        }
+
         if (liked) {
             likePill.classList.add('liked');
         } else {
@@ -5420,7 +5493,7 @@ function renderFeedPost(post) {
         }
     }
 
-    // начальное состояние из backend (может быть undefined)
+    // начальное состояние из backend
     renderLikeState(!!post.likedByMe, post.likesCount || 0);
 
     async function toggleLike() {
@@ -5451,6 +5524,11 @@ function renderFeedPost(post) {
     });
 
     likesRow.appendChild(likePill);
+
+    var dateEl = document.createElement('div');
+    dateEl.className = 'feed-post-date';
+    dateEl.textContent = formatDateTime(post.createdAt);
+
     footer.appendChild(likesRow);
     footer.appendChild(dateEl);
 
@@ -5505,7 +5583,6 @@ function renderFeedPost(post) {
 
     feedList.appendChild(card);
 }
-
 function openInlinePostEditor(card) {
     if (!card || !currentUser || !currentUser.login) return;
     if (card.querySelector('.feed-post-edit-wrapper')) return;
@@ -6590,16 +6667,21 @@ if (createGroupForm && createGroupBtn) {
 
         if (!name) {
             alert('Введите название группы');
+            if (groupNameInput) markFieldError(groupNameInput);
             return;
         }
 
         if (!audience) {
             alert('Выберите, для кого группа');
+            if (audienceParents) {
+                markFieldError(audienceParents.closest('.radio-option') || audienceParents);
+            }
             return;
         }
 
         if (audience === 'dancers' && !age) {
             alert('Выберите возраст участников');
+            if (ageField) markFieldError(ageField);
             return;
         }
 
@@ -6688,6 +6770,14 @@ if (registerForm && loginInput && passwordInput && roleValue && registerScreen) 
 
         if (!login || !password || !role) {
             alert('Заполните логин, пароль и выберите роль');
+
+            if (!login) {
+                markFieldError(loginInput);
+            } else if (!password) {
+                markFieldError(passwordInput);
+            } else {
+                markFieldError(roleSelect);
+            }
             return;
         }
 
@@ -6778,6 +6868,14 @@ if (parentFormEl && parentFirstNameInput && parentLastNameInput && teamValue) {
 
         if (!firstName || !lastName || !team) {
             alert('Заполните имя, фамилию и выберите команду');
+
+            if (!firstName) {
+                markFieldError(parentFirstNameInput);
+            } else if (!lastName) {
+                markFieldError(parentLastNameInput);
+            } else {
+                markFieldError(teamSelect);
+            }
             return;
         }
 
@@ -6910,6 +7008,16 @@ if (dancerFormEl && dancerFirstNameInput && dancerLastNameInput && dancerTeamVal
 
         if (!firstName || !lastName || !team || !dob) {
             alert('Заполните имя, фамилию, выберите команду и дату рождения');
+
+            if (!firstName) {
+                markFieldError(dancerFirstNameInput);
+            } else if (!lastName) {
+                markFieldError(dancerLastNameInput);
+            } else if (!team) {
+                markFieldError(dancerTeamSelect);
+            } else {
+                markFieldError(dancerDobField);
+            }
             return;
         }
 
@@ -6977,6 +7085,12 @@ if (loginForm && loginScreenLogin && loginScreenPassword) {
 
         if (!login || !password) {
             alert('Введите логин и пароль');
+
+            if (!login) {
+                markFieldError(loginScreenLogin);
+            } else {
+                markFieldError(loginScreenPassword);
+            }
             return;
         }
 
@@ -7007,8 +7121,6 @@ if (loginForm && loginScreenLogin && loginScreenPassword) {
             alert('Сетевая ошибка');
         }
     });
-
-    // Чтобы клик по кнопке тоже триггерил submit, достаточно type="submit" в HTML
 }
 
 // ---------- ОТПРАВКА СООБЩЕНИЯ ----------
@@ -7389,6 +7501,7 @@ if (postSubmitBtn) {
         var text = postTextInput ? postTextInput.value.trim() : '';
         if (!text) {
             alert('Введите текст поста');
+            if (postTextInput) markFieldError(postTextInput);
             return;
         }
 
@@ -7513,21 +7626,29 @@ if ('serviceWorker' in navigator) {
 function updateVoiceCancelPreview(dx) {
     if (!voiceRecordUi || !chatInputForm) return;
 
+    // нет записи — сбрасываем всё
     if (!isRecordingVoice) {
         voiceRecordUi.style.transform = '';
         voiceRecordUi.style.backgroundColor = 'rgba(63,63,63,0.95)';
         chatInputForm.classList.remove('recording-cancel-preview');
+        if (voiceRecordHint) {
+            voiceRecordHint.textContent = 'Свайп влево — отмена';
+        }
         return;
     }
 
+    // свайп вправо или нет смещения — обычный режим
     if (dx >= 0) {
         voiceRecordUi.style.transform = '';
         voiceRecordUi.style.backgroundColor = 'rgba(63,63,63,0.95)';
         chatInputForm.classList.remove('recording-cancel-preview');
+        if (voiceRecordHint) {
+            voiceRecordHint.textContent = 'Свайп влево — отмена';
+        }
         return;
     }
 
-    var p = Math.max(0, Math.min(1, (-dx) / 80));
+    var p = Math.max(0, Math.min(1, (-dx) / 80));   // 0..1
     var translate = -14 * p;
 
     voiceRecordUi.style.transform = 'translateX(' + translate + 'px)';
@@ -7535,8 +7656,14 @@ function updateVoiceCancelPreview(dx) {
 
     if (p > 0.35) {
         chatInputForm.classList.add('recording-cancel-preview');
+        if (voiceRecordHint) {
+            voiceRecordHint.textContent = 'Отпустите, чтобы отменить';
+        }
     } else {
         chatInputForm.classList.remove('recording-cancel-preview');
+        if (voiceRecordHint) {
+            voiceRecordHint.textContent = 'Свайп влево — отмена';
+        }
     }
 }
 
