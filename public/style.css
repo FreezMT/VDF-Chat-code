@@ -1361,6 +1361,14 @@ textarea {
     background-color:#3BA9FF;
     color:#000000;
 }
+/* временное (ещё не подтверждённое сервером) сообщение */
+.msg-item.msg-pending .msg-bubble{
+    opacity:0.9;
+}
+.msg-item.msg-pending .msg-meta{
+    opacity:0.7;
+}
+
 .msg-sender-name{
     font-size:12px;
     font-weight:600;

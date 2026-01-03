@@ -197,8 +197,19 @@ if (chatContent) {
                 return;
             }
 
-            var prevScrollHeight = chatContent.scrollHeight;
-            var prevScrollTop    = chatContent.scrollTop;
+            // Находим первый "видимый" msg-item, чтобы привязать к нему якорь
+            var items = chatContent.querySelectorAll('.msg-item');
+            var anchorEl = null;
+            for (var i = 0; i < items.length; i++) {
+                var el = items[i];
+                var top = el.offsetTop;
+                if (top >= chatContent.scrollTop - 2) {
+                    anchorEl = el;
+                    break;
+                }
+            }
+            var anchorId = anchorEl ? anchorEl.dataset.msgId : null;
+            var anchorOffset = anchorEl ? (anchorEl.offsetTop - chatContent.scrollTop) : 0;
 
             var page = await fetchMessagesPage(currentChat.id, beforeId, 40);
             if (!page) return;
@@ -212,17 +223,14 @@ if (chatContent) {
             state.oldestId = msgs[0].id;
             state.hasMore  = !!page.hasMore;
 
-            // найдём первый msg-item в контенте
             var firstMsgEl = chatContent.querySelector('.msg-item');
 
+            // добавляем старые сообщения, но визуально вставляем их сверху
             msgs.forEach(function (m) {
-                if (messagesById[m.id]) return; // уже есть
+                if (messagesById[m.id]) return;
                 messagesById[m.id] = m;
 
-                // рендерим как обычно (добавится в самый низ)
-                renderMessage(m);
-
-                // переносим только что добавленный элемент вверх
+                renderMessage(m); // добавилось в конец
                 var el = chatContent.querySelector('.msg-item[data-msg-id="' + m.id + '"]');
                 if (el) {
                     if (firstMsgEl) {
@@ -234,9 +242,13 @@ if (chatContent) {
                 }
             });
 
-            // компенсируем высоту: оставляем тот же видимый участок
-            var newScrollHeight = chatContent.scrollHeight;
-            chatContent.scrollTop = newScrollHeight - prevScrollHeight + prevScrollTop;
+            // возвращаем пользователя к тому же сообщению (якорю)
+            if (anchorId) {
+                var newAnchor = chatContent.querySelector('.msg-item[data-msg-id="' + anchorId + '"]');
+                if (newAnchor) {
+                    chatContent.scrollTop = newAnchor.offsetTop - anchorOffset;
+                }
+            }
         } finally {
             isLoadingOlderMessages = false;
         }
@@ -3159,6 +3171,12 @@ function renderMessage(msg) {
     var item = document.createElement('div');
     item.className = 'msg-item';
 
+    var isPending = !!msg.pending;
+
+    if (isPending) {
+        item.classList.add('msg-pending');
+    }
+
     var isMe = currentUser && msg.sender_login === currentUser.login;
     if (isMe) item.classList.add('msg-me');
     else      item.classList.add('msg-other');
@@ -3252,7 +3270,6 @@ function renderMessage(msg) {
             videoAtt.autoplay    = true;
             videoAtt.controls    = false;
 
-            // Таймер видео (в левом верхнем углу) — не должен пропадать
             var durLabel = document.createElement('div');
             durLabel.className = 'msg-video-duration';
             durLabel.textContent = '0:00 / 0:00';
@@ -3479,7 +3496,7 @@ function renderMessage(msg) {
         bubble.appendChild(fileBox);
     }
 
-    var textDiv = document.createElement('div');
+        var textDiv = document.createElement('div');
     textDiv.className = 'msg-text';
     if (hasText) {
         textDiv.textContent = mainText;
@@ -3501,7 +3518,8 @@ function renderMessage(msg) {
         metaLine.appendChild(editedMark);
     }
 
-    if (isMe) {
+    // Чек‑марки показываем только для своих и не для pending
+    if (isMe && !isPending) {
         var checksSpan = document.createElement('span');
         checksSpan.className = 'msg-checks';
         checksSpan.textContent = msg.read_by_all ? '✓✓' : '✓';
@@ -3538,6 +3556,10 @@ function renderMessage(msg) {
     item.addEventListener('touchmove',  onMsgTouchMove,  { passive: true });
     item.addEventListener('touchend',   onMsgTouchEnd);
     item.addEventListener('touchcancel',onMsgTouchEnd);
+
+    item.addEventListener('dblclick', function () {
+        startReplyFromElement(item);
+    });
 
     attachMessageInteractions(item, msg);
 
@@ -3584,6 +3606,8 @@ function renderMessage(msg) {
         item.classList.add('msg-visible');
     });
 }
+
+
 
 function renderPinnedTop(msg) {
     if (!pinnedTopBar) return;
@@ -7386,12 +7410,16 @@ if (chatInputForm && chatInput) {
 
         // ---------- ВЛОЖЕНИЯ (фото/видео/файлы) ----------
         if (pendingAttachments && pendingAttachments.length) {
-            // Копируем список и СРАЗУ очищаем превью
             var usedAttachments = pendingAttachments.slice();
             pendingAttachments = [];
-            renderAttachPreviewBar();    // превью исчезают сразу
+            renderAttachPreviewBar();
 
-            // Включаем оверлей загрузки
+            // очищаем инпут и reply сразу
+            chatInput.value = '';
+            autoResizeChatInput();
+            clearReply();
+            keepKeyboardAfterSend();
+
             setChatLoading(true);
 
             try {
@@ -7403,9 +7431,8 @@ if (chatInputForm && chatInput) {
                     formData.append('login', currentUser.login);
                     formData.append('chatId', currentChat.id);
 
-                    // В ТЕКСТ ПИШЕМ ТОЛЬКО В ПОСЛЕДНЕМ ФАЙЛЕ
                     if (i === usedAttachments.length - 1) {
-                        formData.append('text', finalText);
+                        formData.append('text', finalText || '');
                     } else {
                         formData.append('text', '');
                     }
@@ -7421,6 +7448,9 @@ if (chatInputForm && chatInput) {
                         break;
                     }
                 }
+
+                await refreshMessages(false);
+                if (chatContent) chatContent.scrollTop = chatContent.scrollHeight;
             } catch (e2) {
                 alert('Сетевая ошибка при отправке файла');
             } finally {
@@ -7430,27 +7460,22 @@ if (chatInputForm && chatInput) {
                 setChatLoading(false);
             }
 
-            // Сброс инпута и reply
-            chatInput.value = '';
-            autoResizeChatInput();
-            clearReply();
-            keepKeyboardAfterSend();
-
-            // ОДИН раз подтягиваем все новые сообщения
-            await refreshMessages(false);
-            if (chatContent) chatContent.scrollTop = chatContent.scrollHeight;
             return;
         }
 
         // ---------- ТОЛЬКО ТЕКСТ ----------
         if (!finalText) return;
 
-        var tempId = 'tmp-' + Date.now();
+        // Оптимистическое временное сообщение
+        var tempId = 'tmp-' + Date.now() + '-' + Math.random().toString(16).slice(2);
+
+        var senderName = ((currentUser.firstName || '') + ' ' + (currentUser.lastName || '')).trim() || currentUser.login;
+
         var tempMsg = {
             id: tempId,
             chat_id: currentChat.id,
             sender_login: currentUser.login,
-            sender_name: ((currentUser.firstName || '') + ' ' + (currentUser.lastName || '')).trim() || currentUser.login,
+            sender_name: senderName,
             text: finalText,
             created_at: new Date().toISOString(),
             attachment_type: null,
@@ -7458,11 +7483,18 @@ if (chatInputForm && chatInput) {
             edited: false,
             read_by_all: false,
             reactions: [],
-            myReaction: null
+            myReaction: null,
+            pending: true
         };
 
         renderMessage(tempMsg);
         if (chatContent) chatContent.scrollTop = chatContent.scrollHeight;
+
+        // очищаем input и reply сразу
+        chatInput.value = '';
+        autoResizeChatInput();
+        clearReply();
+        keepKeyboardAfterSend();
 
         var payload = {
             chatId:      currentChat.id,
@@ -7479,32 +7511,19 @@ if (chatInputForm && chatInput) {
             var data2 = await resp2.json();
 
             if (!resp2.ok || !data2.ok) {
-                if (chatContent) {
-                    var tmpElErr = chatContent.querySelector('.msg-item[data-msg-id="' + tempId + '"]');
-                    if (tmpElErr && tmpElErr.parentNode) tmpElErr.parentNode.removeChild(tmpElErr);
-                }
+                // при ошибке удаляем временное сообщение
+                var tempElErr = chatContent && chatContent.querySelector('.msg-item[data-msg-id="' + tempId + '"]');
+                if (tempElErr && tempElErr.parentNode) tempElErr.parentNode.removeChild(tempElErr);
                 alert(data2.error || 'Ошибка отправки сообщения');
                 return;
             }
 
-            if (chatContent) {
-                var tmpEl = chatContent.querySelector('.msg-item[data-msg-id="' + tempId + '"]');
-                if (tmpEl && tmpEl.parentNode) tmpEl.parentNode.removeChild(tmpEl);
-            }
-
-            chatInput.value = '';
-            autoResizeChatInput();
-            clearReply();
-            keepKeyboardAfterSend();
-
+            // после успешной отправки — подтягиваем новые сообщения
             await refreshMessages(false);
             if (chatContent) chatContent.scrollTop = chatContent.scrollHeight;
         } catch (e2) {
-            if (chatContent) {
-                var tmpElCatch = chatContent.querySelector('.msg-item[data-msg-id="' + tempId + '"]');
-                if (tmpElCatch && tmpElCatch.parentNode) tmpElCatch.parentNode.removeChild(tmpElCatch);
-            }
-            keepKeyboardAfterSend();
+            var tempElCatch = chatContent && chatContent.querySelector('.msg-item[data-msg-id="' + tempId + '"]');
+            if (tempElCatch && tempElCatch.parentNode) tempElCatch.parentNode.removeChild(tempElCatch);
             alert('Сетевая ошибка при отправке сообщения');
         }
     });
@@ -7583,6 +7602,16 @@ async function refreshMessages(preserveScroll) {
             state.lastId = Math.max(state.lastId || 0, m.id);
             if (!state.oldestId) state.oldestId = m.id;
         });
+        var hadOwnNew = newMessages.some(function (m) {
+            return currentUser && m.sender_login === currentUser.login;
+        });
+
+        if (hadOwnNew && chatContent) {
+            var pendings = chatContent.querySelectorAll('.msg-item.msg-pending');
+            pendings.forEach(function (el) {
+                if (el && el.parentNode) el.parentNode.removeChild(el);
+            });
+        }
 
         if (shouldStickToBottom) {
             chatContent.scrollTop = chatContent.scrollHeight;
