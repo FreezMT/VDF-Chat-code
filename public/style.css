@@ -2856,3 +2856,61 @@ textarea {
 .msg-item.msg-media-hidden .msg-media-wrapper{
     visibility:hidden;
 }
+
+/* Базовая анимация для всех основных экранов */
+.welcome-screen,
+.register-screen,
+.parent-screen,
+.dancer-screen,
+.login-screen,
+.feed-screen,
+.main-screen,
+.profile-screen,
+.create-group-screen {
+    opacity: 0;
+    transform: translateX(12px);
+    transition:
+        opacity 0.25s ease-out,
+        transform 0.25s cubic-bezier(.25,.8,.25,1);
+}
+
+/* Экран активен (видим пользователю) */
+.screen-visible {
+    opacity: 1;
+    transform: translateX(0);
+}
+
+/* карточки чатов и постов: мягкий "выезд" при появлении */
+.chat-item,
+.feed-post {
+    opacity: 0;
+    transform: translateY(6px);
+    transition:
+        opacity 0.18s ease-out,
+        transform 0.18s cubic-bezier(.25,.8,.25,1),
+        background-color 0.14s ease-out,
+        box-shadow 0.14s ease-out;
+}
+
+.chat-item.chat-item-visible,
+.feed-post.feed-post-visible {
+    opacity: 1;
+    transform: translateY(0);
+}
+/* базовая анимация карточек модалок (post / forward и т.п.) */
+.post-modal-card,
+.forward-card {
+    transform: translateY(12px) scale(0.96);
+    opacity: 0;
+    transition:
+        opacity 0.22s ease-out,
+        transform 0.22s cubic-bezier(.25,.8,.25,1);
+}
+
+/* когда модалка видна — карточка "подлетает" */
+.post-modal.visible .post-modal-card,
+.forward-modal.visible .forward-card {
+    transform: translateY(0) scale(1);
+    opacity: 1;
+}
+

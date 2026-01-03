@@ -435,6 +435,32 @@ var micTouchStartX = null;
 var micTouchStartY = null;
 var micGestureActive = false;
 
+function showScreen(el, displayType) {
+    if (!el) return;
+    el.style.display = displayType || 'flex';
+    el.setAttribute('aria-hidden', 'false');
+
+    // маленький рендер‑тик, чтобы transition применился к уже отрисованному элементу
+    requestAnimationFrame(function () {
+        el.classList.add('screen-visible');
+    });
+}
+
+function hideScreen(el) {
+    if (!el) return;
+
+    el.classList.remove('screen-visible');
+    el.setAttribute('aria-hidden', 'true');
+
+    // даём анимации исчезновения завершиться
+    setTimeout(function () {
+        // если за это время экран снова не сделали видимым — прячем
+        if (!el.classList.contains('screen-visible')) {
+            el.style.display = 'none';
+        }
+    }, 250);
+}
+
 function ensureMediaMsgOverlay(){
     if (mediaMsgOverlay) return;
 
@@ -4811,8 +4837,13 @@ function renderOrCreateChatItem(chat) {
     }
 
     item.classList.toggle('chat-pinned', isChatPinned(chat.id));
+    requestAnimationFrame(function () {
+        item.classList.add('chat-item-visible');
+    });
 
     return item;
+    // плавное появление
+
 }
 
 function renderChatListFromLastChats() {
@@ -5600,6 +5631,10 @@ function renderFeedPost(post) {
         }
         lastTapTime = now;
     });
+    // плавное появление
+    requestAnimationFrame(function () {
+        card.classList.add('feed-post-visible');
+    });
 
     feedList.appendChild(card);
 }
@@ -5747,16 +5782,23 @@ async function loadFeed() {
 // ---------- ЭКРАНЫ: ПОСЛЕ ЛОГИНА / ЧАТ / ПРОФИЛЬ / СОЗДАНИЕ ГРУППЫ ----------
 
 function hideAllMainScreens() {
-    if (welcomeScreen)    { welcomeScreen.style.display    = 'none'; welcomeScreen.setAttribute('aria-hidden','true'); }
-    if (registerScreen)   { registerScreen.style.display   = 'none'; registerScreen.setAttribute('aria-hidden','true'); }
-    if (parentInfoScreen) { parentInfoScreen.style.display = 'none'; parentInfoScreen.setAttribute('aria-hidden','true'); }
-    if (dancerInfoScreen) { dancerInfoScreen.style.display = 'none'; dancerInfoScreen.setAttribute('aria-hidden','true'); }
-    if (loginScreen)      { loginScreen.style.display      = 'none'; loginScreen.setAttribute('aria-hidden','true'); }
-    if (feedScreen)       { feedScreen.style.display       = 'none'; feedScreen.setAttribute('aria-hidden','true'); }
-    if (mainScreen)       { mainScreen.style.display       = 'none'; mainScreen.setAttribute('aria-hidden','true'); }
-    if (chatScreen)       { chatScreen.style.display       = 'none'; chatScreen.setAttribute('aria-hidden','true'); }
-    if (profileScreen)    { profileScreen.style.display    = 'none'; profileScreen.setAttribute('aria-hidden','true'); }
-    if (createGroupScreen){ createGroupScreen.style.display= 'none'; createGroupScreen.setAttribute('aria-hidden','true'); }
+    [
+        welcomeScreen,
+        registerScreen,
+        parentInfoScreen,
+        dancerInfoScreen,
+        loginScreen,
+        feedScreen,
+        mainScreen,
+        chatScreen,        // чат‑экран всё равно скроем стилями чуть иначе
+        profileScreen,
+        createGroupScreen
+    ].forEach(function (el) {
+        if (!el) return;
+        el.classList.remove('screen-visible');
+        el.setAttribute('aria-hidden', 'true');
+        el.style.display = 'none';
+    });
 }
 
 async function openMainScreen(user) {
@@ -5786,7 +5828,7 @@ async function openMainScreen(user) {
     loadPinnedChatsForUser();
     await loadMutedChats();
 
-    // Главный экран: ЛЕНТА постов
+    // Главный экран: лента
     await openFeedScreen();
 
     initPushForCurrentUser();
@@ -5803,19 +5845,16 @@ async function openChatsScreen() {
     if (!mainScreen) return;
 
     hideAllMainScreens();
-
-    mainScreen.style.display = 'flex';
-    mainScreen.setAttribute('aria-hidden','false');
-    showBottomNav();
-
-    setNavActive('chats'); // чаты = домик;
-
     hideChatUserModal();
     hideGroupModal();
     hideGroupAddModal();
     clearReply();
     stopChatStatusUpdates();
     stopMessagePolling();
+
+    showScreen(mainScreen, 'flex');
+    showBottomNav();
+    setNavActive('chats');
 
     await reloadChatList();
     startChatListPolling();
@@ -5829,11 +5868,6 @@ async function openFeedScreen() {
     }
 
     hideAllMainScreens();
-
-    feedScreen.style.display = 'flex';
-    feedScreen.setAttribute('aria-hidden','false');
-    showBottomNav();
-
     hideChatUserModal();
     hideGroupModal();
     hideGroupAddModal();
@@ -5842,7 +5876,9 @@ async function openFeedScreen() {
     stopMessagePolling();
     stopChatListPolling();
 
-    setNavActive('feed'); // лента = список;
+    showScreen(feedScreen, 'flex');
+    showBottomNav();
+    setNavActive('feed');
 
     if (createPostBtn) {
         var roleLower = (currentUser.role || '').toLowerCase();
@@ -5861,9 +5897,7 @@ async function openChat(chat) {
 
     // Чат‑экран активен
     chatScreen.style.display = 'flex';
-    chatScreen.setAttribute('aria-hidden','false');
     chatScreen.classList.remove('chat-screen-visible');
-    chatScreen.style.transform = '';
     requestAnimationFrame(function () {
         chatScreen.classList.add('chat-screen-visible');
     });
@@ -5942,10 +5976,11 @@ function closeChatScreenToMain() {
     }
 
     // Убираем класс видимости и просто скрываем чат-экран
+    chatScreen.style.display = 'flex';
     chatScreen.classList.remove('chat-screen-visible');
-    chatScreen.style.transform = '';
-    chatScreen.style.display   = 'none';
-    chatScreen.setAttribute('aria-hidden','true');
+    requestAnimationFrame(function () {
+        chatScreen.classList.add('chat-screen-visible');
+    });
 
     currentChat = null;
 
@@ -5974,11 +6009,6 @@ function openProfileScreen() {
     if (!profileScreen) return;
 
     hideAllMainScreens();
-
-    profileScreen.style.display = 'flex';
-    profileScreen.setAttribute('aria-hidden','false');
-    showBottomNav();
-
     hideChatUserModal();
     hideGroupModal();
     hideGroupAddModal();
@@ -5987,6 +6017,8 @@ function openProfileScreen() {
     stopMessagePolling();
     stopChatListPolling();
 
+    showScreen(profileScreen, 'flex');
+    showBottomNav();
     setNavActive('profile');
     updateProfileUI();
 }
@@ -6006,12 +6038,6 @@ function openCreateGroupScreen() {
     }
 
     hideAllMainScreens();
-
-    createGroupScreen.style.display = 'block';
-    createGroupScreen.setAttribute('aria-hidden','false');
-    showBottomNav();
-    setNavActive('plus');
-
     hideChatUserModal();
     hideGroupModal();
     hideGroupAddModal();
@@ -6019,6 +6045,10 @@ function openCreateGroupScreen() {
     stopChatStatusUpdates();
     stopMessagePolling();
     stopChatListPolling();
+
+    showScreen(createGroupScreen, 'block');
+    showBottomNav();
+    setNavActive('plus');
 
     if (groupNameInput) groupNameInput.value = '';
     if (audienceParents) audienceParents.checked = false;
@@ -6199,40 +6229,34 @@ async function leaveGroup(chat) {
 
 // ---------- НАВИГАЦИЯ / КНОПКИ ----------
 
-// Регистрация / логин
-var registerBtn = document.getElementById('registerBtn');
+// Регистрация
 if (registerBtn && welcomeScreen && registerScreen) {
     registerBtn.addEventListener('click', function () {
         hideAllMainScreens();
-        registerScreen.style.display = 'block';
-        registerScreen.setAttribute('aria-hidden','false');
+        showScreen(registerScreen, 'block');
     });
 }
 
-var loginBtn = document.getElementById('loginBtn');
+// Логин
 if (loginBtn && welcomeScreen && loginScreen) {
     loginBtn.addEventListener('click', function () {
         hideAllMainScreens();
-        loginScreen.style.display = 'block';
-        loginScreen.setAttribute('aria-hidden','false');
+        showScreen(loginScreen, 'block');
     });
 }
 
-var backBtn = document.getElementById('backToWelcome');
+// Назад к welcome
 if (backBtn && welcomeScreen && registerScreen) {
     backBtn.addEventListener('click', function () {
         hideAllMainScreens();
-        welcomeScreen.style.display = 'flex';
-        welcomeScreen.setAttribute('aria-hidden','false');
+        showScreen(welcomeScreen, 'flex');
     });
 }
 
-var backToWelcomeFromLoginBtn = document.getElementById('backToWelcomeFromLogin');
 if (backToWelcomeFromLoginBtn && welcomeScreen && loginScreen) {
     backToWelcomeFromLoginBtn.addEventListener('click', function () {
         hideAllMainScreens();
-        welcomeScreen.style.display = 'flex';
-        welcomeScreen.setAttribute('aria-hidden','false');
+        showScreen(welcomeScreen, 'flex');
     });
 }
 

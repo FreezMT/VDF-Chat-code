@@ -360,7 +360,13 @@ app.use('/video-previews', express.static(videoPreviewDir, {
   immutable: true
 }));
 
-// остальное из public — кэшируем чуть меньше
+app.get('/sw.js', (req, res) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.set('Content-Type', 'application/javascript');
+  res.sendFile(path.join(__dirname, 'public', 'sw.js'));
+});
+
+// и только потом:
 app.use(express.static(path.join(__dirname, 'public'), {
   maxAge: '1d'
 }));

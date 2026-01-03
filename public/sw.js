@@ -1,6 +1,6 @@
 // ====== PWA / OFFLINE КЭШИРОВАНИЕ ======
 
-const STATIC_CACHE_VERSION = 'v7';
+const STATIC_CACHE_VERSION = 'v8';
 const STATIC_CACHE_NAME    = 'vdf-chat-static-' + STATIC_CACHE_VERSION;
 const RUNTIME_CACHE_NAME   = 'vdf-chat-runtime-' + STATIC_CACHE_VERSION;
 
@@ -80,12 +80,11 @@ self.addEventListener('fetch', event => {
   // Только наш origin
   if (url.origin !== self.location.origin) return;
 
-  // app.js и style.css — network-first:
-  // всегда пытаемся взять свежую версию из сети,
-  // при оффлайне — из runtime-кэша.
+  // app.js и style.css — network-first + cache: 'reload'
+  // чтобы даже при HTTP-кэше браузер проверял обновления на сервере
   if (url.pathname === '/app.js' || url.pathname === '/style.css') {
     event.respondWith(
-      fetch(req)
+      fetch(new Request(req.url, { cache: 'reload' }))
         .then(res => {
           const clone = res.clone();
           caches.open(RUNTIME_CACHE_NAME)
