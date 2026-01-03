@@ -458,6 +458,47 @@
             </div>
         </div>
 
+        <!-- MODAL: USER INFO -->
+        <div id="chatUserModal" class="chat-user-modal" aria-hidden="true">
+            <div class="chat-user-modal-backdrop"></div>
+            <div class="chat-user-modal-card" role="dialog" aria-modal="true">
+                <button type="button" id="chatUserBackBtn" class="chat-user-back-btn" aria-label="Назад">←</button>
+
+                <div class="chat-user-avatar-wrapper">
+                    <img id="chatUserAvatar" src="/img/default-avatar.png" alt="Аватар пользователя" class="chat-user-avatar">
+                </div>
+
+                <div id="chatUserName" class="chat-user-name"></div>
+
+                <div id="chatUserId"   class="chat-user-pill"></div>
+                <div id="chatUserId"   class="chat-user-pill"></div>
+                <div class="profile-id-hint">Нажмите на ID, чтобы скопировать</div>
+                <div id="chatUserTeam" class="chat-user-pill"></div>
+                <div id="chatUserDob"  class="chat-user-pill"></div>
+
+                <button type="button" id="chatUserWriteBtn" class="chat-user-write-btn">
+                    Написать сообщение
+                </button>
+                <button type="button" id="chatUserRemoveBtn" class="chat-user-remove-btn">
+                    Удалить из группы
+                </button>
+
+                <!-- Вложения пользователя (медиа/файлы/аудио из личных чатов) -->
+                <div id="chatUserAttachments" class="chat-attachments" style="margin-top:16px;">
+                    <div class="chat-attachments-tabs">
+                        <button type="button" class="chat-attachments-tab chat-attachments-tab-active" id="chatUserMediaTab">Медиа</button>
+                        <button type="button" class="chat-attachments-tab" id="chatUserFilesTab">Файлы</button>
+                        <button type="button" class="chat-attachments-tab" id="chatUserAudioTab">Аудио</button>
+                    </div>
+                    <div class="chat-attachments-content">
+                        <div class="chat-attachments-media-grid" id="chatUserMediaGrid"></div>
+                        <div class="chat-attachments-files-list" id="chatUserFilesList"></div>
+                        <div class="chat-attachments-audio-list" id="chatUserAudioList"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- MEDIA VIEWER (просмотр фото/видео, PWA-style) -->
         <div id="mediaViewer" class="media-viewer" aria-hidden="true">
             <div class="media-viewer-backdrop"></div>
@@ -508,6 +549,8 @@
             <div class="profile-name" id="profileName"></div>
 
             <div class="profile-pill" id="profileId"></div>
+            <div class="profile-pill" id="profileId"></div>
+            <div class="profile-id-hint">Нажмите на ID, чтобы скопировать</div>
             <div class="profile-pill" id="profileTeam"></div>
             <div class="profile-pill" id="profileDob"></div>
             <button type="button" class="profile-logout-btn" id="logoutBtn">

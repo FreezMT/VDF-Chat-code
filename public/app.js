@@ -307,8 +307,20 @@ var ageValue        = document.getElementById('ageValue');
 var createGroupBtn  = document.getElementById('createGroupBtn');
 
 // Голосовые сообщения
-var hasMediaDevices      = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
-var mediaRecorderSupport = typeof window.MediaRecorder !== 'undefined';
+var hasMediaDevices = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+var mediaRecorderSupport = false;
+
+// Проверяем не только наличие MediaRecorder, но и поддержку формата audio/webm (opus)
+if (typeof window.MediaRecorder !== 'undefined') {
+    if (typeof MediaRecorder.isTypeSupported === 'function') {
+        mediaRecorderSupport =
+            MediaRecorder.isTypeSupported('audio/webm;codecs=opus') ||
+            MediaRecorder.isTypeSupported('audio/webm');
+    } else {
+        // старые браузеры: считаем, что поддержка есть, но всё равно будет fallback, если сломается
+        mediaRecorderSupport = true;
+    }
+}
 var canUseLiveVoiceRecording = hasMediaDevices && mediaRecorderSupport;
 
 var chatSendBtn   = document.getElementById('chatSendBtn');
@@ -1342,15 +1354,16 @@ function stopVoiceWaveAnimation(){
 }
 
 async function startVoiceRecording() {
+    if (!canUseLiveVoiceRecording) {
+        // На этом устройстве нет нормальной поддержки live‑записи — используем системный рекордер
+        startSystemVoiceFileChooser();
+        return;
+    }
     if (!hasMediaDevices) {
         alert('Этот браузер не даёт доступ к микрофону (getUserMedia недоступен).');
         return;
     }
-    if (!mediaRecorderSupport) {
-        alert('На этом устройстве нет поддержки записи аудио (MediaRecorder). ' +
-              'Голосовые будут работать, например, в Chrome/Edge/Firefox на Android или на компьютере.');
-        return;
-    }
+
     if (isRecordingVoice) return;
 
     try {
@@ -1391,9 +1404,13 @@ async function startVoiceRecording() {
 
     recordedChunks = [];
     try {
-        mediaRecorder = new MediaRecorder(mediaStream, { mimeType: 'audio/webm' });
-    } catch (e) {
+        // даём браузеру самому выбрать оптимальный формат
         mediaRecorder = new MediaRecorder(mediaStream);
+    } catch (e) {
+        alert('На этом устройстве нет поддержки записи аудио (MediaRecorder). ' +
+              'Попробуйте системный диктофон.');
+        stopVoiceRecording(false);
+        return;
     }
 
     mediaRecorder.ondataavailable = function (e) {
@@ -1463,6 +1480,11 @@ async function handleVoiceRecordingStop() {
     var blob = new Blob(recordedChunks, { type: 'audio/webm' });
     recordedChunks = [];
 
+    // Отбрасываем совсем пустые/«битые» записи
+    if (!blob || !blob.size || blob.size < 2000) { // ~2 КБ
+        return;
+    }
+
     var fileName = 'voice-' + Date.now() + '.webm';
     var file = new File([blob], fileName, { type: 'audio/webm' });
 
@@ -1471,6 +1493,8 @@ async function handleVoiceRecordingStop() {
     formData.append('login', currentUser.login);
     formData.append('chatId', currentChat.id);
     formData.append('text', '');
+
+    
 
     try {
         var resp = await fetch('/api/messages/send-file', {
@@ -3352,8 +3376,9 @@ function createMsgContextMenu() {
     (chatScreen || document.body).appendChild(msgContextOverlay);
 
     msgContextOverlay.addEventListener('click', function (e) {
-        // Игнорируем первый "синтетический" click сразу после long‑press (iOS/Android)
-        if (Date.now() - msgCtxOpenedAt < 250) {
+        // На мобильных синтетический click может прилететь через 300–500 мс после long‑press.
+        // Не закрываем меню в течение 700 мс после открытия.
+        if (Date.now() - msgCtxOpenedAt < 700) {
             return;
         }
         if (e.target === msgContextOverlay) hideMsgContextMenu();
@@ -3587,8 +3612,10 @@ function showMsgContextMenu(msgInfo, item) {
     msgContextOverlay.classList.add('visible');
     msgContextMenu.classList.remove('open');
 
-    function positionMenu(allowScroll) {
+    function positionMenu(allowScroll, stage) {
         if (!msgContextMenu || !currentMsgContextItem) return;
+
+        stage = stage || 0;
 
         var refEl = currentMsgContextItem.querySelector('.msg-col') ||
                     currentMsgContextItem.querySelector('.msg-bubble') ||
@@ -3606,7 +3633,6 @@ function showMsgContextMenu(msgInfo, item) {
             var pr = pinnedTopBar.getBoundingClientRect();
             pinnedH = pr.height || 0;
         }
-        // чуть больше отступ сверху, чтобы не наезжать на закреп
         var safeTop = headerH + pinnedH + 16;
 
         var bottomReserve = 8;
@@ -3627,17 +3653,12 @@ function showMsgContextMenu(msgInfo, item) {
         var spaceAbove = rect.top    - safeTop;
         var spaceBelow = vh - safeBottom - rect.bottom;
 
-        // Если вообще нигде не помещается, попробуем проскроллить чат так,
-        // чтобы сообщение оказалось ближе к центру экрана, и пересчитаем
-        if (allowScroll && chatContent &&
-            (spaceAbove < menuH + margin || spaceBelow < menuH + margin)) {
+        // Этап 0: пробуем прокрутить так, чтобы снизу хватило места
+        if (allowScroll && chatContent && stage === 0 &&
+            (spaceBelow < menuH + margin)) {
 
-            var msgCenter    = rect.top + rect.height / 2 + chatContent.scrollTop;
-            var viewportTop  = safeTop;
-            var viewportBot  = vh - safeBottom;
-            var viewportCent = (viewportTop + viewportBot) / 2 + chatContent.scrollTop;
-
-            var delta = msgCenter - viewportCent;
+            var desiredBottom = vh - safeBottom - menuH - margin;
+            var delta = (rect.bottom - desiredBottom);
 
             chatContent.scrollTo({
                 top: chatContent.scrollTop + delta,
@@ -3645,31 +3666,40 @@ function showMsgContextMenu(msgInfo, item) {
             });
 
             setTimeout(function () {
-                positionMenu(false);
+                positionMenu(true, 1);
             }, 260);
             return;
         }
 
+        // Этап 1: если снизу всё равно мало — пробуем сделать место сверху
+        if (allowScroll && chatContent && stage === 1 &&
+            (spaceAbove < menuH + margin)) {
+
+            var desiredTop = safeTop + margin + menuH;
+            var deltaTop   = (desiredTop - rect.top);
+
+            chatContent.scrollTo({
+                top: chatContent.scrollTop - deltaTop,
+                behavior: 'smooth'
+            });
+
+            setTimeout(function () {
+                positionMenu(false, 2);
+            }, 260);
+            return;
+        }
+
+        // Этап 2: ставим меню по месту (под или над сообщением)
         var top;
-
-        // Для фото/видео, если снизу мало места, а сверху хватает — ставим сразу сверху
-        if (hasMedia && spaceBelow < menuH + margin && spaceAbove >= menuH + margin) {
-            top = rect.top - menuH - margin;
-        }
-        // если снизу хватает места — ставим под сообщением
-        else if (spaceBelow >= menuH + margin) {
+        if (spaceBelow >= menuH + margin) {
             top = rect.bottom + margin;
-        }
-        // иначе, если сверху хватает — ставим над сообщением
-        else if (spaceAbove >= menuH + margin) {
+        } else if (spaceAbove >= menuH + margin) {
             top = rect.top - menuH - margin;
-        }
-        // иначе — всё равно ставим над, но потом зажмём в пределах
-        else {
-            top = rect.top - menuH - margin;
+        } else {
+            // совсем крайний случай — ставим в центр
+            top = (vh - menuH) / 2;
         }
 
-        // зажим по экрану
         var minTop = safeTop;
         var maxTop = vh - safeBottom - menuH;
         if (maxTop < minTop) maxTop = minTop;
@@ -4560,7 +4590,15 @@ function renderChatListFromLastChats() {
     if (!chatList) return;
 
     chatList.innerHTML = '';
-    if (!lastChats || !lastChats.length) return;
+    if (!lastChats || !lastChats.length) {
+        var empty = document.createElement('div');
+        empty.style.padding = '24px 16px';
+        empty.style.color = 'rgba(255,255,255,0.6)';
+        empty.style.fontSize = '14px';
+        empty.textContent = 'У вас пока нет чатов.';
+        chatList.appendChild(empty);
+        return;
+    }
 
     var term = (currentChatSearch || '').trim().toLowerCase();
 
@@ -5207,6 +5245,28 @@ function renderFeedPost(post) {
 
     footer.appendChild(dateEl);
 
+        var likesRow = document.createElement('div');
+    likesRow.className = 'feed-post-likes';
+
+    var likeBtn = document.createElement('button');
+    likeBtn.type = 'button';
+    likeBtn.className = 'feed-like-btn';
+    likeBtn.textContent = '❤️';
+
+    var likeCountEl = document.createElement('span');
+    likeCountEl.className = 'feed-like-count';
+    likeCountEl.textContent = String(post.likesCount || 0);
+
+    if (post.likedByMe) {
+        likeBtn.classList.add('liked');
+    }
+
+    likesRow.appendChild(likeBtn);
+    likesRow.appendChild(likeCountEl);
+
+    footer.appendChild(dateEl);
+    footer.appendChild(likesRow);
+
     card.appendChild(header);
     if (imgPost) card.appendChild(imgPost);
     card.appendChild(textEl);
@@ -5244,6 +5304,49 @@ function renderFeedPost(post) {
     card.addEventListener('touchmove', clearPressTimer, { passive:true });
     card.addEventListener('touchend', clearPressTimer);
     card.addEventListener('touchcancel', clearPressTimer);
+
+        async function toggleLike() {
+        if (!currentUser || !currentUser.login) return;
+        try {
+            var resp = await fetch('/api/feed/like', {
+                method:'POST',
+                headers:{'Content-Type':'application/json'},
+                body:JSON.stringify({
+                    login: currentUser.login,
+                    postId: Number(post.id)
+                })
+            });
+            var data = await resp.json();
+            if (!resp.ok || !data.ok) {
+                alert(data.error || 'Ошибка лайка');
+                return;
+            }
+            likeCountEl.textContent = String(data.likesCount || 0);
+            if (data.liked) {
+                likeBtn.classList.add('liked');
+            } else {
+                likeBtn.classList.remove('liked');
+            }
+        } catch (e) {
+            alert('Сетевая ошибка при лайке');
+        }
+    }
+
+    likeBtn.addEventListener('click', function (e) {
+        e.stopPropagation();
+        toggleLike();
+    });
+
+        // дабл‑тап по карточке -> лайк
+    var lastTapTime = 0;
+    card.addEventListener('click', function () {
+        var now = Date.now();
+        if (now - lastTapTime < 300) {
+            toggleLike();
+        }
+        lastTapTime = now;
+    });
+    
 
     feedList.appendChild(card);
 }
@@ -5373,6 +5476,16 @@ async function loadFeed() {
 
         var posts = data.posts || [];
         feedList.innerHTML = '';
+                feedList.innerHTML = '';
+        if (!posts.length) {
+            var empty = document.createElement('div');
+            empty.style.padding = '16px';
+            empty.style.color   = 'rgba(255,255,255,0.7)';
+            empty.style.fontSize= '14px';
+            empty.textContent   = 'В ленте пока нет постов.';
+            feedList.appendChild(empty);
+            return;
+        }
         posts.forEach(renderFeedPost);
     } catch (e) {
         alert('Сетевая ошибка при загрузке ленты');

@@ -174,6 +174,19 @@ db.run(
   )`
 );
 
+db.run(
+  `CREATE TABLE IF NOT EXISTS post_likes (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    post_id INTEGER NOT NULL,
+    login TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(post_id, login)
+  )`,
+  err => {
+    if (err) console.error('CREATE TABLE post_likes error:', err);
+  }
+);
+
 db.run('ALTER TABLE posts ADD COLUMN image TEXT', err => {
   if (err && !String(err).includes('duplicate column')) {
     console.error('ALTER TABLE posts ADD image error:', err);
@@ -619,6 +632,19 @@ async function appendPersonalChatsForUser(user, chats) {
     chats.push(chat);
     existingIds.add(chatId);
   }
+}
+
+
+// ---------- FFmpeg перекодирование аудио в m4a (для кросс‑браузерности) ----------
+function transcodeAudioToM4A(inputPath, outputPath) {
+  return new Promise((resolve, reject) => {
+    ffmpeg(inputPath)
+      .audioCodec('aac')
+      .format('mp4') // даст m4a/ AAC контейнер, понимаемый iOS/Android/десктопами
+      .on('end', resolve)
+      .on('error', reject)
+      .save(outputPath);
+  });
 }
 
 // кого уведомлять в чате
@@ -2013,22 +2039,23 @@ app.post('/api/messages/send-file', requireAuth, upload.single('file'), async (r
       attachmentType = 'file';
     }
 
-    const attachmentUrl = '/avatars/' + req.file.filename;
-    const cleanText     = String(text || '').trim();
+    let attachmentUrl = '/avatars/' + req.file.filename;
+    const cleanText   = String(text || '').trim();
 
-    await updateLastSeen(senderLogin);
-
-    let previewUrl = null;
-    if (attachmentType === 'video') {
+    // Для аудио: перекодируем в m4a, чтобы все браузеры (включая iOS Safari) нормально проигрывали
+    if (attachmentType === 'audio') {
       try {
-        const baseName    = path.basename(req.file.filename, path.extname(req.file.filename));
-        const previewName = baseName + '-preview.jpg';
-        const previewPath = path.join(videoPreviewDir, previewName);
+        const srcPath  = req.file.path;
+        const baseName = path.basename(srcPath, path.extname(srcPath));
+        const outName  = baseName + '.m4a';
+        const outPath  = path.join(avatarsDir, outName);
 
-        await generateVideoPreview(req.file.path, previewPath);
-        previewUrl = '/video-previews/' + previewName;
+        await transcodeAudioToM4A(srcPath, outPath);
+        await fs.promises.unlink(srcPath).catch(() => {});
+        attachmentUrl = '/avatars/' + outName;
       } catch (e) {
-        console.error('VIDEO PREVIEW ERROR:', e);
+        console.error('AUDIO TRANSCODE ERROR:', e);
+        // если перекодирование упало — оставляем original webm как есть
       }
     }
 
@@ -3644,6 +3671,33 @@ app.post('/api/feed/list', requireAuth, async (req, res) => {
        LIMIT 100`
     );
 
+    const postIds = rows.map(r => r.id);
+    let likesMap = {};
+    let myLikesSet = new Set();
+
+    if (postIds.length) {
+      const placeholders = postIds.map(() => '?').join(',');
+      const aggLikes = await all(
+        db,
+        `SELECT post_id, COUNT(*) AS cnt
+         FROM post_likes
+         WHERE post_id IN (${placeholders})
+         GROUP BY post_id`,
+        postIds
+      );
+      aggLikes.forEach(r => {
+        likesMap[r.post_id] = r.cnt;
+      });
+
+      const myRows = await all(
+        db,
+        `SELECT post_id FROM post_likes
+         WHERE post_id IN (${placeholders}) AND login = ?`,
+        postIds.concat(login)
+      );
+      myRows.forEach(r => myLikesSet.add(r.post_id));
+    }
+
     const posts = rows.map(r => ({
       id:           r.id,
       text:         r.text,
@@ -3651,7 +3705,9 @@ app.post('/api/feed/list', requireAuth, async (req, res) => {
       authorLogin:  r.author_login,
       authorName:   'Vinyl Dance Family',
       authorAvatar: '/group-avatar.png',
-      imageUrl:     r.image || null
+      imageUrl:     r.image || null,
+      likesCount:   likesMap[r.id] || 0,
+      likedByMe:    myLikesSet.has(r.id)
     }));
 
     res.json({ ok: true, posts });
@@ -3746,30 +3802,72 @@ app.post('/api/feed/create', requireAuth, upload.single('image'), async (req, re
   }
 });
 
+// /api/feed/like (toggle)
+app.post('/api/feed/like', requireAuth, async (req, res) => {
+  try {
+    const sessLogin = req.session.login;
+    const { postId } = req.body;
+
+    if (!sessLogin || !postId) {
+      return res.status(400).json({ ok: false, error: 'Нет логина или ID поста' });
+    }
+
+    const user = await get(db, 'SELECT id FROM users WHERE login = ?', [sessLogin]);
+    if (!user) {
+      return res.status(404).json({ ok: false, error: 'Пользователь не найден' });
+    }
+
+    const post = await get(db, 'SELECT id FROM posts WHERE id = ?', [postId]);
+    if (!post) {
+      return res.status(404).json({ ok: false, error: 'Пост не найден' });
+    }
+
+    const existing = await get(
+      db,
+      'SELECT id FROM post_likes WHERE post_id = ? AND login = ?',
+      [postId, sessLogin]
+    );
+
+    let liked;
+    if (existing) {
+      await run(db, 'DELETE FROM post_likes WHERE id = ?', [existing.id]);
+      liked = false;
+    } else {
+      await run(
+        db,
+        'INSERT INTO post_likes (post_id, login) VALUES (?, ?)',
+        [postId, sessLogin]
+      );
+      liked = true;
+    }
+
+    const agg = await get(
+      db,
+      'SELECT COUNT(*) AS cnt FROM post_likes WHERE post_id = ?',
+      [postId]
+    );
+    const likesCount = agg ? agg.cnt : 0;
+
+    res.json({ ok: true, liked, likesCount });
+    broadcastFeedUpdated();
+  } catch (e) {
+    console.error('FEED LIKE ERROR:', e);
+    res.status(500).json({ ok: false, error: 'Ошибка сервера при лайке поста' });
+  }
+});
+
 // ---------- START ----------
 
-const HTTP_PORT  = PORT;
-const HTTPS_PORT = 3443;
+const HTTP_PORT = PORT;
 
-// HTTP-сервер (для разработки / fallback)
+// Один HTTP‑сервер (Render/VPS будет сам терминировать HTTPS, если нужно)
 const httpServer = http.createServer(app);
 httpServer.listen(HTTP_PORT, () => {
   console.log('HTTP API listening on port ' + HTTP_PORT);
 });
 
-// HTTPS-сервер (основной для PWA + WebSocket)
-const httpsOptions = {
-  key:  fs.readFileSync(path.join(__dirname, 'certs', 'dev-key.pem')),
-  cert: fs.readFileSync(path.join(__dirname, 'certs', 'dev-cert.pem'))
-};
-const httpsServer = https.createServer(httpsOptions, app);
-httpsServer.listen(HTTPS_PORT, () => {
-  console.log('HTTPS API listening on port ' + HTTPS_PORT);
-});
-
 // ---------- WEBSOCKET-СЕРВЕР ----------
-
-const wss = new WebSocketServer({ server: httpsServer, path: '/ws' });
+const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
 
 // login -> Set<WebSocket>
 const wsClientsByLogin = new Map();

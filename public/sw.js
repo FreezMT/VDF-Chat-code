@@ -131,8 +131,20 @@ self.addEventListener('fetch', event => {
         }).catch(() => {});
         return res;
       })
-      .catch(() => {
-        return caches.match(req).then(match => match || caches.match('/'));
+            .catch(() => {
+        return caches.match(req).then(match => {
+          if (match) return match;
+
+          // Для картинок/аватаров/медиа не подменяем на '/', просто даём 404/пустой ответ
+          if (url.pathname.startsWith('/avatars') ||
+              url.pathname.startsWith('/video-previews') ||
+              url.pathname.startsWith('/img')) {
+            return new Response('', { status: 404 });
+          }
+
+          // Для остальных — fallback на оболочку
+          return caches.match('/') ;
+        });
       })
   );
 });
