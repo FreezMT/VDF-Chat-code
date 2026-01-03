@@ -139,6 +139,7 @@ var feedContextMenu    = null;
 var feedCtxEditBtn     = null;
 var feedCtxDeleteBtn   = null;
 var currentFeedPostCtx = null;
+var feedInitialized = false;
 
 // ЭКРАНЫ
 var welcomeScreen      = document.getElementById('welcome');
@@ -5702,12 +5703,6 @@ function renderFeedPost(post) {
         imgPost.loading = 'lazy';
         imgPost.decoding = 'async';
         imgPost.onerror = function () { this.style.display = 'none'; };
-
-        // По клику по картинке — медиавьюер
-        imgPost.addEventListener('click', function (e) {
-            e.stopPropagation();
-            openMediaViewer(post.imageUrl, 'image', imgPost);
-        });
     }
 
     // ТЕКСТ
@@ -6082,7 +6077,7 @@ async function openFeedScreen() {
     stopMessagePolling();
     stopChatListPolling();
 
-    setNavActive('feed'); // лента = список;
+    setNavActive('feed');
 
     if (createPostBtn) {
         var roleLower = (currentUser.role || '').toLowerCase();
@@ -6090,8 +6085,14 @@ async function openFeedScreen() {
             (roleLower === 'trainer' || roleLower === 'тренер') ? 'block' : 'none';
     }
 
-    loadFeed();
+    // Ленту загружаем только первый раз.
+    // При возврате на вкладку показываем уже отрендеренный список.
+    if (!feedInitialized) {
+        await loadFeed();
+        feedInitialized = true;
+    }
 }
+
 
 async function openChat(chat) {
     if (!chatScreen) return;
@@ -7408,13 +7409,49 @@ if (chatInputForm && chatInput) {
             finalText = header + sName + '\n' + sLogin + '\n' + quoted + '\n[/r]\n' + baseText;
         }
 
-        // ---------- ВЛОЖЕНИЯ (фото/видео/файлы) ----------
+        // ---------- ОТПРАВКА С ВЛОЖЕНИЯМИ (фото/видео/файлы) ----------
         if (pendingAttachments && pendingAttachments.length) {
             var usedAttachments = pendingAttachments.slice();
             pendingAttachments = [];
-            renderAttachPreviewBar();
+            renderAttachPreviewBar(); // очищаем превью сразу
 
-            // очищаем инпут и reply сразу
+            // имя отправителя
+            var senderName = ((currentUser.firstName || '') + ' ' + (currentUser.lastName || '')).trim() || currentUser.login;
+
+            // создаём оптимистичные сообщения для каждого файла
+            var tempIds = [];
+
+            usedAttachments.forEach(function (att, index) {
+                var tempId = 'tmp-file-' + Date.now() + '-' + Math.random().toString(16).slice(2);
+                tempIds.push(tempId);
+
+                // текст добавляем только к последнему файлу, как и на сервере
+                var textForThis = (index === usedAttachments.length - 1) ? finalText : '';
+
+                var tempMsg = {
+                    id: tempId,
+                    chat_id: currentChat.id,
+                    sender_login: currentUser.login,
+                    sender_name: senderName,
+                    text: textForThis,
+                    created_at: new Date().toISOString(),
+                    attachment_type: att.type,        // 'image' | 'video' | 'file'
+                    attachment_url:  att.url,         // objectURL
+                    attachment_name: att.name,
+                    attachment_size: att.sizeMB,
+                    edited: false,
+                    read_by_all: false,
+                    reactions: [],
+                    myReaction: null,
+                    pending: true
+                };
+
+                renderMessage(tempMsg);
+            });
+
+            if (chatContent) chatContent.scrollTop = chatContent.scrollHeight;
+
+            // очищаем input и reply сразу
             chatInput.value = '';
             autoResizeChatInput();
             clearReply();
@@ -7423,6 +7460,7 @@ if (chatInputForm && chatInput) {
             setChatLoading(true);
 
             try {
+                // отправляем файлы последовательно на сервер
                 for (var i = 0; i < usedAttachments.length; i++) {
                     var att = usedAttachments[i];
 
@@ -7444,14 +7482,24 @@ if (chatInputForm && chatInput) {
                     var data = await resp.json();
 
                     if (!resp.ok || !data.ok) {
+                        // при ошибке удаляем оптимистичные сообщения этой пачки
+                        tempIds.forEach(function (id) {
+                            var el = chatContent && chatContent.querySelector('.msg-item[data-msg-id="' + id + '"]');
+                            if (el && el.parentNode) el.parentNode.removeChild(el);
+                        });
                         alert(data.error || 'Ошибка отправки файла');
-                        break;
+                        return;
                     }
                 }
 
+                // подтягиваем реальные сообщения и удаляем pending (см. refreshMessages ниже)
                 await refreshMessages(false);
                 if (chatContent) chatContent.scrollTop = chatContent.scrollHeight;
             } catch (e2) {
+                tempIds.forEach(function (id) {
+                    var el = chatContent && chatContent.querySelector('.msg-item[data-msg-id="' + id + '"]');
+                    if (el && el.parentNode) el.parentNode.removeChild(el);
+                });
                 alert('Сетевая ошибка при отправке файла');
             } finally {
                 usedAttachments.forEach(function (a) {
@@ -7466,7 +7514,7 @@ if (chatInputForm && chatInput) {
         // ---------- ТОЛЬКО ТЕКСТ ----------
         if (!finalText) return;
 
-        // Оптимистическое временное сообщение
+        // Оптимистичное временное сообщение
         var tempId = 'tmp-' + Date.now() + '-' + Math.random().toString(16).slice(2);
 
         var senderName = ((currentUser.firstName || '') + ' ' + (currentUser.lastName || '')).trim() || currentUser.login;
@@ -7511,14 +7559,12 @@ if (chatInputForm && chatInput) {
             var data2 = await resp2.json();
 
             if (!resp2.ok || !data2.ok) {
-                // при ошибке удаляем временное сообщение
                 var tempElErr = chatContent && chatContent.querySelector('.msg-item[data-msg-id="' + tempId + '"]');
                 if (tempElErr && tempElErr.parentNode) tempElErr.parentNode.removeChild(tempElErr);
                 alert(data2.error || 'Ошибка отправки сообщения');
                 return;
             }
 
-            // после успешной отправки — подтягиваем новые сообщения
             await refreshMessages(false);
             if (chatContent) chatContent.scrollTop = chatContent.scrollHeight;
         } catch (e2) {
@@ -7602,6 +7648,7 @@ async function refreshMessages(preserveScroll) {
             state.lastId = Math.max(state.lastId || 0, m.id);
             if (!state.oldestId) state.oldestId = m.id;
         });
+
         var hadOwnNew = newMessages.some(function (m) {
             return currentUser && m.sender_login === currentUser.login;
         });
