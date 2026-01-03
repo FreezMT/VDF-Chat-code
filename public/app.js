@@ -7512,17 +7512,27 @@ if (chatInputForm && chatInput) {
 
 // ---------- ЗАГРУЗКА СООБЩЕНИЙ / refreshMessages ----------
 
+// локи, чтобы не было одновременных refresh по одному чату
+var refreshingMessagesByChat = {};
+
 async function refreshMessages(preserveScroll) {
     if (!chatContent || !currentUser || !currentUser.login || !currentChat) return;
     var chatId = currentChat.id;
     if (!chatId) return;
 
     var state = chatRenderState[chatId];
+
+    // если состояние не инициализировано — грузим первую страницу
     if (!state || !state.initialized) {
-        // если почему-то нет состояния — загрузим заново первую страницу
         await loadMessages(chatId);
         return;
     }
+
+    // если уже идёт refresh для этого чата — выходим
+    if (refreshingMessagesByChat[chatId]) {
+        return;
+    }
+    refreshingMessagesByChat[chatId] = true;
 
     try {
         // Берём последние до 80 сообщений
@@ -7563,6 +7573,11 @@ async function refreshMessages(preserveScroll) {
         }
 
         newMessages.forEach(function (m) {
+            // если сообщение уже есть в DOM — не дублируем
+            if (chatContent.querySelector('.msg-item[data-msg-id="' + m.id + '"]')) {
+                return;
+            }
+
             messagesById[m.id] = m;
             renderMessage(m);
             state.lastId = Math.max(state.lastId || 0, m.id);
@@ -7574,6 +7589,8 @@ async function refreshMessages(preserveScroll) {
         }
     } catch (e) {
         console.error('refreshMessages error:', e);
+    } finally {
+        refreshingMessagesByChat[chatId] = false;
     }
 }
 
