@@ -402,6 +402,9 @@ var currentMsgContext = null;
 var currentMsgContextItem = null;
 var msgReactionsList  = ['❤️','👍','👎','😂','🔥'];
 
+// флаг: нужно проигнорировать первый click по оверлею после открытия меню
+var suppressNextMsgOverlayClick = false;
+
 // СЕТЕВОЙ БАННЕР
 var networkBanner      = document.getElementById('networkBanner');
 var networkBannerTimer = null;
@@ -3597,13 +3600,11 @@ function createMsgContextMenu() {
     (chatScreen || document.body).appendChild(msgContextOverlay);
 
     // Клик по фону:
-    // 1) если прошёл МЕНЬШЕ 800 мс с момента открытия — это "отпускание пальца" ⇒ игнорируем полностью;
-    // 2) если больше 800 мс и клик именно по фону (target === overlay) — закрываем меню.
+    // 1) первый клик после открытия меню всегда игнорируем (это "отпускание пальца" после long‑press);
+    // 2) последующие клики по самому фону (target === overlay) — закрывают меню.
     msgContextOverlay.addEventListener('click', function (e) {
-        var elapsed = Date.now() - msgCtxOpenedAt;
-
-        // игнорируем первый синтетический click сразу после long‑press
-        if (elapsed < 800) {
+        if (suppressNextMsgOverlayClick) {
+            suppressNextMsgOverlayClick = false;
             e.preventDefault();
             e.stopPropagation();
             return;
@@ -3816,6 +3817,8 @@ function hideMsgContextMenu() {
 // Позиционирование меню сообщений с возможным скроллом
 function showMsgContextMenu(msgInfo, item) {
     if (!msgInfo || !currentUser || !item) return;
+
+    // Для фото/видео — отдельное медиа-меню
     if (msgInfo.attachmentType === 'image' || msgInfo.attachmentType === 'video') {
         showMediaContextMenu(msgInfo, item);
         return;
@@ -3823,20 +3826,19 @@ function showMsgContextMenu(msgInfo, item) {
 
     createMsgContextMenu();
 
-    msgCtxOpenedAt = Date.now();
+    msgCtxOpenedAt = Date.now();           // можно оставить, если ещё где-то используется
+    suppressNextMsgOverlayClick = true;    // первый click по фону игнорируем
 
     currentMsgContext     = msgInfo;
     currentMsgContextItem = item;
 
-    // подавляем следующий клик по медиа (чтобы не открыть viewer сразу после long-press)
+    // подавляем следующий клик по медиа после long‑press
     item._suppressNextMediaClick = true;
 
     var isMe          = String(msgInfo.senderLogin).toLowerCase() === String(currentUser.login).toLowerCase();
     var hasText       = msgInfo.text && String(msgInfo.text).trim().length > 0;
     var hasAttachment = !!msgInfo.attachmentType;
-    var hasMedia      = (msgInfo.attachmentType === 'image' || msgInfo.attachmentType === 'video');
 
-    // pressed-класс будет добавляться attachMessageInteractions по таймеру
     if (item._oldZIndex === undefined) {
         item._oldZIndex = item.style.zIndex || '';
     }
@@ -3893,7 +3895,6 @@ function showMsgContextMenu(msgInfo, item) {
         var spaceAbove = rect.top    - safeTop;
         var spaceBelow = vh - safeBottom - rect.bottom;
 
-        // Этап 0: пробуем прокрутить так, чтобы снизу хватило места
         if (allowScroll && chatContent && stage === 0 &&
             (spaceBelow < menuH + margin)) {
 
@@ -3911,7 +3912,6 @@ function showMsgContextMenu(msgInfo, item) {
             return;
         }
 
-        // Этап 1: если снизу всё равно мало — пробуем сделать место сверху
         if (allowScroll && chatContent && stage === 1 &&
             (spaceAbove < menuH + margin)) {
 
@@ -3929,14 +3929,12 @@ function showMsgContextMenu(msgInfo, item) {
             return;
         }
 
-        // Этап 2: ставим меню по месту (под или над сообщением)
         var top;
         if (spaceBelow >= menuH + margin) {
             top = rect.bottom + margin;
         } else if (spaceAbove >= menuH + margin) {
             top = rect.top - menuH - margin;
         } else {
-            // совсем крайний случай — ставим в центр
             top = (vh - menuH) / 2;
         }
 
