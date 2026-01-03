@@ -2191,6 +2191,224 @@ app.post('/api/messages/send-file', requireAuth, upload.single('file'), async (r
   }
 });
 
+// /api/messages/page
+app.post('/api/messages/page', requireAuth, async (req, res) => {
+  try {
+    const { login, chatId, beforeId, limit } = req.body;
+
+    if (!chatId) {
+      return res.status(400).json({ ok: false, error: 'Нет chatId' });
+    }
+    if (!login) {
+      return res.status(400).json({ ok: false, error: 'Нет логина' });
+    }
+
+    // Проверяем, что пользователь состоит в чате
+    const participants = await getChatParticipantsLogins(chatId);
+    const lowerLogin   = String(login || '').toLowerCase();
+    const inChat = participants.some(l => String(l || '').toLowerCase() === lowerLogin);
+    if (!inChat) {
+      return res.status(403).json({ ok: false, error: 'Вы не состоите в этом чате' });
+    }
+
+    // Размер страницы: по умолчанию 40, максимум 200
+    let pageSize = parseInt(limit, 10);
+    if (!pageSize || pageSize <= 0) pageSize = 40;
+    if (pageSize > 200) pageSize = 200;
+
+    // Условие по beforeId (id < beforeId)
+    const params = [chatId];
+    let olderClause = '';
+    let beforeVal   = parseInt(beforeId, 10);
+    if (!Number.isNaN(beforeVal) && beforeVal > 0) {
+      olderClause = ' AND id < ?';
+      params.push(beforeVal);
+    }
+
+    // Перегружаем на один элемент больше, чтобы понять, есть ли ещё история
+    params.push(pageSize + 1);
+
+    const rowsDesc = await allMsg(
+      `SELECT id,
+              chat_id,
+              sender_login,
+              text,
+              created_at,
+              deleted,
+              edited_at,
+              attachment_type,
+              attachment_url,
+              attachment_name,
+              attachment_size,
+              attachment_preview
+       FROM messages
+       WHERE chat_id = ?
+         AND (deleted IS NULL OR deleted = 0)
+         ${olderClause}
+       ORDER BY id DESC
+       LIMIT ?`,
+      params
+    );
+
+    let hasMore = false;
+    if (rowsDesc.length > pageSize) {
+      hasMore = true;
+      rowsDesc.pop(); // убираем "лишнее" сообщение, оставляя ровно pageSize
+    }
+
+    // Переворачиваем, чтобы сообщения шли от старых к новым
+    const rows = rowsDesc.reverse();
+
+    // Если нет сообщений — всё равно возвращаем hasMore = false/true
+    if (!rows.length) {
+      // Вычислим myLastReadId и pinnedId, чтобы клиент не ломался
+      const readsEmpty = await allMsg(
+        'SELECT user_login, last_read_msg_id FROM chat_reads WHERE chat_id = ?',
+        [chatId]
+      );
+      let myLastReadId = 0;
+      if (login && readsEmpty && readsEmpty.length) {
+        const me = readsEmpty.find(r => r.user_login === login);
+        if (me && me.last_read_msg_id) {
+          myLastReadId = me.last_read_msg_id;
+        }
+      }
+      const pinRowEmpty = await getMsg(
+        'SELECT message_id FROM chat_pins WHERE chat_id = ?',
+        [chatId]
+      );
+      const pinnedIdEmpty = pinRowEmpty ? pinRowEmpty.message_id : null;
+
+      return res.json({
+        ok: true,
+        messages: [],
+        hasMore,
+        myLastReadId,
+        pinnedId: pinnedIdEmpty
+      });
+    }
+
+    const ids = rows.map(r => r.id);
+
+    // Карта логин -> имя
+    const uniqueLogins = [...new Set(rows.map(r => r.sender_login))];
+    const nameMap = {};
+
+    if (uniqueLogins.length) {
+      const placeholders = uniqueLogins.map(() => '?').join(',');
+      try {
+        const uRows = await all(
+          db,
+          `SELECT login, first_name, last_name
+           FROM users
+           WHERE login IN (${placeholders})`,
+          uniqueLogins
+        );
+        uRows.forEach(u => {
+          const fn = (u.first_name || '') + ' ' + (u.last_name || '');
+          nameMap[u.login] = fn.trim() || u.login;
+        });
+      } catch (e2) {
+        console.error('MESSAGES PAGE sender_name batch error:', e2);
+      }
+    }
+
+    // Прочитанность по чату
+    const reads = await allMsg(
+      'SELECT user_login, last_read_msg_id FROM chat_reads WHERE chat_id = ?',
+      [chatId]
+    );
+
+    // myLastReadId
+    let myLastReadId = 0;
+    if (login && reads && reads.length) {
+      const me = reads.find(r => r.user_login === login);
+      if (me && me.last_read_msg_id) {
+        myLastReadId = me.last_read_msg_id;
+      }
+    }
+
+    // Pinned
+    const pinRow = await getMsg(
+      'SELECT message_id FROM chat_pins WHERE chat_id = ?',
+      [chatId]
+    );
+    const pinnedId = pinRow ? pinRow.message_id : null;
+
+    // Реакции по странице сообщений
+    let reactionsByMsg = {};
+    let myReactionByMsg = {};
+
+    if (ids.length) {
+      const placeholders = ids.map(() => '?').join(',');
+
+      const aggRows = await allMsg(
+        `SELECT message_id, emoji, COUNT(*) AS cnt
+         FROM message_reactions
+         WHERE message_id IN (${placeholders})
+         GROUP BY message_id, emoji`,
+        ids
+      );
+      aggRows.forEach(r => {
+        if (!reactionsByMsg[r.message_id]) reactionsByMsg[r.message_id] = [];
+        reactionsByMsg[r.message_id].push({ emoji: r.emoji, count: r.cnt });
+      });
+
+      if (login) {
+        const myRows = await allMsg(
+          `SELECT message_id, emoji
+           FROM message_reactions
+           WHERE message_id IN (${placeholders}) AND login = ?`,
+          ids.concat(login)
+        );
+        myRows.forEach(r => {
+          myReactionByMsg[r.message_id] = r.emoji;
+        });
+      }
+    }
+
+    // Заполняем поля сообщений
+    rows.forEach(r => {
+      r.sender_name = nameMap[r.sender_login] || r.sender_login;
+      r.read_by_all = false;
+      r.edited      = !!r.edited_at;
+      r.is_pinned   = !!(pinnedId && pinnedId === r.id);
+      r.reactions   = reactionsByMsg[r.id] || [];
+      r.myReaction  = myReactionByMsg[r.id] || null;
+
+      // флаг read_by_all только для собственных сообщений
+      if (!login) return;
+      if (r.sender_login !== login) return;
+      if (!reads.length) return;
+
+      let allRead = true;
+      let hasOthers = false;
+
+      for (const rd of reads) {
+        if (rd.user_login === r.sender_login) continue;
+        hasOthers = true;
+        if (!rd.last_read_msg_id || rd.last_read_msg_id < r.id) {
+          allRead = false;
+          break;
+        }
+      }
+
+      r.read_by_all = allRead && hasOthers;
+    });
+
+    res.json({
+      ok: true,
+      messages: rows,
+      hasMore,
+      myLastReadId,
+      pinnedId
+    });
+  } catch (e) {
+    console.error('MESSAGES PAGE ERROR:', e);
+    res.status(500).json({ ok: false, error: 'Ошибка сервера при загрузке страницы сообщений' });
+  }
+});
+
 // /api/messages/list
 app.post('/api/messages/list', requireAuth, async (req, res) => {
   try {

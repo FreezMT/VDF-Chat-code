@@ -88,8 +88,17 @@ var IS_STANDALONE_PWA =
     (window.navigator && window.navigator.standalone === true);
 
 // состояние рендера сообщений по чатам
-var chatRenderState = {}; // { [chatId]: { initialized, lastId, pinnedId } }
-var messagesById    = {}; // { [messageId]: messageRow }
+// chatRenderState[chatId] = {
+//   initialized: bool,
+//   lastId:      number | 0,
+//   oldestId:    number | null,
+//   pinnedId:    number | null,
+//   hasMore:     bool
+// }
+var chatRenderState = {};
+var messagesById    = {};
+
+var isLoadingOlderMessages = false;
 
 var msgCtxOpenedAt = 0; // время последнего открытия меню сообщений
 
@@ -171,6 +180,69 @@ var chatHeaderTitle  = document.getElementById('chatHeaderTitle');
 var chatHeaderAvatar = document.getElementById('chatHeaderAvatar');
 var chatHeaderStatus = document.getElementById('chatHeaderStatus');
 var chatContent      = document.querySelector('.chat-content');
+if (chatContent) {
+    chatContent.addEventListener('scroll', async function () {
+        if (!currentChat || !currentUser || !currentUser.login) return;
+        var state = chatRenderState[currentChat.id];
+        if (!state || !state.initialized || !state.hasMore || isLoadingOlderMessages) return;
+
+        // Загружаем старые сообщения только если прокрутка близко к верху
+        if (chatContent.scrollTop > 80) return;
+
+        isLoadingOlderMessages = true;
+        try {
+            var beforeId = state.oldestId;
+            if (!beforeId) {
+                state.hasMore = false;
+                return;
+            }
+
+            var prevScrollHeight = chatContent.scrollHeight;
+            var prevScrollTop    = chatContent.scrollTop;
+
+            var page = await fetchMessagesPage(currentChat.id, beforeId, 40);
+            if (!page) return;
+
+            var msgs = page.messages || [];
+            if (!msgs.length) {
+                state.hasMore = false;
+                return;
+            }
+
+            state.oldestId = msgs[0].id;
+            state.hasMore  = !!page.hasMore;
+
+            // найдём первый msg-item в контенте
+            var firstMsgEl = chatContent.querySelector('.msg-item');
+
+            msgs.forEach(function (m) {
+                if (messagesById[m.id]) return; // уже есть
+                messagesById[m.id] = m;
+
+                // рендерим как обычно (добавится в самый низ)
+                renderMessage(m);
+
+                // переносим только что добавленный элемент вверх
+                var el = chatContent.querySelector('.msg-item[data-msg-id="' + m.id + '"]');
+                if (el) {
+                    if (firstMsgEl) {
+                        chatContent.insertBefore(el, firstMsgEl);
+                    } else {
+                        chatContent.appendChild(el);
+                        firstMsgEl = el;
+                    }
+                }
+            });
+
+            // компенсируем высоту: оставляем тот же видимый участок
+            var newScrollHeight = chatContent.scrollHeight;
+            chatContent.scrollTop = newScrollHeight - prevScrollHeight + prevScrollTop;
+        } finally {
+            isLoadingOlderMessages = false;
+        }
+    });
+}
+
 var chatInputForm    = document.getElementById('chatInputForm');
 var chatInput        = document.getElementById('chatInput');
 var chatAttachBtn    = document.getElementById('chatAttachBtn');
@@ -836,6 +908,33 @@ function connectWebSocket() {
     ws.onerror = function () {
         try { ws.close(); } catch (e) {}
     };
+}
+
+async function fetchMessagesPage(chatId, beforeId, limit) {
+    if (!currentUser || !currentUser.login || !chatId) return null;
+    try {
+        var body = {
+            login: currentUser.login,
+            chatId: chatId
+        };
+        if (beforeId) body.beforeId = beforeId;
+        if (limit)    body.limit    = limit;
+
+        var resp = await fetch('/api/messages/page', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+        });
+        var data = await resp.json();
+        if (!resp.ok || !data.ok) {
+            console.warn('/api/messages/page error:', data.error || resp.status);
+            return null;
+        }
+        return data; // { ok, messages, hasMore, myLastReadId, pinnedId }
+    } catch (e) {
+        console.error('fetchMessagesPage error:', e);
+        return null;
+    }
 }
 
 // Fallback через системный аудиорекордер (на случай отсутствия MediaRecorder)
@@ -4359,14 +4458,75 @@ async function forwardMessage(msgInfo) {
 // ---------- ЗАГРУЗКА / ПУЛЛИНГ СООБЩЕНИЙ ----------
 
 async function loadMessages(chatId) {
-    if (chatRenderState && chatId) {
-        chatRenderState[chatId] = {
-            initialized: false,
-            lastId:      0,
-            pinnedId:    null
-        };
+    if (!chatContent || !currentUser || !currentUser.login || !chatId) return;
+
+    // Инициализируем состояние для чата
+    chatRenderState[chatId] = {
+        initialized: false,
+        lastId:      0,
+        oldestId:    null,
+        pinnedId:    null,
+        hasMore:     true
+    };
+    messagesById = {};
+
+    // Загружаем первую страницу (последние 40 сообщений)
+    var page = await fetchMessagesPage(chatId, null, 40);
+    if (!page) {
+        chatContent.innerHTML = '';
+        return;
     }
-    await refreshMessages(false);
+
+    var msgs = page.messages || [];
+    var state = chatRenderState[chatId];
+
+    chatContent.innerHTML = '';
+    var unreadInserted = false;
+    var myLastReadId = page.myLastReadId || 0;
+
+    // pinned
+    state.pinnedId = page.pinnedId || null;
+    var pinnedMsg = null;
+
+    msgs.forEach(function (m) {
+        messagesById[m.id] = m;
+        if (state.pinnedId && m.id === state.pinnedId) pinnedMsg = m;
+    });
+    renderPinnedTop(pinnedMsg);
+
+    // рендер сообщений + "Непрочитанные" в нужном месте
+    msgs.forEach(function (m) {
+        // Вставляем разделитель "Непрочитанные" перед первым сообщением с id > myLastReadId
+        if (!unreadInserted && myLastReadId && m.id > myLastReadId) {
+            var sep = document.createElement('div');
+            sep.className = 'msg-unread-separator';
+            var span = document.createElement('span');
+            span.textContent = 'Непрочитанные';
+            sep.appendChild(span);
+            chatContent.appendChild(sep);
+            unreadInserted = true;
+        }
+        renderMessage(m);
+    });
+
+    // обновляем state
+    if (msgs.length) {
+        state.initialized = true;
+        state.lastId   = msgs[msgs.length - 1].id;
+        state.oldestId = msgs[0].id;
+    } else {
+        state.initialized = true;
+        state.lastId   = 0;
+        state.oldestId = null;
+    }
+    state.hasMore = !!page.hasMore;
+
+    // прокручиваем в самый низ
+    chatContent.scrollTop = chatContent.scrollHeight;
+
+    // обновляем статус прочитанности и отмечаем прочтение
+    updateReadStatusInDom(msgs);
+    await markChatRead(chatId);
 }
 
 function startMessagePolling() {
@@ -7357,141 +7517,68 @@ async function refreshMessages(preserveScroll) {
     var chatId = currentChat.id;
     if (!chatId) return;
 
-    var prevScrollTop    = chatContent.scrollTop;
-    var prevScrollHeight = chatContent.scrollHeight;
-    var clientHeight     = chatContent.clientHeight;
-    var fromBottom       = prevScrollHeight - (prevScrollTop + clientHeight);
+    var state = chatRenderState[chatId];
+    if (!state || !state.initialized) {
+        // если почему-то нет состояния — загрузим заново первую страницу
+        await loadMessages(chatId);
+        return;
+    }
 
     try {
-        var resp = await fetch('/api/messages/list', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                chatId: chatId,
-                login:  currentUser.login
-            })
-        });
-        var data = await resp.json();
+        // Берём последние до 80 сообщений
+        var page = await fetchMessagesPage(chatId, null, 80);
+        if (!page) return;
 
-        if (!resp.ok || !data.ok) {
-            console.warn('Ошибка загрузки сообщений:', data.error || '');
-            return;
-        }
+        var msgs = page.messages || [];
+        if (!msgs.length) return;
 
-        var messages     = data.messages || [];
-        var count        = messages.length;
-        var lastId       = count ? messages[count - 1].id : 0;
-        var myLastReadId = data.myLastReadId || 0;
-
-        var state = chatRenderState[chatId] || {
-            initialized: false,
-            lastId:      0,
-            pinnedId:    null
-        };
-
-        var needFullRerender = !state.initialized || preserveScroll;
-
-        var pinnedMsg = messages.find(function (m) { return m.is_pinned; });
-        var pinnedId  = pinnedMsg ? pinnedMsg.id : null;
-
-        if (needFullRerender) {
-            messagesById = {};
-            messages.forEach(function (m) { messagesById[m.id] = m; });
-
-            chatContent.innerHTML = '';
-
-            var unreadInserted = false;
-
-            messages.forEach(function (m) {
-                if (myLastReadId && !unreadInserted && m.id > myLastReadId) {
-                    var sep = document.createElement('div');
-                    sep.className = 'msg-unread-separator';
-                    var span = document.createElement('span');
-                    span.textContent = 'Непрочитанные';
-                    sep.appendChild(span);
-                    chatContent.appendChild(sep);
-                    unreadInserted = true;
-                }
-                renderMessage(m);
-            });
-
-            renderPinnedTop(pinnedMsg);
-
-            var newScrollHeight = chatContent.scrollHeight;
-
-            if (preserveScroll) {
-                if (fromBottom <= 80) chatContent.scrollTop = newScrollHeight;
-                else chatContent.scrollTop = prevScrollTop;
-            } else {
-                chatContent.scrollTop = newScrollHeight;
-            }
-
-            state.initialized = true;
-            state.lastId      = lastId;
-            state.pinnedId    = pinnedId;
-            chatRenderState[chatId] = state;
-
-            updateReadStatusInDom(messages);
-            await markChatRead(chatId);
-            return;
-        }
-
-        var newMessages = messages.filter(function (m) {
-            return m.id > state.lastId;
-        });
-
-        if (newMessages.length) {
-            newMessages.forEach(function (m) {
+        // обновляем pinned, если нужно
+        var newPinnedId = page.pinnedId || null;
+        if (newPinnedId !== state.pinnedId) {
+            state.pinnedId = newPinnedId;
+            var pinnedMsg = null;
+            msgs.forEach(function (m) {
                 messagesById[m.id] = m;
-                renderMessage(m);
+                if (newPinnedId && m.id === newPinnedId) pinnedMsg = m;
             });
-            state.lastId = lastId;
-
-            var justOpened = Date.now() - chatJustOpenedAt < 1500;
-            if (fromBottom <= 80 || justOpened) {
-                chatContent.scrollTop = chatContent.scrollHeight;
+            if (!pinnedMsg && newPinnedId && messagesById[newPinnedId]) {
+                pinnedMsg = messagesById[newPinnedId];
             }
-        }
-
-        if (state.pinnedId !== pinnedId) {
-            state.pinnedId = pinnedId;
             renderPinnedTop(pinnedMsg);
         }
 
-        chatRenderState[chatId] = state;
+        var fromBottom = chatContent.scrollHeight - (chatContent.scrollTop + chatContent.clientHeight);
+        var justOpened = Date.now() - chatJustOpenedAt < 1500;
+        var shouldStickToBottom = (fromBottom <= 80 || justOpened);
 
-        updateReadStatusInDom(messages);
+        var maxExistingId = state.lastId || 0;
+        var newMessages = msgs.filter(function (m) { return m.id > maxExistingId; });
+
+        // даже если нет новых, обновим "галочки" прочитано/нет
+        updateReadStatusInDom(msgs);
         await markChatRead(chatId);
+
+        if (!newMessages.length) {
+            return;
+        }
+
+        newMessages.forEach(function (m) {
+            messagesById[m.id] = m;
+            renderMessage(m);
+            state.lastId = Math.max(state.lastId || 0, m.id);
+            if (!state.oldestId) state.oldestId = m.id;
+        });
+
+        if (shouldStickToBottom) {
+            chatContent.scrollTop = chatContent.scrollHeight;
+        }
     } catch (e) {
         console.error('refreshMessages error:', e);
-        console.warn('Сетевая ошибка при загрузке сообщений');
     }
 }
 
 async function refreshMessagesKeepingMessage(messageId) {
-    if (!chatContent || !currentUser || !currentUser.login || !currentChat) {
-        await refreshMessages(true);
-        return;
-    }
-    if (!messageId) {
-        await refreshMessages(true);
-        return;
-    }
-
-    var elBefore = chatContent.querySelector('.msg-item[data-msg-id="' + messageId + '"]');
-    var offsetFromTop = 0;
-    if (elBefore) {
-        offsetFromTop = elBefore.offsetTop - chatContent.scrollTop;
-    }
-
-    await refreshMessages(true);
-
-    var elAfter = chatContent.querySelector('.msg-item[data-msg-id="' + messageId + '"]');
-    if (elAfter) {
-        var newTop = elAfter.offsetTop - offsetFromTop;
-        if (newTop < 0) newTop = 0;
-        chatContent.scrollTop = newTop;
-    }
+    await refreshMessages(false);
 }
 
 // ---------- FEED: МОДАЛКА СОЗДАНИЯ ПОСТА ----------
