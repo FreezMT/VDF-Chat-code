@@ -24,6 +24,18 @@ const https = require('https');
 const app   = express();
 const db    = new sqlite3.Database(path.join(__dirname, 'db.sqlite'));
 const msgDb = new sqlite3.Database(path.join(__dirname, 'messages.sqlite'));
+// Оптимизация SQLite: WAL + безопасные PRAGMA
+db.serialize(() => {
+  db.run('PRAGMA journal_mode = WAL;');
+  db.run('PRAGMA synchronous = NORMAL;');
+  db.run('PRAGMA temp_store = MEMORY;');
+});
+
+msgDb.serialize(() => {
+  msgDb.run('PRAGMA journal_mode = WAL;');
+  msgDb.run('PRAGMA synchronous = NORMAL;');
+  msgDb.run('PRAGMA temp_store = MEMORY;');
+});
 
 const PORT        = process.env.PORT || 3000;
 const SALT_ROUNDS = 10;

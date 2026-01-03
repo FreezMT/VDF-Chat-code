@@ -97,6 +97,7 @@ var IS_STANDALONE_PWA =
 // }
 var chatRenderState = {};
 var messagesById    = {};
+var lastRenderedChatId = null;
 
 var isLoadingOlderMessages = false;
 
@@ -4482,19 +4483,19 @@ async function loadMessages(chatId) {
     };
     messagesById = {};
 
-    // Загружаем первую страницу (последние 40 сообщений)
-    var page = await fetchMessagesPage(chatId, null, 40);
+    // Загружаем первую страницу (последние 30 сообщений)
+    var page = await fetchMessagesPage(chatId, null, 30);
     if (!page) {
         chatContent.innerHTML = '';
         return;
     }
 
-    var msgs = page.messages || [];
+    var msgs  = page.messages || [];
     var state = chatRenderState[chatId];
 
     chatContent.innerHTML = '';
     var unreadInserted = false;
-    var myLastReadId = page.myLastReadId || 0;
+    var myLastReadId   = page.myLastReadId || 0;
 
     // pinned
     state.pinnedId = page.pinnedId || null;
@@ -4508,7 +4509,6 @@ async function loadMessages(chatId) {
 
     // рендер сообщений + "Непрочитанные" в нужном месте
     msgs.forEach(function (m) {
-        // Вставляем разделитель "Непрочитанные" перед первым сообщением с id > myLastReadId
         if (!unreadInserted && myLastReadId && m.id > myLastReadId) {
             var sep = document.createElement('div');
             sep.className = 'msg-unread-separator';
@@ -4532,6 +4532,9 @@ async function loadMessages(chatId) {
         state.oldestId = null;
     }
     state.hasMore = !!page.hasMore;
+
+    // запоминаем, какой чат сейчас реально отрисован
+    lastRenderedChatId = chatId;
 
     // прокручиваем в самый низ
     chatContent.scrollTop = chatContent.scrollHeight;
@@ -6083,13 +6086,21 @@ async function openFeedScreen() {
 
 async function openChat(chat) {
     if (!chatScreen) return;
+    if (!chat || !chat.id) return;
+
+    // Проверяем, можно ли переиспользовать уже отрисованный DOM этого чата
+    var state = chatRenderState[chat.id];
+    var canReuseDom = !!(state && state.initialized && lastRenderedChatId === chat.id);
+
     currentChat = chat;
 
     hideAllMainScreens();
 
     // Чат‑экран активен
     chatScreen.style.display = 'flex';
+    chatScreen.setAttribute('aria-hidden','false');
     chatScreen.classList.remove('chat-screen-visible');
+    chatScreen.style.transform = '';
     requestAnimationFrame(function () {
         chatScreen.classList.add('chat-screen-visible');
     });
@@ -6108,7 +6119,7 @@ async function openChat(chat) {
     var avatar;
 
     if (chat.type === 'group') {
-    avatar = defaultGroupAvatar;
+        avatar = defaultGroupAvatar;
     } else if (chat.type === 'groupCustom') {
         avatar = chat.avatar || defaultGroupAvatar;
     } else {
@@ -6128,25 +6139,39 @@ async function openChat(chat) {
     }
 
     if (chatInput) chatInput.value = '';
-    if (chatContent) {
-        chatContent.innerHTML = '';
-        chatContent.scrollTop = 0;
-        chatContent.style.opacity = '0';
-    }
     clearReply();
 
+    // Всегда останавливаем поллинг списка и сообщений
     stopChatListPolling();
     stopMessagePolling();
 
-    setChatLoading(true);
-    try {
-        await loadMessages(chat.id);
-    } finally {
-        setChatLoading(false);
+    // Если нельзя переиспользовать DOM (новый чат или мы были в другом чате) —
+    // грузим сообщения с нуля
+    if (!canReuseDom) {
+        if (chatContent) {
+            chatContent.innerHTML = '';
+            chatContent.scrollTop = 0;
+            chatContent.style.opacity = '0';
+        }
+
+        setChatLoading(true);
+        try {
+            await loadMessages(chat.id);
+        } finally {
+            setChatLoading(false);
+            if (chatContent) {
+                chatContent.style.opacity = '1';
+                chatContent.scrollTop = chatContent.scrollHeight;
+            }
+        }
+    } else {
+        // Чат уже был загружен и DOM соответствует этому чату:
+        // просто показываем его, слегка обновив сообщения
         if (chatContent) {
             chatContent.style.opacity = '1';
-            chatContent.scrollTop = chatContent.scrollHeight;
         }
+        await refreshMessages(false);
+        if (chatContent) chatContent.scrollTop = chatContent.scrollHeight;
     }
 
     startMessagePolling();
@@ -7390,10 +7415,23 @@ if (chatInputForm && chatInput) {
             if (quoted.length > 80) quoted = quoted.slice(0, 77) + '…';
             quoted = quoted.replace(/\n/g, ' ');
 
-            var replyId = currentReplyTarget && currentReplyTarget.id ? currentReplyTarget.id : null;
-            var header  = replyId ? ('[r:' + replyId + ']') : '[r]';
+            // ID сообщения, но используем его только если он числовой
+            var rawReplyId = currentReplyTarget.id;
+            var numericReplyId = null;
+            if (typeof rawReplyId === 'number') {
+                numericReplyId = String(rawReplyId);
+            } else if (typeof rawReplyId === 'string' && /^\d+$/.test(rawReplyId)) {
+                numericReplyId = rawReplyId;
+            }
 
-            finalText = header + sName + '\n' + sLogin + '\n' + quoted + '\n[/r]\n' + baseText;
+            // Если numericReplyId нет (например, tmp-file-...), используем простой [r] без ID
+            var header = numericReplyId ? ('[r:' + numericReplyId + ']') : '[r]';
+
+            finalText =
+                header + sName + '\n' +
+                sLogin + '\n' +
+                quoted + '\n[/r]\n' +
+                baseText;
         }
 
         // ---------- ОТПРАВКА С ВЛОЖЕНИЯМИ (фото/видео/файлы) ----------
