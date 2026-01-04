@@ -7592,8 +7592,8 @@ if (createGroupForm && createGroupBtn) {
             return;
         }
         var roleLower = (currentUser.role || '').toLowerCase();
-        if (roleLower !== 'trainer' && roleLower !== 'тренер') {
-            alert('Группы могут создавать только тренера');
+        if (roleLower !== 'trainer' && roleLower !== 'тренер' && roleLower !== 'admin') {
+            alert('Группы могут создавать только тренера и админ');
             return;
         }
 
@@ -8448,8 +8448,8 @@ if (postSubmitBtn) {
             return;
         }
         var roleLower = (currentUser.role || '').toLowerCase();
-        if (roleLower !== 'trainer' && roleLower !== 'тренер') {
-            alert('Создавать посты могут только тренера');
+        if (roleLower !== 'trainer' && roleLower !== 'тренер' && roleLower !== 'admin') {
+            alert('Создавать посты могут только тренера и админ');
             return;
         }
 
