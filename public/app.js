@@ -3141,8 +3141,9 @@ function stopChatStatusUpdates() {
 // ---------- РЕНДЕР СООБЩЕНИЯ (включая голосовые / видео‑таймер) ----------
 
 function renderMessage(msg, opts) {
-    opts = opts || {};
     if (!chatContent) return;
+
+    opts = opts || {};
 
     var parsed    = parseReplyWrappedText(msg.text || '');
     var replyInfo = parsed.reply;
@@ -3480,13 +3481,14 @@ function renderMessage(msg, opts) {
             fileBox.appendChild(sizeDiv);
         }
 
-        // При клике по файлу — открываем в новой вкладке страницу файла
+        // При клике по файлу — инициируем скачивание
         fileBox.addEventListener('click', function (e) {
             e.stopPropagation();
             if (!msg.attachment_url) return;
+
             var aTag = document.createElement('a');
             aTag.href = msg.attachment_url;
-            aTag.target = '_blank';
+            aTag.download = msg.attachment_name || '';
             document.body.appendChild(aTag);
             aTag.click();
             document.body.removeChild(aTag);
@@ -3495,7 +3497,7 @@ function renderMessage(msg, opts) {
         bubble.appendChild(fileBox);
     }
 
-        var textDiv = document.createElement('div');
+    var textDiv = document.createElement('div');
     textDiv.className = 'msg-text';
     if (hasText) {
         textDiv.textContent = mainText;
@@ -3556,7 +3558,6 @@ function renderMessage(msg, opts) {
     item.addEventListener('touchend',   onMsgTouchEnd);
     item.addEventListener('touchcancel',onMsgTouchEnd);
 
-
     attachMessageInteractions(item, msg);
 
     adjustMediaBlurForMessage(item);
@@ -3573,10 +3574,18 @@ function renderMessage(msg, opts) {
         if (mediaEl) {
             var adjust = function () {
                 if (!chatContent) return;
-                var fromBottom = chatContent.scrollHeight - (chatContent.scrollTop + chatContent.clientHeight);
 
+                // Если это наше сообщение — всегда держим у низа
+                var isMeNow = currentUser && msg.sender_login === currentUser.login;
+                if (isMeNow) {
+                    chatContent.scrollTop = chatContent.scrollHeight;
+                    return;
+                }
+
+                // Для чужих — только если были близко к низу / чат только что открыт
+                var fromBottom = chatContent.scrollHeight - (chatContent.scrollTop + chatContent.clientHeight);
                 var justOpened = Date.now() - chatJustOpenedAt < 1500;
-                if (fromBottom <= 40 || justOpened) {
+                if (fromBottom <= 80 || justOpened) {
                     chatContent.scrollTop = chatContent.scrollHeight;
                 }
             };
@@ -3597,7 +3606,7 @@ function renderMessage(msg, opts) {
         }
     }
 
-    // Плавное появление нового сообщения (можно отключить)
+    // Плавное появление нового сообщения (можно отключать)
     if (opts.skipAnimation) {
         item.classList.add('msg-visible');
     } else {
@@ -3728,7 +3737,7 @@ function createMsgContextMenu() {
 
     msgCtxDownloadBtn = document.createElement('button');
     msgCtxDownloadBtn.className = 'msg-context-btn';
-    msgCtxDownloadBtn.textContent = 'Открыть файл';
+    msgCtxDownloadBtn.textContent = 'Скачать';
 
     msgCtxCopyBtn = document.createElement('button');
     msgCtxCopyBtn.className = 'msg-context-btn';
@@ -3762,9 +3771,7 @@ function createMsgContextMenu() {
 
     (chatScreen || document.body).appendChild(msgContextOverlay);
 
-    // Клик по фону:
-    // 1) если прошёл МЕНЬШЕ 400 мс с момента открытия — игнорируем (это отпускание пальца после long‑press);
-    // 2) если больше 400 мс и клик именно по фону — закрываем меню.
+    // Клик по фону: закрываем меню (с задержкой после открытия)
     msgContextOverlay.addEventListener('click', function (e) {
         if (e.target !== msgContextOverlay) return;
 
@@ -3833,13 +3840,20 @@ function createMsgContextMenu() {
 function downloadMessageAttachment(msgInfo) {
     if (!msgInfo || !msgInfo.attachmentUrl) return;
 
-    // По просьбе: при скачивании любого файла перекидываем на другую страницу (новая вкладка)
-    var aTag = document.createElement('a');
-    aTag.href = msgInfo.attachmentUrl;
-    aTag.target = '_blank';
-    document.body.appendChild(aTag);
-    aTag.click();
-    document.body.removeChild(aTag);
+    var link = document.createElement('a');
+    link.href = msgInfo.attachmentUrl;
+
+    var fileName = msgInfo.attachmentName || '';
+    if (!fileName) {
+        if (msgInfo.attachmentType === 'image')      fileName = 'photo.jpg';
+        else if (msgInfo.attachmentType === 'video') fileName = 'video.mp4';
+        else                                         fileName = 'file';
+    }
+    link.download = fileName;
+
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
 }
 
 // === ОБРАБОТЧИКИ ДЛЯ СООБЩЕНИЙ ===
@@ -3963,9 +3977,7 @@ function hideMsgContextMenu() {
 function showMsgContextMenu(msgInfo, item) {
     if (!msgInfo || !currentUser || !item) return;
 
-    // Для фото/видео — отдельное медиа-меню
-// Для фото/видео — отдельное медиа-меню,
-// но не вызываем его, если стоит флаг _disableMediaMenu (fallback)
+    // Для фото/видео — отдельное медиа-меню, если флаг не запрещает
     if (!msgInfo._disableMediaMenu &&
         (msgInfo.attachmentType === 'image' || msgInfo.attachmentType === 'video')) {
         showMediaContextMenu(msgInfo, item);
@@ -3986,6 +3998,13 @@ function showMsgContextMenu(msgInfo, item) {
     var hasText       = msgInfo.text && String(msgInfo.text).trim().length > 0;
     var hasAttachment = !!msgInfo.attachmentType;
 
+    // какие вложения можем скачивать
+    var canDownload =
+        hasAttachment &&
+        (msgInfo.attachmentType === 'file' ||
+         msgInfo.attachmentType === 'image' ||
+         msgInfo.attachmentType === 'video');
+
     if (item._oldZIndex === undefined) {
         item._oldZIndex = item.style.zIndex || '';
     }
@@ -3995,7 +4014,7 @@ function showMsgContextMenu(msgInfo, item) {
     msgCtxEditBtn.style.display   = (isMe && (hasText || hasAttachment)) ? '' : 'none';
     msgCtxDeleteBtn.style.display = isMe ? '' : 'none';
     msgCtxPinBtn.textContent      = msgInfo.isPinned ? 'Открепить сообщение' : 'Закрепить сообщение';
-    msgCtxDownloadBtn.style.display = (hasAttachment && msgInfo.attachmentUrl) ? '' : 'none';
+    msgCtxDownloadBtn.style.display = (canDownload && msgInfo.attachmentUrl) ? '' : 'none';
     msgCtxCopyBtn.style.display     = hasText ? '' : 'none';
 
     msgContextOverlay.classList.add('visible');
