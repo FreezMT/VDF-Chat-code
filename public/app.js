@@ -1154,6 +1154,34 @@ if (chatMicBtn) {
     });
 }
 
+// ----- Swipe-навигация между главными экранами -----
+// Порядок вкладок: плюс, лента, чаты, профиль
+var MAIN_TABS = ['plus', 'feed', 'chats', 'profile'];
+
+function getActiveMainTabIndex() {
+    // возвращаем индекс активного экрана или -1
+    if (plusScreen && plusScreen.style.display !== 'none') return 0;
+    if (feedScreen && feedScreen.style.display !== 'none') return 1;
+    if (mainScreen && mainScreen.style.display !== 'none') return 2;
+    if (profileScreen && profileScreen.style.display !== 'none') return 3;
+    return -1;
+}
+
+function openMainTabByIndex(idx) {
+    if (idx < 0 || idx >= MAIN_TABS.length) return;
+    var key = MAIN_TABS[idx];
+
+    if (key === 'plus') {
+        openPlusScreen();
+    } else if (key === 'feed') {
+        openFeedScreen();
+    } else if (key === 'chats') {
+        openChatsScreen();
+    } else if (key === 'profile') {
+        openProfileScreen();
+    }
+}
+
 // свайп вправо для закрытия чата (контролируемый, на всю ширину)
 var chatSwipeStartX = null;
 var chatSwipeStartY = null;
@@ -1257,6 +1285,97 @@ function cleanupAttachmentObjectUrl(att) {
         } catch (e) {}
     }
 }
+
+// ----- Свайп влево/вправо между главными экранами (плюс / лента / чаты / профиль) -----
+
+var mainSwipeStartX = null;
+var mainSwipeStartY = null;
+var mainSwipeDx     = 0;
+var mainSwipeActive = false;
+
+function isAnyMainScreenVisible() {
+    return (plusScreen && plusScreen.style.display !== 'none') ||
+           (feedScreen && feedScreen.style.display !== 'none') ||
+           (mainScreen && mainScreen.style.display !== 'none') ||
+           (profileScreen && profileScreen.style.display !== 'none');
+}
+
+document.addEventListener('touchstart', function (e) {
+    // работаем только с одним пальцем
+    if (e.touches.length !== 1) return;
+
+    // если открыт чат или любая модалка — не перехватываем
+    if (chatScreen && chatScreen.classList.contains('chat-screen-visible')) return;
+    if (anyTopModalVisible && anyTopModalVisible()) return;
+
+    // если не открыт ни один из главных экранов — тоже выходим
+    if (!isAnyMainScreenVisible()) return;
+
+    var t = e.touches[0];
+    mainSwipeStartX = t.clientX;
+    mainSwipeStartY = t.clientY;
+    mainSwipeDx     = 0;
+    mainSwipeActive = true;
+}, { passive:true });
+
+document.addEventListener('touchmove', function (e) {
+    if (!mainSwipeActive || mainSwipeStartX == null) return;
+
+    var t  = e.touches[0];
+    var dx = t.clientX - mainSwipeStartX;
+    var dy = t.clientY - mainSwipeStartY;
+
+    // Если вертикальное движение сильнее горизонтального — считаем, что это скролл
+    if (Math.abs(dy) > Math.abs(dx)) {
+        mainSwipeActive = false;
+        mainSwipeStartX = mainSwipeStartY = null;
+        mainSwipeDx     = 0;
+        return;
+    }
+
+    mainSwipeDx = dx;
+}, { passive:true });
+
+document.addEventListener('touchend', function () {
+    if (!mainSwipeActive || mainSwipeStartX == null) {
+        mainSwipeActive = false;
+        mainSwipeStartX = mainSwipeStartY = null;
+        mainSwipeDx     = 0;
+        return;
+    }
+
+    var threshold = 60; // порог в пикселях
+    var dx = mainSwipeDx;
+
+    mainSwipeActive = false;
+    mainSwipeStartX = mainSwipeStartY = null;
+    mainSwipeDx     = 0;
+
+    if (Math.abs(dx) < threshold) return;
+
+    var currentIdx = getActiveMainTabIndex();
+    if (currentIdx === -1) return;
+
+    if (dx < 0) {
+        // свайп влево -> следующая вкладка
+        var nextIdx = currentIdx + 1;
+        if (nextIdx < MAIN_TABS.length) {
+            openMainTabByIndex(nextIdx);
+        }
+    } else {
+        // свайп вправо -> предыдущая вкладка
+        var prevIdx = currentIdx - 1;
+        if (prevIdx >= 0) {
+            openMainTabByIndex(prevIdx);
+        }
+    }
+}, { passive:true });
+
+document.addEventListener('touchcancel', function () {
+    mainSwipeActive = false;
+    mainSwipeStartX = mainSwipeStartY = null;
+    mainSwipeDx     = 0;
+}, { passive:true });
 
 
 function initAttachmentTabs() {
@@ -2415,6 +2534,7 @@ function closeMediaViewer() {
         currentMediaSourceRect = null;
     }
 }
+
 
 // Служебная функция для зума: дистанция между двумя тачами
 function distanceBetweenTouches(t1, t2) {
