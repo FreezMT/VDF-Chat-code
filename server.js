@@ -4361,10 +4361,16 @@ app.post('/api/admin/table-data', requireLoggedIn, async (req, res) => {
     if (!pageSize || pageSize <= 0) pageSize = 100;
     if (pageSize > 1000) pageSize = 1000;
 
-    const connAllFn = dbName === 'msg' ? allMsg : all;
+    let pragmaRows, rows;
 
-    // Информация о колонках и PK
-    const pragmaRows = await connAllFn(`PRAGMA table_info(${table})`, []);
+    if (dbName === 'msg') {
+      pragmaRows = await allMsg(`PRAGMA table_info(${table})`, []);
+      rows       = await allMsg(`SELECT * FROM ${table} LIMIT ?`, [pageSize]);
+    } else {
+      pragmaRows = await all(db, `PRAGMA table_info(${table})`, []);
+      rows       = await all(db, `SELECT * FROM ${table} LIMIT ?`, [pageSize]);
+    }
+
     const columns = pragmaRows.map(r => r.name);
     let primaryKey = null;
     for (const r of pragmaRows) {
@@ -4373,11 +4379,6 @@ app.post('/api/admin/table-data', requireLoggedIn, async (req, res) => {
         break;
       }
     }
-
-    const rows = await connAllFn(
-      `SELECT * FROM ${table} LIMIT ?`,
-      [pageSize]
-    );
 
     res.json({
       ok: true,
@@ -4419,10 +4420,13 @@ app.post('/api/admin/table-update', requireLoggedIn, async (req, res) => {
       return res.status(400).json({ ok: false, error: 'Некорректные данные обновления' });
     }
 
-    const connAllFn = dbName === 'msg' ? allMsg : all;
-    const connRunFn = dbName === 'msg' ? runMsg : run;
+    let pragmaRows;
+    if (dbName === 'msg') {
+      pragmaRows = await allMsg(`PRAGMA table_info(${table})`, []);
+    } else {
+      pragmaRows = await all(db, `PRAGMA table_info(${table})`, []);
+    }
 
-    const pragmaRows = await connAllFn(`PRAGMA table_info(${table})`, []);
     const columns = pragmaRows.map(r => r.name);
     let primaryKey = null;
     for (const r of pragmaRows) {
@@ -4450,9 +4454,14 @@ app.post('/api/admin/table-update', requireLoggedIn, async (req, res) => {
     }
 
     params.push(id);
-
     const sql = `UPDATE ${table} SET ${setCols.join(', ')} WHERE ${primaryKey} = ?`;
-    const r = await connRunFn(sql, params);
+
+    let r;
+    if (dbName === 'msg') {
+      r = await runMsg(sql, params);
+    } else {
+      r = await run(db, sql, params);
+    }
 
     res.json({ ok: true, changed: r.changes || 0 });
   } catch (e) {
@@ -4483,10 +4492,13 @@ app.post('/api/admin/table-insert', requireLoggedIn, async (req, res) => {
       return res.status(400).json({ ok: false, error: 'Некорректные данные строки' });
     }
 
-    const connAllFn = dbName === 'msg' ? allMsg : all;
-    const connRunFn = dbName === 'msg' ? runMsg : run;
+    let pragmaRows;
+    if (dbName === 'msg') {
+      pragmaRows = await allMsg(`PRAGMA table_info(${table})`, []);
+    } else {
+      pragmaRows = await all(db, `PRAGMA table_info(${table})`, []);
+    }
 
-    const pragmaRows = await connAllFn(`PRAGMA table_info(${table})`, []);
     const columns = pragmaRows.map(r => r.name);
     let primaryKey = null;
     for (const r of pragmaRows) {
@@ -4513,7 +4525,13 @@ app.post('/api/admin/table-insert', requireLoggedIn, async (req, res) => {
 
     const placeholders = insertCols.map(() => '?').join(',');
     const sql = `INSERT INTO ${table} (${insertCols.join(',')}) VALUES (${placeholders})`;
-    const r = await connRunFn(sql, params);
+
+    let r;
+    if (dbName === 'msg') {
+      r = await runMsg(sql, params);
+    } else {
+      r = await run(db, sql, params);
+    }
 
     res.json({ ok: true, lastID: r.lastID || null });
   } catch (e) {
