@@ -500,8 +500,6 @@ var senderColors = [
 
 var pinnedTopBar = document.getElementById('pinnedTopBar');
 
-var mainSwipeKeepScreen = null;
-
 // МЬЮТЫ / ЗАКРЕПЫ / КОНТЕКСТНОЕ МЕНЮ ЧАТА
 var mutedChats  = {}; // { chatId: true }
 var pinnedChats = {}; // { chatId: true }
@@ -1156,78 +1154,6 @@ if (chatMicBtn) {
     });
 }
 
-// ----- Главные вкладки: плюс, лента, чаты, профиль -----
-var MAIN_TABS = ['plus', 'feed', 'chats', 'profile'];
-
-// для временного "не скрывать" экраны при hideAllMainScreens (если будешь использовать)
-var mainSwipeKeepScreen = null;
-
-function getActiveMainTabIndex() {
-    if (plusScreen && plusScreen.style.display !== 'none')      return 0;
-    if (feedScreen && feedScreen.style.display !== 'none')      return 1;
-    if (mainScreen && mainScreen.style.display !== 'none')      return 2;
-    if (profileScreen && profileScreen.style.display !== 'none')return 3;
-    return -1;
-}
-
-function getMainScreenElByKey(key) {
-    if (key === 'plus')    return plusScreen;
-    if (key === 'feed')    return feedScreen;
-    if (key === 'chats')   return mainScreen;
-    if (key === 'profile') return profileScreen;
-    return null;
-}
-
-// Показываем экран для жеста (без hideAllMainScreens)
-function showMainScreenForGesture(key, el) {
-    if (!el) return;
-    if (key === 'plus') {
-        el.style.display = 'block';
-    } else {
-        el.style.display = 'flex';
-    }
-    el.setAttribute('aria-hidden', 'false');
-}
-
-// Сайд‑эффекты при переключении вкладок (без анимации DOM)
-async function applyMainTabSideEffects(key) {
-    hideChatUserModal();
-    hideGroupModal();
-    hideGroupAddModal();
-    clearReply();
-    stopChatStatusUpdates();
-    stopMessagePolling();
-    stopChatListPolling();
-    showBottomNav();
-
-    if (key === 'plus') {
-        setNavActive('plus');
-        // ничего дополнительного
-    } else if (key === 'feed') {
-        setNavActive('feed');
-
-        if (createPostBtn) {
-            var rl = (currentUser && currentUser.role || '').toLowerCase();
-            createPostBtn.style.display =
-                (rl === 'trainer' || rl === 'тренер' || rl === 'admin') ? 'block' : 'none';
-        }
-
-        if (!feedInitialized && currentUser && currentUser.login) {
-            await loadFeed();
-            feedInitialized = true;
-        }
-    } else if (key === 'chats') {
-        setNavActive('chats');
-        if (currentUser && currentUser.login) {
-            await reloadChatList();
-            startChatListPolling();
-        }
-    } else if (key === 'profile') {
-        setNavActive('profile');
-        updateProfileUI();
-    }
-}
-
 // свайп вправо для закрытия чата (контролируемый, на всю ширину)
 var chatSwipeStartX = null;
 var chatSwipeStartY = null;
@@ -1332,194 +1258,6 @@ function cleanupAttachmentObjectUrl(att) {
     }
 }
 
-// ----- Интерактивный свайп между главными экранами (плюс / лента / чаты / профиль) -----
-
-var mainSwipeCtx = null;
-
-function isAnyMainScreenVisible() {
-    return (plusScreen && plusScreen.style.display !== 'none') ||
-           (feedScreen && feedScreen.style.display !== 'none') ||
-           (mainScreen && mainScreen.style.display !== 'none') ||
-           (profileScreen && profileScreen.style.display !== 'none');
-}
-
-document.addEventListener('touchstart', function (e) {
-    if (e.touches.length !== 1) return;
-
-    // если открыт чат или модалка — не трогаем
-    if (chatScreen && chatScreen.classList.contains('chat-screen-visible')) return;
-    if (typeof anyTopModalVisible === 'function' && anyTopModalVisible()) return;
-
-    if (!isAnyMainScreenVisible()) return;
-
-    var activeIdx = getActiveMainTabIndex();
-    if (activeIdx === -1) return;
-
-    var t = e.touches[0];
-
-    mainSwipeCtx = {
-        startX: t.clientX,
-        startY: t.clientY,
-        lastDx: 0,
-        activeIdx: activeIdx,
-        activeKey: MAIN_TABS[activeIdx],
-        activeEl:  getMainScreenElByKey(MAIN_TABS[activeIdx]),
-        neighborIdx: null,
-        neighborKey: null,
-        neighborEl:  null,
-        direction:   null,
-        decided:     false   // решили, что это горизонтальный свайп
-    };
-}, { passive:true });
-
-document.addEventListener('touchmove', function (e) {
-    if (!mainSwipeCtx) return;
-    var ctx = mainSwipeCtx;
-
-    var t  = e.touches[0];
-    var dx = t.clientX - ctx.startX;
-    var dy = t.clientY - ctx.startY;
-
-    // ещё не решили, горизонтальный это свайп или вертикальный
-    if (!ctx.decided) {
-        if (Math.abs(dy) > Math.abs(dx)) {
-            // вертикальный скролл — отменяем свайп
-            mainSwipeCtx = null;
-            return;
-        }
-        if (Math.abs(dx) < 5) {
-            // слишком маленькое смещение — пока ничего не делаем
-            return;
-        }
-
-        var maxIdx = MAIN_TABS.length - 1;
-        if (dx < 0 && ctx.activeIdx < maxIdx) {
-            // свайп влево -> следующий экран справа
-            ctx.direction   = 'left';
-            ctx.neighborIdx = ctx.activeIdx + 1;
-            ctx.neighborKey = MAIN_TABS[ctx.neighborIdx];
-            ctx.neighborEl  = getMainScreenElByKey(ctx.neighborKey);
-        } else if (dx > 0 && ctx.activeIdx > 0) {
-            // свайп вправо -> предыдущий экран слева
-            ctx.direction   = 'right';
-            ctx.neighborIdx = ctx.activeIdx - 1;
-            ctx.neighborKey = MAIN_TABS[ctx.neighborIdx];
-            ctx.neighborEl  = getMainScreenElByKey(ctx.neighborKey);
-        } else {
-            // нет соседнего экрана в эту сторону — даём скроллить как обычно
-            mainSwipeCtx = null;
-            return;
-        }
-
-        ctx.decided = true;
-
-        // подготавливаем соседний экран
-        if (ctx.neighborEl) {
-            showMainScreenForGesture(ctx.neighborKey, ctx.neighborEl);
-            ctx.activeEl.style.transition  = 'none';
-            ctx.neighborEl.style.transition = 'none';
-
-            var vw = window.innerWidth || 375;
-            if (ctx.direction === 'left') {
-                ctx.neighborEl.style.transform = 'translateX(' + vw + 'px)';
-            } else {
-                ctx.neighborEl.style.transform = 'translateX(' + (-vw) + 'px)';
-            }
-        }
-    }
-
-    if (!ctx.decided || !ctx.neighborEl) return;
-
-    // теперь это точно горизонтальный свайп — блокируем скролл
-    e.preventDefault();
-
-    var vw = window.innerWidth || 375;
-    var clampedDx = Math.max(-vw, Math.min(vw, dx));
-    ctx.lastDx = clampedDx;
-
-    // двигаем активный экран
-    if (ctx.activeEl) {
-        ctx.activeEl.style.transform = 'translateX(' + clampedDx + 'px)';
-    }
-
-    // и соседний
-    if (ctx.neighborEl) {
-        if (ctx.direction === 'left') {
-            ctx.neighborEl.style.transform = 'translateX(' + (vw + clampedDx) + 'px)';
-        } else {
-            ctx.neighborEl.style.transform = 'translateX(' + (-vw + clampedDx) + 'px)';
-        }
-    }
-}, { passive:false });
-
-function finishMainSwipe(commit) {
-    var ctx = mainSwipeCtx;
-    mainSwipeCtx = null;
-    if (!ctx || !ctx.neighborEl || !ctx.activeEl || !ctx.decided) return;
-
-    var vw = window.innerWidth || 375;
-
-    ctx.activeEl.style.transition  =
-        'transform 0.2s cubic-bezier(.4,0,.2,1)';
-    ctx.neighborEl.style.transition =
-        'transform 0.2s cubic-bezier(.4,0,.2,1)';
-
-    if (commit) {
-        // доводим переключение до конца
-        if (ctx.direction === 'left') {
-            ctx.activeEl.style.transform  = 'translateX(' + (-vw) + 'px)';
-            ctx.neighborEl.style.transform = 'translateX(0px)';
-        } else {
-            ctx.activeEl.style.transform  = 'translateX(' + vw + 'px)';
-            ctx.neighborEl.style.transform = 'translateX(0px)';
-        }
-
-        var key = ctx.neighborKey;
-        setTimeout(function () {
-            // прячем старый экран, оставляем новый
-            ctx.activeEl.style.display   = 'none';
-            ctx.activeEl.setAttribute('aria-hidden', 'true');
-            ctx.activeEl.style.transform = 'translateX(0px)';
-
-            ctx.neighborEl.style.transform = 'translateX(0px)';
-
-            // сайд‑эффекты новой вкладки (навигация, поллинги и т.п.)
-            applyMainTabSideEffects(key);
-        }, 220);
-    } else {
-        // откатываем жест
-        ctx.activeEl.style.transform = 'translateX(0px)';
-        if (ctx.direction === 'left') {
-            ctx.neighborEl.style.transform = 'translateX(' + vw + 'px)';
-        } else {
-            ctx.neighborEl.style.transform = 'translateX(' + (-vw) + 'px)';
-        }
-        setTimeout(function () {
-            ctx.neighborEl.style.display   = 'none';
-            ctx.neighborEl.setAttribute('aria-hidden', 'true');
-            ctx.neighborEl.style.transform = 'translateX(0px)';
-        }, 220);
-    }
-}
-
-document.addEventListener('touchend', function () {
-    if (!mainSwipeCtx || !mainSwipeCtx.decided) {
-        mainSwipeCtx = null;
-        return;
-    }
-    var ctx = mainSwipeCtx;
-
-    var vw = window.innerWidth || 375;
-    var threshold = vw * 0.25;
-    var commit = Math.abs(ctx.lastDx) >= threshold;
-
-    finishMainSwipe(commit);
-}, { passive:true });
-
-document.addEventListener('touchcancel', function () {
-    if (!mainSwipeCtx) return;
-    finishMainSwipe(false);
-}, { passive:true });
 
 function initAttachmentTabs() {
     // Модалка пользователя
@@ -2677,7 +2415,6 @@ function closeMediaViewer() {
         currentMediaSourceRect = null;
     }
 }
-
 
 // Служебная функция для зума: дистанция между двумя тачами
 function distanceBetweenTouches(t1, t2) {
@@ -6375,26 +6112,54 @@ async function loadFeed() {
 // ---------- ЭКРАНЫ: ПОСЛЕ ЛОГИНА / ЧАТ / ПРОФИЛЬ / СОЗДАНИЕ ГРУППЫ ----------
 
 function hideAllMainScreens() {
-    function hideScreen(el) {
-        if (!el) return;
-        // во время анимации свайпа не скрываем экран, который должен остаться видимым
-        if (mainSwipeKeepScreen && el === mainSwipeKeepScreen) return;
-        el.style.display = 'none';
-        el.setAttribute('aria-hidden', 'true');
+    if (welcomeScreen) {
+        welcomeScreen.style.display = 'none';
+        welcomeScreen.setAttribute('aria-hidden', 'true');
     }
-
-    hideScreen(welcomeScreen);
-    hideScreen(registerScreen);
-    hideScreen(parentInfoScreen);
-    hideScreen(dancerInfoScreen);
-    hideScreen(loginScreen);
-    hideScreen(feedScreen);
-    hideScreen(mainScreen);
-    hideScreen(chatScreen);
-    hideScreen(profileScreen);
-    hideScreen(createGroupScreen);
-    hideScreen(plusScreen);
-    hideScreen(adminScreen);
+    if (registerScreen) {
+        registerScreen.style.display = 'none';
+        registerScreen.setAttribute('aria-hidden', 'true');
+    }
+    if (parentInfoScreen) {
+        parentInfoScreen.style.display = 'none';
+        parentInfoScreen.setAttribute('aria-hidden', 'true');
+    }
+    if (dancerInfoScreen) {
+        dancerInfoScreen.style.display = 'none';
+        dancerInfoScreen.setAttribute('aria-hidden', 'true');
+    }
+    if (loginScreen) {
+        loginScreen.style.display = 'none';
+        loginScreen.setAttribute('aria-hidden', 'true');
+    }
+    if (feedScreen) {
+        feedScreen.style.display = 'none';
+        feedScreen.setAttribute('aria-hidden', 'true');
+    }
+    if (mainScreen) {
+        mainScreen.style.display = 'none';
+        mainScreen.setAttribute('aria-hidden', 'true');
+    }
+    if (chatScreen) {
+        chatScreen.style.display = 'none';
+        chatScreen.setAttribute('aria-hidden', 'true');
+    }
+    if (profileScreen) {
+        profileScreen.style.display = 'none';
+        profileScreen.setAttribute('aria-hidden', 'true');
+    }
+    if (createGroupScreen) {
+        createGroupScreen.style.display = 'none';
+        createGroupScreen.setAttribute('aria-hidden', 'true');
+    }
+    if (plusScreen) {
+        plusScreen.style.display = 'none';
+        plusScreen.setAttribute('aria-hidden', 'true');
+    }
+    if (adminScreen) {
+        adminScreen.style.display = 'none';
+        adminScreen.setAttribute('aria-hidden', 'true');
+    }
 }
 
 async function openMainScreen(user) {
