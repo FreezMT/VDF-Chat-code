@@ -190,6 +190,7 @@ var loginScreenLogin    = document.getElementById('loginScreenLogin');
 var loginScreenPassword = document.getElementById('loginScreenPassword');
 var loginContinueBtn    = document.getElementById('loginContinueBtn');
 var loginScreenTotp     = document.getElementById('loginScreenTotp');
+var loginScreenTotpField= document.getElementById('loginScreenTotpField');
 
 // ЧАТ
 var chatList         = document.getElementById('chatList');
@@ -8121,10 +8122,17 @@ if (loginForm && loginScreenLogin && loginScreenPassword) {
 
             if (!resp.ok || !data.ok) {
                 alert(data.error || 'Ошибка входа');
-                // если сервер просит код 2FA — фокусируем поле
-                if (data.error && loginScreenTotp &&
+
+                // показать и активировать 2FA-поле только если сервер его требует
+                if (data.error &&
                     (data.error.indexOf('2FA') !== -1 || data.error.indexOf('код') !== -1)) {
-                    try { loginScreenTotp.focus(); } catch (e2) {}
+
+                    if (loginScreenTotpField) {
+                        loginScreenTotpField.style.display = '';
+                    }
+                    if (loginScreenTotp) {
+                        try { loginScreenTotp.focus(); } catch (e2) {}
+                    }
                 }
                 return;
             }
@@ -8145,6 +8153,16 @@ if (loginForm && loginScreenLogin && loginScreenPassword) {
     });
 }
 
+function showLoginScreen() {
+    hideAllMainScreens();
+    if (loginScreen) {
+        loginScreen.style.display = 'block';
+        loginScreen.setAttribute('aria-hidden','false');
+    }
+    if (loginScreenTotpField) {
+        loginScreenTotpField.style.display = 'none';
+    }
+}
 // ---------- ОТПРАВКА СООБЩЕНИЯ ----------
 
 if (chatInputForm && chatInput) {
