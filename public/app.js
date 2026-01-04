@@ -677,18 +677,28 @@ function escapeHtml(str){
 }
 
 function maybeShowInstallScreen() {
+    console.log('maybeShowInstallScreen: start', {
+        hasInstallScreen: !!installScreen,
+        IS_STANDALONE_PWA: IS_STANDALONE_PWA
+    });
+
     if (!installScreen) return;
 
-    // Если уже установлено как standalone PWA — инструкцию не показываем
-    if (IS_STANDALONE_PWA) return;
+    // Если приложение уже установлено как standalone PWA — инструкцию не показываем
+    if (IS_STANDALONE_PWA) {
+        console.log('maybeShowInstallScreen: standalone PWA, skip');
+        return;
+    }
 
-    // Если пользователь запретил показывать — тоже выходим
-    try {
-        var skip = localStorage.getItem('installGuideHidden');
-        if (skip === '1') return;
-    } catch (e) {}
+    // Пока ОТКЛЮЧАЕМ проверку localStorage, чтобы точно увидеть экран
+    // try {
+    //     var skip = localStorage.getItem('installGuideHidden');
+    //     if (skip === '1') {
+    //         console.log('maybeShowInstallScreen: hidden by user');
+    //         return;
+    //     }
+    // } catch (e) {}
 
-    // Показываем инструкцию поверх текущего экрана
     installScreen.style.display = 'flex';
     installScreen.setAttribute('aria-hidden','false');
     try { window.scrollTo(0, 0); } catch (e) {}
@@ -697,6 +707,8 @@ function maybeShowInstallScreen() {
     if (deferredInstallPrompt && installInstallBtn) {
         installInstallBtn.style.display = 'block';
     }
+
+    console.log('maybeShowInstallScreen: shown');
 }
 
 function ensureMediaMsgOverlay(){
