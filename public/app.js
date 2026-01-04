@@ -441,6 +441,8 @@ var admin2faSecret     = document.getElementById('admin2faSecret');
 var admin2faCode       = document.getElementById('admin2faCode');
 var admin2faConfirmBtn = document.getElementById('admin2faConfirmBtn');
 
+var admin2faSecret     = document.getElementById('admin2faSecret');
+
 // МОДАЛКА ПОЛЬЗОВАТЕЛЯ
 var chatUserModal     = document.getElementById('chatUserModal');
 var chatUserAvatar    = document.getElementById('chatUserAvatar');
@@ -1075,6 +1077,40 @@ function attachIdCopyHandler(el) {
 // Вызов
 attachIdCopyHandler(profileIdEl);
 attachIdCopyHandler(chatUserId);
+
+// Копировать секрет 2FA по клику
+if (admin2faSecret) {
+    admin2faSecret.style.cursor = 'pointer';
+    admin2faSecret.title = 'Нажмите, чтобы скопировать';
+
+    admin2faSecret.addEventListener('click', function () {
+        var text = admin2faSecret.textContent || '';
+        if (!text.trim()) return;
+
+        function done() {
+            if (typeof showInfoBanner === 'function') {
+                showInfoBanner('Секрет скопирован в буфер');
+            } else {
+                alert('Секрет скопирован');
+            }
+        }
+
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(done).catch(done);
+        } else {
+            // fallback для старых браузеров
+            var ta = document.createElement('textarea');
+            ta.value = text;
+            ta.style.position = 'fixed';
+            ta.style.left = '-9999px';
+            document.body.appendChild(ta);
+            ta.select();
+            try { document.execCommand('copy'); } catch (e) {}
+            document.body.removeChild(ta);
+            done();
+        }
+    });
+}
 
 function applyKeyboardOffset() {
     var offset = keyboardOffset || 0;
