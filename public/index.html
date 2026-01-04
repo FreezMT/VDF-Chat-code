@@ -619,8 +619,28 @@
         </div>
     </main>
 
+    <!-- PLUS SCREEN: добавление друга + переход к созданию группы -->
+    <main id="plusScreen" class="create-group-screen" aria-hidden="true">
+        <header class="create-group-header">
+            <h1 class="register-title">Добавить друга</h1>
+        </header>
+
+        <form class="create-friend-form" autocomplete="off">
+            <div class="field">
+                <input id="friendIdInput" type="text" maxlength="7" placeholder="ID друга (7 цифр)">
+            </div>
+            <button type="submit" class="btn btn-primary" id="friendAddBtn">Добавить</button>
+        </form>
+
+        <button type="button" class="btn" id="openCreateGroupScreenBtn" style="margin-top:24px;">
+            Создать группу
+        </button>
+    </main>
+
     <!-- CREATE GROUP -->
     <main id="createGroupScreen" class="create-group-screen" aria-hidden="true">
+        <button type="button" class="back-btn" id="backFromCreateGroup" aria-label="Назад">←</button>
+
         <header class="create-group-header">
             <h1 class="register-title">Создание новой группы</h1>
         </header>

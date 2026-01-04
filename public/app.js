@@ -158,9 +158,16 @@ var loginScreen        = document.getElementById('loginScreen');
 var mainScreen         = document.getElementById('mainScreen');   // список чатов
 var chatScreen         = document.getElementById('chatScreen');
 var profileScreen      = document.getElementById('profileScreen');
+var plusScreen        = document.getElementById('plusScreen');
 var createGroupScreen  = document.getElementById('createGroupScreen');
 var feedScreen         = document.getElementById('feedScreen');    // лента (главный экран)
 var bottomNav          = document.getElementById('bottomNav');
+
+// PLUS SCREEN
+var friendIdInput            = document.getElementById('friendIdInput');
+var friendAddBtn             = document.getElementById('friendAddBtn');
+var openCreateGroupScreenBtn = document.getElementById('openCreateGroupScreenBtn');
+var backFromCreateGroup      = document.getElementById('backFromCreateGroup');
 
 // FEED
 var feedList      = document.getElementById('feedList');
@@ -6105,16 +6112,54 @@ async function loadFeed() {
 // ---------- ЭКРАНЫ: ПОСЛЕ ЛОГИНА / ЧАТ / ПРОФИЛЬ / СОЗДАНИЕ ГРУППЫ ----------
 
 function hideAllMainScreens() {
-    if (welcomeScreen)    { welcomeScreen.style.display    = 'none'; welcomeScreen.setAttribute('aria-hidden','true'); }
-    if (registerScreen)   { registerScreen.style.display   = 'none'; registerScreen.setAttribute('aria-hidden','true'); }
-    if (parentInfoScreen) { parentInfoScreen.style.display = 'none'; parentInfoScreen.setAttribute('aria-hidden','true'); }
-    if (dancerInfoScreen) { dancerInfoScreen.style.display = 'none'; dancerInfoScreen.setAttribute('aria-hidden','true'); }
-    if (loginScreen)      { loginScreen.style.display      = 'none'; loginScreen.setAttribute('aria-hidden','true'); }
-    if (feedScreen)       { feedScreen.style.display       = 'none'; feedScreen.setAttribute('aria-hidden','true'); }
-    if (mainScreen)       { mainScreen.style.display       = 'none'; mainScreen.setAttribute('aria-hidden','true'); }
-    if (chatScreen)       { chatScreen.style.display       = 'none'; chatScreen.setAttribute('aria-hidden','true'); }
-    if (profileScreen)    { profileScreen.style.display    = 'none'; profileScreen.setAttribute('aria-hidden','true'); }
-    if (createGroupScreen){ createGroupScreen.style.display= 'none'; createGroupScreen.setAttribute('aria-hidden','true'); }
+    if (welcomeScreen) {
+        welcomeScreen.style.display = 'none';
+        welcomeScreen.setAttribute('aria-hidden', 'true');
+    }
+    if (registerScreen) {
+        registerScreen.style.display = 'none';
+        registerScreen.setAttribute('aria-hidden', 'true');
+    }
+    if (parentInfoScreen) {
+        parentInfoScreen.style.display = 'none';
+        parentInfoScreen.setAttribute('aria-hidden', 'true');
+    }
+    if (dancerInfoScreen) {
+        dancerInfoScreen.style.display = 'none';
+        dancerInfoScreen.setAttribute('aria-hidden', 'true');
+    }
+    if (loginScreen) {
+        loginScreen.style.display = 'none';
+        loginScreen.setAttribute('aria-hidden', 'true');
+    }
+    if (feedScreen) {
+        feedScreen.style.display = 'none';
+        feedScreen.setAttribute('aria-hidden', 'true');
+    }
+    if (mainScreen) {
+        mainScreen.style.display = 'none';
+        mainScreen.setAttribute('aria-hidden', 'true');
+    }
+    if (chatScreen) {
+        chatScreen.style.display = 'none';
+        chatScreen.setAttribute('aria-hidden', 'true');
+    }
+    if (profileScreen) {
+        profileScreen.style.display = 'none';
+        profileScreen.setAttribute('aria-hidden', 'true');
+    }
+    if (createGroupScreen) {
+        createGroupScreen.style.display = 'none';
+        createGroupScreen.setAttribute('aria-hidden', 'true');
+    }
+    if (plusScreen) {
+        plusScreen.style.display = 'none';
+        plusScreen.setAttribute('aria-hidden', 'true');
+    }
+    if (adminScreen) {
+        adminScreen.style.display = 'none';
+        adminScreen.setAttribute('aria-hidden', 'true');
+    }
 }
 
 async function openMainScreen(user) {
@@ -6206,7 +6251,7 @@ async function openFeedScreen() {
     if (createPostBtn) {
         var roleLower = (currentUser.role || '').toLowerCase();
         createPostBtn.style.display =
-            (roleLower === 'trainer' || roleLower === 'тренер') ? 'block' : 'none';
+            (roleLower === 'trainer' || roleLower === 'тренер' || roleLower === 'admin') ? 'block' : 'none';
     }
 
     // Ленту загружаем только первый раз.
@@ -6385,7 +6430,7 @@ function openCreateGroupScreen() {
     }
 
     var roleLower = (currentUser.role || '').toLowerCase();
-    if (roleLower !== 'trainer' && roleLower !== 'тренер') {
+    if (roleLower !== 'trainer' && roleLower !== 'тренер' && roleLower !== 'admin') {
         alert('Группы могут создавать только тренера');
         return;
     }
@@ -6412,6 +6457,47 @@ function openCreateGroupScreen() {
     if (ageField) ageField.style.display = 'none';
     if (ageText)  ageText.textContent = 'Выберите возраст участников';
     if (ageValue) ageValue.value = '';
+}
+
+function openPlusScreen() {
+    if (!plusScreen) return;
+    if (!currentUser || !currentUser.login) {
+        alert('Сначала войдите в аккаунт');
+        return;
+    }
+
+    hideAllMainScreens();
+
+    plusScreen.style.display = 'block';
+    plusScreen.setAttribute('aria-hidden', 'false');
+    showBottomNav();
+    setNavActive('plus');
+
+    hideChatUserModal();
+    hideGroupModal();
+    hideGroupAddModal();
+    clearReply();
+    stopChatStatusUpdates();
+    stopMessagePolling();
+    stopChatListPolling();
+
+    // Показ / скрытие кнопки "Создать группу"
+    if (openCreateGroupScreenBtn) {
+        var roleLower = (currentUser.role || '').toLowerCase();
+        var canCreateGroup =
+            roleLower === 'trainer' ||
+            roleLower === 'тренер' ||
+            roleLower === 'admin';
+
+        openCreateGroupScreenBtn.style.display = canCreateGroup ? 'block' : 'none';
+    }
+}
+
+// нижняя навигация: плюс
+if (navAddBtn) {
+    navAddBtn.addEventListener('click', function () {
+        openPlusScreen();
+    });
 }
 
 function openAdminScreen() {
@@ -6950,7 +7036,7 @@ if (navProfileBtn && profileScreen) {
 
 if (navAddBtn) {
     navAddBtn.addEventListener('click', function () {
-        openCreateGroupScreen();
+        openPlusScreen();
     });
 }
 
@@ -8444,6 +8530,65 @@ document.addEventListener('keydown', function (e) {
         // replyBar и attachPreviewBar оставляем как есть, чтобы пользователь видел, что именно отправляется
     };
 })();
+
+// Переход с плюс-экрана к экрану создания группы
+if (openCreateGroupScreenBtn) {
+    openCreateGroupScreenBtn.addEventListener('click', function () {
+        openCreateGroupScreen();
+    });
+}
+
+// Назад с экрана создания группы на плюс-экран
+if (backFromCreateGroup) {
+    backFromCreateGroup.addEventListener('click', function () {
+        openPlusScreen();
+    });
+}
+
+// Добавление друга по ID (плюс-экран)
+var friendFormEl = document.querySelector('.create-friend-form');
+if (friendFormEl && friendIdInput) {
+    friendIdInput.addEventListener('input', function () {
+        this.value = this.value.replace(/\D/g, '').slice(0, 7);
+    });
+
+    friendFormEl.addEventListener('submit', async function (e) {
+        e.preventDefault();
+        if (!currentUser || !currentUser.login) {
+            alert('Сначала войдите в аккаунт');
+            return;
+        }
+
+        var idVal = friendIdInput.value.trim();
+        if (!/^\d{7}$/.test(idVal)) {
+            alert('ID должен содержать 7 цифр');
+            markFieldError(friendIdInput);
+            return;
+        }
+
+        try {
+            var resp = await fetch('/api/friend/add', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    login: currentUser.login,
+                    publicId: idVal
+                })
+            });
+            var data = await resp.json();
+            if (!resp.ok || !data.ok) {
+                alert(data.error || 'Ошибка добавления друга');
+                return;
+            }
+
+            if (data.chat) {
+                openChat(data.chat);
+            }
+        } catch (e2) {
+            alert('Сетевая ошибка при добавлении друга');
+        }
+    });
+}
 
 // ИНИЦИАЛИЗАЦИЯ ВЛОЖЕНИЙ
 initChatAttachments();

@@ -2049,6 +2049,146 @@ app.post('/api/chat/personal', requireAuth, async (req, res) => {
   }
 });
 
+// /api/friend/add - добавить друга по public_id (ID 7 цифр)
+app.post('/api/friend/add', requireAuth, async (req, res) => {
+  try {
+    const { login, publicId } = req.body;
+
+    if (!login || !publicId) {
+      return res.status(400).json({ ok: false, error: 'Нет логина или ID друга' });
+    }
+
+    const code = String(publicId).trim();
+    if (!/^\d{7}$/.test(code)) {
+      return res.status(400).json({ ok: false, error: 'ID должен содержать 7 цифр' });
+    }
+
+    const u1 = await get(
+      db,
+      'SELECT id, login, role, first_name, last_name, avatar FROM users WHERE login = ?',
+      [login]
+    );
+    if (!u1) {
+      return res.status(404).json({ ok: false, error: 'Пользователь не найден' });
+    }
+
+    const u2 = await get(
+      db,
+      'SELECT id, login, role, first_name, last_name, avatar FROM users WHERE public_id = ?',
+      [code]
+    );
+    if (!u2) {
+      return res.status(404).json({ ok: false, error: 'ID не найден' });
+    }
+
+    // Обычные пользователи не могут находить админа
+    const u1Role = (u1.role || '').toLowerCase();
+    const u2Role = (u2.role || '').toLowerCase();
+    const u1IsAdmin = u1Role === 'admin';
+    const u2IsAdmin = u2Role === 'admin';
+
+    if (u2IsAdmin && !u1IsAdmin && u1.login.toLowerCase() !== u2.login.toLowerCase()) {
+      return res.status(404).json({ ok: false, error: 'ID не найден' });
+    }
+
+    await updateLastSeen(login);
+
+    // Ниже — та же логика, что в /api/chat/personal
+    const r1 = (u1.role || '').toLowerCase();
+    const r2 = (u2.role || '').toLowerCase();
+
+    const isTrainer1 = (r1 === 'trainer' || r1 === 'тренер' || u1.login === ANGELINA_LOGIN);
+    const isTrainer2 = (r2 === 'trainer' || r2 === 'тренер' || u2.login === ANGELINA_LOGIN);
+
+    let chatId;
+    let type;
+    let trainerUser = null;
+    let otherUser   = null;
+
+    if (isTrainer1 || isTrainer2) {
+      type = 'trainer';
+
+      if (isTrainer1 && isTrainer2) {
+        const lowId  = Math.min(u1.id, u2.id);
+        const highId = Math.max(u1.id, u2.id);
+        chatId = 'trainer-' + lowId + '-' + highId;
+
+        trainerUser = (u1.id === lowId) ? u1 : u2;
+        otherUser   = (u1.id === lowId) ? u2 : u1;
+      } else {
+        if (isTrainer1) {
+          trainerUser = u1;
+          otherUser   = u2;
+        } else {
+          trainerUser = u2;
+          otherUser   = u1;
+        }
+
+        if (trainerUser.login === ANGELINA_LOGIN && (otherUser.role || '').toLowerCase() === 'parent') {
+          chatId = 'angelina-' + trainerUser.id + '-' + otherUser.id;
+        } else {
+          chatId = 'trainer-' + trainerUser.id + '-' + otherUser.id;
+        }
+      }
+    } else {
+      const low  = Math.min(u1.id, u2.id);
+      const high = Math.max(u1.id, u2.id);
+      chatId = 'pm-' + low + '-' + high;
+      type   = 'personal';
+    }
+
+    const current = u1; // login в теле = u1.login
+    let other;
+    let chat;
+
+    if (type === 'trainer') {
+      other = (current.login === trainerUser.login) ? otherUser : trainerUser;
+
+      chat = {
+        id:           chatId,
+        type:         'trainer',
+        title:        ((other.first_name || '') + ' ' + (other.last_name || '')).trim(),
+        subtitle:     '',
+        avatar:       other.avatar || '/img/default-avatar.png',
+        trainerId:    trainerUser.id,
+        trainerLogin: trainerUser.login,
+        partnerId:    otherUser.id,
+        partnerLogin: otherUser.login
+      };
+    } else {
+      other = (current.login === u1.login) ? u2 : u1;
+
+      chat = {
+        id:           chatId,
+        type:         'personal',
+        title:        ((other.first_name || '') + ' ' + (other.last_name || '')).trim(),
+        subtitle:     '',
+        avatar:       other.avatar || '/img/default-avatar.png',
+        partnerId:    other.id,
+        partnerLogin: other.login
+      };
+    }
+
+    const last = await getMsg(
+      'SELECT sender_login, text, created_at FROM messages ' +
+      'WHERE chat_id = ? AND (deleted IS NULL OR deleted = 0) ' +
+      'ORDER BY created_at DESC, id DESC LIMIT 1',
+      [chatId]
+    );
+
+    if (last) {
+      chat.lastMessageSenderLogin = last.sender_login;
+      chat.lastMessageText        = last.text;
+      chat.lastMessageCreatedAt   = last.created_at;
+    }
+
+    res.json({ ok: true, chat });
+  } catch (e) {
+    console.error('FRIEND ADD ERROR:', e);
+    res.status(500).json({ ok: false, error: 'Ошибка сервера при добавлении друга' });
+  }
+});
+
 // ---------- MESSAGES: send-file / list / send / forward ----------
 
 // /api/messages/send-file
@@ -3187,8 +3327,8 @@ app.post('/api/groups/create', requireAuth, async (req, res) => {
     }
 
     const roleLower = (user.role || '').toLowerCase();
-    if (roleLower !== 'trainer' && roleLower !== 'тренер') {
-      return res.status(403).json({ error: 'Группы могут создавать только тренера' });
+    if (roleLower !== 'trainer' && roleLower !== 'тренер' && roleLower !== 'admin') {
+      return res.status(403).json({ error: 'Группы могут создавать только тренера или админ' });
     }
 
     const cleanName = name.trim();
@@ -4143,10 +4283,9 @@ app.post('/api/feed/create', requireAuth, uploadAvatar.single('image'), async (r
     }
 
     const roleLower = (user.role || '').toLowerCase();
-    if (roleLower !== 'trainer' && roleLower !== 'тренер') {
-      return res.status(403).json({ error: 'Создавать посты могут только тренера' });
+    if (roleLower !== 'trainer' && roleLower !== 'тренер' && roleLower !== 'admin') {
+      return res.status(403).json({ error: 'Создавать посты могут только тренера и админ' });
     }
-
     const clean = String(text || '').trim();
     if (!clean) {
       return res.status(400).json({ error: 'Текст поста не может быть пустым' });
