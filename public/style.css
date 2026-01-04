@@ -2683,12 +2683,13 @@ textarea {
     padding:0 24px;
 }
 
-/* На телефонах в landscape показываем заглушку */
+/* На телефонах в landscape показываем заглушку 
 @media (max-width: 900px) and (orientation: landscape) {
     .orientation-overlay{
         display:flex;
     }
 }
+*/
 
 /* Упрощаем эффекты на мобильных (iOS/Android) */
 @media (max-width: 900px) {
@@ -2720,27 +2721,6 @@ textarea {
         filter: none !important;
         opacity: 0 !important;
     }
-}
-
-/* дублирующийся блок network-banner (оставляем как есть для совместимости) */
-.network-banner{
-    position:fixed;
-    left:50%;
-    top:10px;
-    transform:translateX(-50%);
-    padding:6px 12px;
-    border-radius:999px;
-    background-color:rgba(255,59,48,0.95); /* красный по умолчанию */
-    color:#FFFFFF;
-    font-size:12px;
-    z-index:200;
-    display:none;
-}
-.network-banner.show{
-    display:block;
-}
-.network-banner.info{
-    background-color:rgba(59,169,255,0.95); /* синий для информационных сообщений */
 }
 
 .group-age{

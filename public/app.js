@@ -142,6 +142,8 @@ var feedCtxDeleteBtn   = null;
 var currentFeedPostCtx = null;
 var feedInitialized = false;
 
+var backToMainFromChat = document.getElementById('backToMainFromChat');
+
 // ЭКРАНЫ
 var welcomeScreen      = document.getElementById('welcome');
 var registerScreen     = document.getElementById('registerScreen');
