@@ -18,8 +18,7 @@ const sharp       = require('sharp');
 const helmet      = require('helmet');          // защита заголовков
 
 ffmpeg.setFfmpegPath(ffmpegPath);
-
-const https = require('https');
+const rateLimit = require('express-rate-limit');
 
 const app   = express();
 const db    = new sqlite3.Database(path.join(__dirname, 'db.sqlite'));
@@ -325,7 +324,7 @@ app.use(express.json({ limit: '1mb' }));
 
 const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
 
-app.use(session({
+const sessionMiddleware = session({
   name: 'vdf_sid',
   secret: SESSION_SECRET,
   resave: false,
@@ -333,9 +332,19 @@ app.use(session({
   cookie: {
     httpOnly: true,
     sameSite: 'lax',
+    secure: process.env.NODE_ENV === 'production',
     maxAge: 30 * 24 * 60 * 60 * 1000   // 30 дней
   }
-}));
+});
+
+app.use(sessionMiddleware);
+
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,  // 15 минут
+  max: 60,                  // максимум 100 запросов в это окно
+  standardHeaders: true,
+  legacyHeaders: false
+});
 
 // ---------- ХРАНИЛИЩЕ АВАТАРОВ / КАРТИНОК / ПРЕВЬЮ ----------
 
@@ -344,25 +353,52 @@ if (!fs.existsSync(avatarsDir)) {
   fs.mkdirSync(avatarsDir, { recursive: true });
 }
 
+const uploadsDir = path.join(__dirname, 'public', 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
 const videoPreviewDir = path.join(__dirname, 'public', 'video-previews');
 if (!fs.existsSync(videoPreviewDir)) {
   fs.mkdirSync(videoPreviewDir, { recursive: true });
 }
 
-const storage = multer.diskStorage({
+// Отдельное хранилище для аватаров/картинок (профиль, лента, аватар группы)
+const avatarStorage = multer.diskStorage({
   destination: function (req, file, cb) {
     cb(null, avatarsDir);
   },
   filename: function (req, file, cb) {
     const login = String(req.body.login || 'user').replace(/[^a-zA-Z0-9_-]/g, '');
-    const ext = path.extname(file.originalname) || '.png';
+    const ext = path.extname(file.originalname) || '.jpg';
     cb(null, login + '-' + Date.now() + ext);
   }
 });
-const upload = multer({
-  storage,
+
+const uploadAvatar = multer({
+  storage: avatarStorage,
   limits: {
-    fileSize: 500 * 1024 * 1024 // 500 МБ
+    fileSize: 10 * 1024 * 1024 // 10 МБ для аватаров/картинок
+  }
+});
+
+// Хранилище для любых вложений чата (фото, видео, файлы, голосовые)
+const attachmentStorage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    cb(null, uploadsDir);
+  },
+  filename: function (req, file, cb) {
+    const safeOriginal = path.basename(file.originalname || 'file')
+      .replace(/[^\w.\-]+/g, '_');
+    const unique = Date.now() + '-' + Math.random().toString(16).slice(2);
+    cb(null, unique + '-' + safeOriginal);
+  }
+});
+
+const uploadAttachment = multer({
+  storage: attachmentStorage,
+  limits: {
+    fileSize: 300 * 1024 * 1024 // 500 МБ для вложений
   }
 });
 
@@ -370,6 +406,21 @@ const upload = multer({
 app.use('/avatars', express.static(avatarsDir, {
   maxAge: '30d',
   immutable: true
+}));
+
+// Вложения чата (любые файлы)
+app.use('/uploads', express.static(uploadsDir, {
+  maxAge: '30d',
+  immutable: true,
+  setHeaders(res, filePath) {
+    const ext = path.extname(filePath).toLowerCase();
+    // Опасные расширения всегда отдаём как загрузку, а не как HTML/JS
+    const dangerous = ['.html', '.htm', '.xhtml', '.js', '.mjs', '.svg', '.xml'];
+    if (dangerous.includes(ext)) {
+      res.setHeader('Content-Type', 'application/octet-stream');
+      res.setHeader('Content-Disposition', 'attachment');
+    }
+  }
 }));
 
 app.use('/video-previews', express.static(videoPreviewDir, {
@@ -915,8 +966,7 @@ app.post('/api/push/subscribe', requireAuth, async (req, res) => {
   }
 });
 
-// /api/check-login
-app.post('/api/check-login', async (req, res) => {
+app.post('/api/check-login', authLimiter, async (req, res) => {
   try {
     const { login } = req.body;
 
@@ -972,7 +1022,7 @@ app.get('/api/session/me', requireLoggedIn, async (req, res) => {
 });
 
 // /api/register
-app.post('/api/register', async (req, res) => {
+app.post('/api/register', authLimiter, async (req, res) => {
   try {
     const { login, password, role, firstName, lastName, team, dob } = req.body;
 
@@ -1033,7 +1083,7 @@ app.post('/api/register', async (req, res) => {
 });
 
 // /api/login
-app.post('/api/login', async (req, res) => {
+app.post('/api/login', authLimiter, async (req, res) => {
   try {
     const { login, password } = req.body;
 
@@ -1136,7 +1186,7 @@ app.post('/api/messages/delete', requireAuth, async (req, res) => {
     }
 
     const msg = await getMsg(
-      'SELECT id, sender_login FROM messages WHERE id = ?',
+      'SELECT id, chat_id, sender_login FROM messages WHERE id = ?',
       [messageId]
     );
     if (!msg) {
@@ -1151,9 +1201,19 @@ app.post('/api/messages/delete', requireAuth, async (req, res) => {
       'UPDATE messages SET deleted = 1 WHERE id = ?',
       [messageId]
     );
-    const row = await getMsg('SELECT chat_id FROM messages WHERE id = ?', [messageId]).catch(() => null);
-    if (row && row.chat_id) {
-      broadcastChatUpdated(row.chat_id).catch(() => {});
+
+    // Если это сообщение было закреплено — снимаем pin
+    try {
+      await runMsg(
+        'DELETE FROM chat_pins WHERE chat_id = ? AND message_id = ?',
+        [msg.chat_id, messageId]
+      );
+    } catch (e2) {
+      console.error('DELETE MESSAGE: remove pin error:', e2);
+    }
+
+    if (msg.chat_id) {
+      broadcastChatUpdated(msg.chat_id).catch(() => {});
     }
     res.json({ ok: true });
   } catch (e) {
@@ -1986,7 +2046,7 @@ app.post('/api/chat/personal', requireAuth, async (req, res) => {
 // ---------- MESSAGES: send-file / list / send / forward ----------
 
 // /api/messages/send-file
-app.post('/api/messages/send-file', requireAuth, upload.single('file'), async (req, res) => {
+app.post('/api/messages/send-file', requireAuth, uploadAttachment.single('file'), async (req, res) => {
   try {
     const chatId      = req.body.chatId;
     const senderLogin = req.body.login;
@@ -2066,7 +2126,7 @@ app.post('/api/messages/send-file', requireAuth, upload.single('file'), async (r
         const srcPath = req.file.path;
         const base    = path.basename(srcPath, path.extname(srcPath));
         const outName = base + '.m4a';
-        const outPath = path.join(avatarsDir, outName);
+        const outPath = path.join(path.dirname(srcPath), outName);
 
         try {
           await transcodeAudioToM4A(srcPath, outPath);
@@ -2086,7 +2146,8 @@ app.post('/api/messages/send-file', requireAuth, upload.single('file'), async (r
       }
     }
 
-    let attachmentUrl = '/avatars/' + req.file.filename;
+    // Вложения чата теперь лежат в /uploads
+    let attachmentUrl = '/uploads/' + req.file.filename;
     const cleanText   = String(text || '').trim();
 
     await updateLastSeen(senderLogin);
@@ -3027,7 +3088,7 @@ app.post('/api/user/status', requireLoggedIn, async (req, res) => {
 });
 
 // /api/profile/avatar
-app.post('/api/profile/avatar', requireAuth, upload.single('avatar'), async (req, res) => {
+app.post('/api/profile/avatar', requireAuth, uploadAvatar.single('avatar'), async (req, res) => {
   try {
     const login = req.body.login;
     if (!login || !req.file) {
@@ -3539,7 +3600,7 @@ app.post('/api/group/remove-member', requireAuth, async (req, res) => {
 });
 
 // /api/group/avatar
-app.post('/api/group/avatar', requireAuth, upload.single('avatar'), async (req, res) => {
+app.post('/api/group/avatar', requireAuth, uploadAvatar.single('avatar'), async (req, res) => {
   try {
     const { login, groupName } = req.body;
 
@@ -3568,6 +3629,21 @@ app.post('/api/group/avatar', requireAuth, upload.single('avatar'), async (req, 
     );
     if (!group) {
       return res.status(404).json({ error: 'Группа не найдена' });
+    }
+
+    // уменьшаем и сжимаем картинку
+    try {
+      const tmpPath = req.file.path + '.tmp';
+
+      await sharp(req.file.path)
+        .rotate()
+        .resize({ width: 512, height: 512, fit: 'cover' })
+        .jpeg({ quality: 80 })
+        .toFile(tmpPath);
+
+      await fs.promises.rename(tmpPath, req.file.path);
+    } catch (e) {
+      console.error('GROUP AVATAR RESIZE ERROR:', e);
     }
 
     const avatarPath = '/avatars/' + req.file.filename;
@@ -3994,7 +4070,7 @@ app.post('/api/feed/list', requireAuth, async (req, res) => {
 });
 
 // /api/feed/create
-app.post('/api/feed/create', requireAuth, upload.single('image'), async (req, res) => {
+app.post('/api/feed/create', requireAuth, uploadAvatar.single('image'), async (req, res) => {
   try {
     const login = req.body.login;
     const text  = req.body.text;
@@ -4143,44 +4219,72 @@ httpServer.listen(HTTP_PORT, () => {
 });
 
 // ---------- WEBSOCKET-СЕРВЕР ----------
-const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
 
 // login -> Set<WebSocket>
 const wsClientsByLogin = new Map();
 
-wss.on('connection', (ws) => {
+// Используем noServer и пробрасываем сессию вручную
+const wss = new WebSocketServer({ noServer: true });
+
+httpServer.on('upgrade', (req, socket, head) => {
+  // Разрешаем только /ws
+  if (!req.url || !req.url.startsWith('/ws')) {
+    socket.destroy();
+    return;
+  }
+
+  // Прогоняем через sessionMiddleware, чтобы получить req.session
+  sessionMiddleware(req, {}, () => {
+    if (!req.session || !req.session.login) {
+      socket.write('HTTP/1.1 401 Unauthorized\r\n\r\n');
+      socket.destroy();
+      return;
+    }
+
+    wss.handleUpgrade(req, socket, head, (ws) => {
+      wss.emit('connection', ws, req);
+    });
+  });
+});
+
+wss.on('connection', (ws, req) => {
   ws.isAlive = true;
-  ws.login   = null;
+
+  // Логин берём только из сессии, не доверяем data.login из клиента
+  const login = String((req.session && req.session.login) || '');
+  ws.login = login;
+  const key = login.toLowerCase();
+  if (!wsClientsByLogin.has(key)) {
+    wsClientsByLogin.set(key, new Set());
+  }
+  wsClientsByLogin.get(key).add(ws);
 
   ws.on('pong', () => {
     ws.isAlive = true;
   });
 
   ws.on('message', (raw) => {
+    // Сейчас от клиента нам по сути ничего не нужно, кроме, возможно, ping'ов.
+    // Если потом захочешь расширять протокол — опирайся на ws.login из сессии.
     let data;
     try {
       data = JSON.parse(raw.toString());
     } catch (e) {
       return;
     }
-    if (data.type === 'auth' && data.login) {
-      const login = String(data.login);
-      ws.login = login;
-      const key = login.toLowerCase();
-      if (!wsClientsByLogin.has(key)) {
-        wsClientsByLogin.set(key, new Set());
-      }
-      wsClientsByLogin.get(key).add(ws);
+    if (data.type === 'ping') {
+      // можно отвечать или игнорировать
+      return;
     }
   });
 
   ws.on('close', () => {
     if (ws.login) {
-      const key = ws.login.toLowerCase();
-      const set = wsClientsByLogin.get(key);
+      const k = ws.login.toLowerCase();
+      const set = wsClientsByLogin.get(k);
       if (set) {
         set.delete(ws);
-        if (!set.size) wsClientsByLogin.delete(key);
+        if (!set.size) wsClientsByLogin.delete(k);
       }
     }
   });
