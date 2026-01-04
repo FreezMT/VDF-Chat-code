@@ -6420,18 +6420,17 @@ function openProfileScreen() {
     setNavActive('profile');
     updateProfileUI();
 }
-
 function openCreateGroupScreen() {
     if (!createGroupScreen) return;
 
     if (!currentUser || !currentUser.role) {
-        alert('Группы могут создавать только тренера');
+        alert('Группы могут создавать только тренера или админ');
         return;
     }
 
     var roleLower = (currentUser.role || '').toLowerCase();
     if (roleLower !== 'trainer' && roleLower !== 'тренер' && roleLower !== 'admin') {
-        alert('Группы могут создавать только тренера');
+        alert('Группы могут создавать только тренера или админ');
         return;
     }
 
@@ -6450,8 +6449,12 @@ function openCreateGroupScreen() {
     stopMessagePolling();
     stopChatListPolling();
 
-    window.scrollTo(0, 0);
+    // Сразу скроллим в начало, чтобы стрелка была наверху экрана
+    try {
+        window.scrollTo(0, 0);
+    } catch (e) {}
 
+    // Очистка формы
     if (groupNameInput) groupNameInput.value = '';
     if (audienceParents) audienceParents.checked = false;
     if (audienceDancers) audienceDancers.checked = false;
