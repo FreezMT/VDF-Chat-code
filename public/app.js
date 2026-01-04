@@ -8399,8 +8399,8 @@ if (createPostBtn) {
             return;
         }
         var roleLower = (currentUser.role || '').toLowerCase();
-        if (roleLower !== 'trainer' && roleLower !== 'тренер') {
-            alert('Создавать посты могут только тренера');
+        if (roleLower !== 'trainer' && roleLower !== 'тренер' && roleLower !== 'admin') {
+            alert('Создавать посты могут только тренера и админ');
             return;
         }
         showPostModal();

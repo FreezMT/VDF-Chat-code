@@ -208,6 +208,21 @@ db.run('ALTER TABLE posts ADD COLUMN image TEXT', err => {
   }
 });
 
+db.run(
+  `CREATE TABLE IF NOT EXISTS audit_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    actor_login TEXT NOT NULL,
+    action TEXT NOT NULL,
+    target_type TEXT,
+    target_id TEXT,
+    details TEXT
+  )`,
+  err => {
+    if (err) console.error('CREATE TABLE audit_log error:', err);
+  }
+);
+
 // ---------- СХЕМА messages.sqlite ----------
 
 msgDb.run(
@@ -474,6 +489,21 @@ function requireLoggedIn(req, res, next) {
 }
 
 // ---------- HELPERS ОСНОВНОЙ БД ----------
+
+
+async function logAudit(actorLogin, action, targetType, targetId, detailsObj) {
+  try {
+    const details = detailsObj ? JSON.stringify(detailsObj) : null;
+    await run(
+      db,
+      `INSERT INTO audit_log (actor_login, action, target_type, target_id, details)
+       VALUES (?, ?, ?, ?, ?)`,
+      [actorLogin || '', action || '', targetType || null, targetId || null, details]
+    );
+  } catch (e) {
+    console.error('AUDIT LOG ERROR:', e);
+  }
+}
 
 function run(conn, sql, params = []) {
   return new Promise((resolve, reject) => {
@@ -1175,7 +1205,13 @@ app.post('/api/messages/edit', requireAuth, async (req, res) => {
     if (row && row.chat_id) {
       broadcastChatUpdated(row.chat_id).catch(() => {});
     }
-
+    await logAudit(
+      login,
+      'message_edit',
+      'message',
+      String(messageId),
+      { chatId: msg.chat_id }
+    );
     res.json({ ok: true });
   } catch (e) {
     console.error('MESSAGE EDIT ERROR:', e);
@@ -1217,7 +1253,13 @@ app.post('/api/messages/delete', requireAuth, async (req, res) => {
     } catch (e2) {
       console.error('DELETE MESSAGE: remove pin error:', e2);
     }
-
+    await logAudit(
+      login,
+      'message_delete',
+      'message',
+      String(messageId),
+      { chatId: msg.chat_id }
+    );
     if (msg.chat_id) {
       broadcastChatUpdated(msg.chat_id).catch(() => {});
     }
@@ -3393,7 +3435,13 @@ app.post('/api/groups/create', requireAuth, async (req, res) => {
   } catch (e2) {
     console.error('ADD ADMINS TO GROUP ERROR:', e2);
   }
-
+    await logAudit(
+      login,
+      'group_create',
+      'group',
+      cleanName,
+      { audience: aud, age: ageToSave }
+    );
     res.status(201).json({
       ok: true,
       group: {
@@ -3401,6 +3449,7 @@ app.post('/api/groups/create', requireAuth, async (req, res) => {
         name: cleanName,
         audience: aud,
         age: ageToSave
+        
       }
     });
   } catch (e) {
@@ -3559,7 +3608,13 @@ app.post('/api/group/set-age', requireAuth, async (req, res) => {
       'UPDATE created_groups SET age = ? WHERE id = ?',
       [age, group.id]
     );
-
+    await logAudit(
+      login,
+      'group_set_age',
+      'group',
+      groupName,
+      { age }
+    );
     res.json({ ok: true, age });
   } catch (e) {
     console.error('GROUP SET AGE ERROR:', e);
@@ -3607,9 +3662,11 @@ app.post('/api/group/add-member', requireAuth, async (req, res) => {
     let teamKey;
     let isCustom = false;
 
+    // Официальная группа: chatId вида "group-<team>"
     if (chatId.startsWith('group-') && !chatId.startsWith('group-custom-')) {
       teamKey = chatId.substring('group-'.length);
     } else {
+      // Кастомная группа: chatId = имя группы
       teamKey = chatId;
       isCustom = true;
     }
@@ -3642,6 +3699,7 @@ app.post('/api/group/add-member', requireAuth, async (req, res) => {
         [teamKey, member.login]
       );
     } else {
+      // Официальная группа по команде
       const isTrainerOfTeam = await get(
         db,
         'SELECT 1 FROM trainer_teams tt ' +
@@ -3670,6 +3728,15 @@ app.post('/api/group/add-member', requireAuth, async (req, res) => {
         [member.id, teamKey]
       );
     }
+
+    // Логируем действие в audit_log
+    await logAudit(
+      login,
+      'group_add_member',
+      isCustom ? 'group_custom' : 'group',
+      chatId, // идентификатор чата, куда добавили
+      { targetLogin: member.login, publicId: member.public_id }
+    );
 
     res.json({
       ok: true,
@@ -3785,7 +3852,13 @@ app.post('/api/group/remove-member', requireAuth, async (req, res) => {
         [membership.id]
       );
     }
-
+    await logAudit(
+      login,
+      'group_remove_member',
+      isCustom ? 'group_custom' : 'group',
+      teamKey,
+      { targetLogin }
+    );
     res.json({ ok: true });
   } catch (e) {
     console.error('GROUP REMOVE MEMBER ERROR:', e);
@@ -4000,7 +4073,13 @@ app.post('/api/group/leave', requireAuth, async (req, res) => {
         'DELETE FROM group_members WHERE user_id = ? AND team = ?',
         [user.id, key]
       );
-
+      await logAudit(
+        login,
+        'group_rename',
+        'group',
+        cleanNew,
+        { oldName, newName: cleanNew }
+      );
       return res.json({ ok: true });
     }
   } catch (e) {
@@ -4127,7 +4206,13 @@ app.post('/api/feed/edit', requireAuth, async (req, res) => {
       'UPDATE posts SET text = ? WHERE id = ?',
       [clean, postId]
     );
-
+    await logAudit(
+      login,
+      'feed_edit',
+      'post',
+      String(postId),
+      {}
+    );
     res.json({ ok: true });
     broadcastFeedUpdated();
   } catch (e) {
@@ -4177,7 +4262,13 @@ app.post('/api/feed/delete', requireAuth, async (req, res) => {
       'DELETE FROM posts WHERE id = ?',
       [postId]
     );
-
+    await logAudit(
+      login,
+      'feed_delete',
+      'post',
+      String(postId),
+      {}
+    );
     res.json({ ok: true });
     broadcastFeedUpdated();
   } catch (e) {
@@ -4327,7 +4418,13 @@ app.post('/api/feed/create', requireAuth, uploadAvatar.single('image'), async (r
       'SELECT id, author_login, text, created_at, image FROM posts WHERE id = ?',
       [result.lastID]
     );
-
+    await logAudit(
+      login,
+      'feed_create',
+      'post',
+      String(row.id),
+      { hasImage: !!row.image }
+    );
     res.status(201).json({
       ok: true,
       post: {
@@ -4678,6 +4775,191 @@ app.post('/api/admin/table-insert', requireLoggedIn, async (req, res) => {
     res.status(500).json({ ok: false, error: String(e.message || e) });
   }
 });
+
+// /api/admin/users — список пользователей с фильтрами
+app.post('/api/admin/users', requireLoggedIn, async (req, res) => {
+  try {
+    const sessLogin = req.session.login;
+    const adminUser = await get(db, 'SELECT role FROM users WHERE login = ?', [sessLogin]);
+    if (!adminUser || String(adminUser.role || '').toLowerCase() !== 'admin') {
+      return res.status(403).json({ ok: false, error: 'Доступ запрещён' });
+    }
+
+    let { q, role } = req.body || {};
+    q    = (q || '').trim();
+    role = (role || '').trim();
+
+    let where = [];
+    let params = [];
+
+    if (role) {
+      where.push('LOWER(role) = LOWER(?)');
+      params.push(role);
+    }
+
+    if (q) {
+      where.push(
+        '(login LIKE ? OR first_name LIKE ? OR last_name LIKE ? OR public_id LIKE ?)'
+      );
+      for (let i = 0; i < 4; i++) {
+        params.push('%' + q + '%');
+      }
+    }
+
+    const sql =
+      'SELECT public_id, login, role, first_name, last_name, team, dob, avatar, created_at ' +
+      'FROM users ' +
+      (where.length ? ('WHERE ' + where.join(' AND ') + ' ') : '') +
+      'ORDER BY created_at DESC, id DESC ' +
+      'LIMIT 200';
+
+    const rows = await all(db, sql, params);
+
+    res.json({
+      ok: true,
+      users: rows.map(r => ({
+        publicId:  r.public_id,
+        login:     r.login,
+        role:      r.role,
+        firstName: r.first_name,
+        lastName:  r.last_name,
+        team:      r.team,
+        dob:       r.dob,
+        avatar:    r.avatar,
+        createdAt: r.created_at
+      }))
+    });
+  } catch (e) {
+    console.error('ADMIN USERS ERROR:', e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
+// /api/admin/user/update — изменить роль / команду пользователя
+app.post('/api/admin/user/update', requireLoggedIn, async (req, res) => {
+  try {
+    const sessLogin = req.session.login;
+    const adminUser = await get(db, 'SELECT role FROM users WHERE login = ?', [sessLogin]);
+    if (!adminUser || String(adminUser.role || '').toLowerCase() !== 'admin') {
+      return res.status(403).json({ ok: false, error: 'Доступ запрещён' });
+    }
+
+    let { login, role, team } = req.body || {};
+    login = (login || '').trim();
+    role  = (role  || '').trim();
+    team  = (team  || '').trim();
+
+    if (!login) {
+      return res.status(400).json({ ok: false, error: 'Нет логина пользователя' });
+    }
+
+    const user = await get(
+      db,
+      'SELECT id, login, role, team FROM users WHERE login = ?',
+      [login]
+    );
+    if (!user) {
+      return res.status(404).json({ ok: false, error: 'Пользователь не найден' });
+    }
+
+    const allowedRoles = ['parent','dancer','trainer','тренер','admin'];
+    if (role && !allowedRoles.includes(role.toLowerCase())) {
+      return res.status(400).json({ ok: false, error: 'Некорректная роль' });
+    }
+
+    // формируем SET
+    const setParts = [];
+    const params   = [];
+
+    if (role) {
+      setParts.push('role = ?');
+      params.push(role);
+    }
+    if (team) {
+      setParts.push('team = ?');
+      params.push(team);
+    }
+
+    if (!setParts.length) {
+      return res.json({ ok: true, changed: 0 });
+    }
+
+    params.push(login);
+
+    const sql = 'UPDATE users SET ' + setParts.join(', ') + ' WHERE login = ?';
+    const r   = await run(db, sql, params);
+
+    // audit
+    await logAudit(
+      sessLogin,
+      'admin_user_update',
+      'user',
+      login,
+      { newRole: role || user.role, newTeam: team || user.team }
+    );
+
+    res.json({ ok: true, changed: r.changes || 0 });
+  } catch (e) {
+    console.error('ADMIN USER UPDATE ERROR:', e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
+// /api/admin/audit — журнал действий
+app.post('/api/admin/audit', requireLoggedIn, async (req, res) => {
+  try {
+    const sessLogin = req.session.login;
+    const adminUser = await get(db, 'SELECT role FROM users WHERE login = ?', [sessLogin]);
+    if (!adminUser || String(adminUser.role || '').toLowerCase() !== 'admin') {
+      return res.status(403).json({ ok: false, error: 'Доступ запрещён' });
+    }
+
+    let { q, limit } = req.body || {};
+    q     = (q || '').trim();
+    let n = parseInt(limit, 10);
+    if (!n || n <= 0) n = 200;
+    if (n > 1000) n = 1000;
+
+    let where  = [];
+    let params = [];
+
+    if (q) {
+      where.push(
+        '(actor_login LIKE ? OR action LIKE ? OR target_type LIKE ? OR target_id LIKE ?)'
+      );
+      for (let i = 0; i < 4; i++) params.push('%' + q + '%');
+    }
+
+    const sql =
+      'SELECT id, created_at, actor_login, action, target_type, target_id, details ' +
+      'FROM audit_log ' +
+      (where.length ? ('WHERE ' + where.join(' AND ') + ' ') : '') +
+      'ORDER BY id DESC ' +
+      'LIMIT ?';
+
+    params.push(n);
+
+    const rows = await all(db, sql, params);
+
+    res.json({
+      ok: true,
+      entries: rows.map(r => ({
+        id:         r.id,
+        createdAt:  r.created_at,
+        actorLogin: r.actor_login,
+        action:     r.action,
+        targetType: r.target_type,
+        targetId:   r.target_id,
+        details:    r.details
+      }))
+    });
+  } catch (e) {
+    console.error('ADMIN AUDIT ERROR:', e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
+
 
 // ---------- START ----------
 
