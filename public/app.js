@@ -433,6 +433,14 @@ var adminTableSelect   = document.getElementById('adminTableSelect');
 var adminLoadTableBtn  = document.getElementById('adminLoadTableBtn');
 var adminTableContainer= document.getElementById('adminTableContainer');
 
+var admin2faStatus     = document.getElementById('admin2faStatus');
+var admin2faEnableBtn  = document.getElementById('admin2faEnableBtn');
+var admin2faDisableBtn = document.getElementById('admin2faDisableBtn');
+var admin2faSetup      = document.getElementById('admin2faSetup');
+var admin2faSecret     = document.getElementById('admin2faSecret');
+var admin2faCode       = document.getElementById('admin2faCode');
+var admin2faConfirmBtn = document.getElementById('admin2faConfirmBtn');
+
 // МОДАЛКА ПОЛЬЗОВАТЕЛЯ
 var chatUserModal     = document.getElementById('chatUserModal');
 var chatUserAvatar    = document.getElementById('chatUserAvatar');
@@ -817,6 +825,144 @@ function showMediaContextMenu(msgInfo, item){
 
     // Собираем кнопки меню (Открыть, Ответить, Переслать, Скачать, Закрепить, Редактировать, Удалить, реакции)
     buildMediaMsgMenuButtons(msgInfo, type, attUrl);
+}
+
+async function adminLoad2faStatus() {
+    if (!isCurrentUserAdmin() || !admin2faStatus) return;
+    try {
+        var resp = await fetch('/api/admin/2fa/status', {
+            method: 'POST',
+            headers: { 'Content-Type':'application/json' },
+            body: JSON.stringify({})
+        });
+        var data = await resp.json();
+        if (!resp.ok || !data.ok) {
+            admin2faStatus.textContent = data.error || 'Ошибка загрузки статуса 2FA';
+            if (admin2faSetup) admin2faSetup.style.display = 'none';
+            return;
+        }
+
+        if (data.enabled) {
+            admin2faStatus.textContent = 'Состояние: 2FA включена';
+            if (admin2faEnableBtn)  admin2faEnableBtn.style.display  = 'none';
+            if (admin2faDisableBtn) admin2faDisableBtn.style.display = '';
+            if (admin2faSetup)      admin2faSetup.style.display      = 'none';
+        } else {
+            admin2faStatus.textContent = 'Состояние: 2FA выключена';
+            if (admin2faEnableBtn)  admin2faEnableBtn.style.display  = '';
+            if (admin2faDisableBtn) admin2faDisableBtn.style.display = 'none';
+            if (admin2faSetup)      admin2faSetup.style.display      = 'none';
+        }
+
+        if (admin2faCode) admin2faCode.value = '';
+    } catch (e) {
+        admin2faStatus.textContent = 'Сетевая ошибка при загрузке статуса 2FA';
+        if (admin2faSetup) admin2faSetup.style.display = 'none';
+    }
+}
+
+async function adminStart2faSetup() {
+    if (!isCurrentUserAdmin() || !admin2faSetup || !admin2faSecret) return;
+    try {
+        var resp = await fetch('/api/admin/2fa/create-secret', {
+            method: 'POST',
+            headers: { 'Content-Type':'application/json' },
+            body: JSON.stringify({})
+        });
+        var data = await resp.json();
+        if (!resp.ok || !data.ok) {
+            alert(data.error || 'Ошибка генерации секрета 2FA');
+            return;
+        }
+        admin2faSecret.textContent = data.base32 || '';
+        if (admin2faSetup) admin2faSetup.style.display = 'block';
+        if (admin2faCode) admin2faCode.value = '';
+        admin2faStatus.textContent = 'Секрет сгенерирован. Добавьте его в приложение и введите код ниже.';
+        if (admin2faEnableBtn)  admin2faEnableBtn.style.display  = 'none';
+        if (admin2faDisableBtn) admin2faDisableBtn.style.display = 'none';
+    } catch (e) {
+        alert('Сетевая ошибка при генерации секрета 2FA');
+    }
+}
+
+async function adminConfirm2fa() {
+    if (!isCurrentUserAdmin() || !admin2faCode) return;
+    var code = admin2faCode.value.trim();
+    if (!/^\d{6}$/.test(code)) {
+        alert('Введите 6‑значный код из приложения');
+        return;
+    }
+    try {
+        var resp = await fetch('/api/admin/2fa/confirm', {
+            method: 'POST',
+            headers: { 'Content-Type':'application/json' },
+            body: JSON.stringify({ code: code })
+        });
+        var data = await resp.json();
+        if (!resp.ok || !data.ok) {
+            alert(data.error || 'Ошибка подтверждения 2FA');
+            return;
+        }
+        alert('2FA включена');
+        adminLoad2faStatus();
+    } catch (e) {
+        alert('Сетевая ошибка при подтверждении 2FA');
+    }
+}
+
+async function adminDisable2fa() {
+    if (!isCurrentUserAdmin()) return;
+    if (!confirm('Выключить 2FA для этого администратора?')) return;
+    try {
+        var resp = await fetch('/api/admin/2fa/disable', {
+            method: 'POST',
+            headers: { 'Content-Type':'application/json' },
+            body: JSON.stringify({})
+        });
+        var data = await resp.json();
+        if (!resp.ok || !data.ok) {
+            alert(data.error || 'Ошибка отключения 2FA');
+            return;
+        }
+        alert('2FA выключена');
+        adminLoad2faStatus();
+    } catch (e) {
+        alert('Сетевая ошибка при отключении 2FA');
+    }
+}
+
+// Админ: 2FA
+if (admin2faEnableBtn) {
+    admin2faEnableBtn.addEventListener('click', function () {
+        if (!isCurrentUserAdmin()) {
+            alert('Доступ только для администратора');
+            return;
+        }
+        adminStart2faSetup();
+    });
+}
+if (admin2faConfirmBtn) {
+    admin2faConfirmBtn.addEventListener('click', function () {
+        if (!isCurrentUserAdmin()) {
+            alert('Доступ только для администратора');
+            return;
+        }
+        adminConfirm2fa();
+    });
+}
+if (admin2faDisableBtn) {
+    admin2faDisableBtn.addEventListener('click', function () {
+        if (!isCurrentUserAdmin()) {
+            alert('Доступ только для администратора');
+            return;
+        }
+        adminDisable2fa();
+    });
+}
+if (admin2faCode) {
+    admin2faCode.addEventListener('input', function () {
+        this.value = this.value.replace(/\D/g, '').slice(0, 6);
+    });
 }
 
 function buildMediaMsgMenuButtons(msgInfo, type, attUrl){
@@ -6615,6 +6761,7 @@ function openAdminScreen() {
         adminLoadTables();
         adminLoadUsers();
         adminLoadAudit();
+        adminLoad2faStatus();
     }
 }
 

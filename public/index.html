@@ -663,6 +663,42 @@
                     Нажмите «Обновить», чтобы увидеть последние действия.
                 </span>
             </div>
+                    <!-- 2FA ДЛЯ АДМИНА -->
+        <hr style="border:none;border-top:1px solid rgba(255,255,255,0.1);margin:12px 0 16px;">
+
+        <h2 class="register-title" style="font-size:20px;margin-bottom:8px;">2FA для админа</h2>
+
+        <div id="admin2faStatus" style="font-size:13px;color:rgba(255,255,255,0.8);margin-bottom:6px;">
+            Загрузка статуса...
+        </div>
+
+        <div class="admin-2fa-buttons">
+            <button type="button" class="admin-2fa-btn" id="admin2faEnableBtn">
+                Включить 2FA
+            </button>
+            <button type="button" class="admin-2fa-btn admin-2fa-btn-danger" id="admin2faDisableBtn">
+                Выключить 2FA
+            </button>
+        </div>
+
+        <div id="admin2faSetup" class="admin-2fa-setup" style="display:none;">
+            <div class="admin-2fa-secret-line">
+                <div>Секрет (base32):</div>
+                <code id="admin2faSecret" class="admin-2fa-secret"></code>
+            </div>
+            <div class="admin-2fa-hint">
+                Добавьте этот ключ в приложение (Google Authenticator, 1Password и т.п.)<br>
+                и введите 6‑значный код ниже для подтверждения.
+            </div>
+            <div class="field" style="max-width:260px;margin:8px 0;">
+                <input id="admin2faCode" type="text" maxlength="6" placeholder="Код из приложения">
+            </div>
+            <button type="button" class="btn btn-primary" id="admin2faConfirmBtn" style="max-width:260px;">
+                Подтвердить и включить
+            </button>
+        </div>
+
+        <!-- дальше идут SQL, таблицы, пользователи, журнал... -->
         </div>
     </main>
 

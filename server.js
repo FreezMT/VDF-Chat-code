@@ -4996,6 +4996,164 @@ app.post('/api/admin/audit', requireLoggedIn, async (req, res) => {
   }
 });
 
+// /api/admin/2fa/status — получить статус 2FA для текущего админа
+app.post('/api/admin/2fa/status', requireLoggedIn, async (req, res) => {
+  try {
+    const sessLogin = req.session.login;
+    if (!sessLogin) {
+      return res.status(401).json({ ok: false, error: 'Не авторизован' });
+    }
+
+    const user = await get(
+      db,
+      'SELECT role, totp_secret, totp_enabled FROM users WHERE login = ?',
+      [sessLogin]
+    );
+    if (!user || String(user.role || '').toLowerCase() !== 'admin') {
+      return res.status(403).json({ ok: false, error: 'Доступ запрещён' });
+    }
+
+    const enabled   = !!Number(user.totp_enabled);
+    const hasSecret = !!(user.totp_secret && user.totp_secret.length);
+
+    res.json({
+      ok: true,
+      enabled,
+      hasSecret
+    });
+  } catch (e) {
+    console.error('ADMIN 2FA STATUS ERROR:', e);
+    res.status(500).json({ ok: false, error: 'Ошибка сервера' });
+  }
+});
+
+// /api/admin/2fa/create-secret — сгенерировать новый секрет (ещё НЕ включает 2FA)
+app.post('/api/admin/2fa/create-secret', requireLoggedIn, async (req, res) => {
+  try {
+    const sessLogin = req.session.login;
+    if (!sessLogin) {
+      return res.status(401).json({ ok: false, error: 'Не авторизован' });
+    }
+
+    const user = await get(
+      db,
+      'SELECT role FROM users WHERE login = ?',
+      [sessLogin]
+    );
+    if (!user || String(user.role || '').toLowerCase() !== 'admin') {
+      return res.status(403).json({ ok: false, error: 'Доступ запрещён' });
+    }
+
+    const secret = speakeasy.generateSecret({
+      length: 20,
+      name: 'VDF Chat Admin (' + sessLogin + ')'
+    });
+
+    await run(
+      db,
+      'UPDATE users SET totp_secret = ?, totp_enabled = 0 WHERE login = ?',
+      [secret.base32, sessLogin]
+    );
+
+    // опционально логируем
+    await logAudit(sessLogin, 'admin_2fa_create_secret', 'user', sessLogin, null);
+
+    res.json({
+      ok: true,
+      base32:     secret.base32,
+      otpauthUrl: secret.otpauth_url
+    });
+  } catch (e) {
+    console.error('ADMIN 2FA CREATE SECRET ERROR:', e);
+    res.status(500).json({ ok: false, error: 'Ошибка сервера' });
+  }
+});
+
+// /api/admin/2fa/confirm — подтвердить секрет кодом из приложения и включить 2FA
+app.post('/api/admin/2fa/confirm', requireLoggedIn, async (req, res) => {
+  try {
+    const sessLogin = req.session.login;
+    const { code }  = req.body || {};
+
+    if (!sessLogin) {
+      return res.status(401).json({ ok: false, error: 'Не авторизован' });
+    }
+
+    const user = await get(
+      db,
+      'SELECT role, totp_secret FROM users WHERE login = ?',
+      [sessLogin]
+    );
+    if (!user || String(user.role || '').toLowerCase() !== 'admin') {
+      return res.status(403).json({ ok: false, error: 'Доступ запрещён' });
+    }
+
+    if (!user.totp_secret) {
+      return res.status(400).json({ ok: false, error: 'Секрет 2FA не создан' });
+    }
+
+    const token = (code || '').trim();
+    if (!/^\d{6}$/.test(token)) {
+      return res.status(400).json({ ok: false, error: 'Введите 6‑значный код' });
+    }
+
+    const okCode = speakeasy.totp.verify({
+      secret:   user.totp_secret,
+      encoding: 'base32',
+      token,
+      window:   1
+    });
+
+    if (!okCode) {
+      return res.status(400).json({ ok: false, error: 'Неверный код 2FA' });
+    }
+
+    await run(
+      db,
+      'UPDATE users SET totp_enabled = 1 WHERE login = ?',
+      [sessLogin]
+    );
+
+    await logAudit(sessLogin, 'admin_2fa_enable', 'user', sessLogin, null);
+
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('ADMIN 2FA CONFIRM ERROR:', e);
+    res.status(500).json({ ok: false, error: 'Ошибка сервера' });
+  }
+});
+
+// /api/admin/2fa/disable — выключить 2FA для админа
+app.post('/api/admin/2fa/disable', requireLoggedIn, async (req, res) => {
+  try {
+    const sessLogin = req.session.login;
+    if (!sessLogin) {
+      return res.status(401).json({ ok: false, error: 'Не авторизован' });
+    }
+
+    const user = await get(
+      db,
+      'SELECT role FROM users WHERE login = ?',
+      [sessLogin]
+    );
+    if (!user || String(user.role || '').toLowerCase() !== 'admin') {
+      return res.status(403).json({ ok: false, error: 'Доступ запрещён' });
+    }
+
+    await run(
+      db,
+      'UPDATE users SET totp_enabled = 0, totp_secret = NULL WHERE login = ?',
+      [sessLogin]
+    );
+
+    await logAudit(sessLogin, 'admin_2fa_disable', 'user', sessLogin, null);
+
+    res.json({ ok: true });
+  } catch (e) {
+    console.error('ADMIN 2FA DISABLE ERROR:', e);
+    res.status(500).json({ ok: false, error: 'Ошибка сервера' });
+  }
+});
 
 
 // ---------- START ----------

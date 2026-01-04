@@ -3265,3 +3265,52 @@ textarea {
     font-size:11px;
     color:rgba(255,255,255,0.7);
 }
+
+.admin-2fa-buttons{
+    display:flex;
+    flex-wrap:wrap;
+    gap:8px;
+    margin-bottom:8px;
+}
+.admin-2fa-btn{
+    border:none;
+    border-radius:999px;
+    background-color:#3F3F3F;
+    color:#FFFFFF;
+    padding:6px 12px;
+    font-size:13px;
+    cursor:pointer;
+}
+.admin-2fa-btn-danger{
+    background-color:#FF3B30;
+}
+.admin-2fa-btn:active{
+    opacity:0.85;
+}
+
+.admin-2fa-setup{
+    margin-top:4px;
+    padding:8px 10px;
+    border-radius:12px;
+    background-color:#000000;
+    font-size:12px;
+}
+.admin-2fa-secret-line{
+    display:flex;
+    flex-wrap:wrap;
+    gap:6px;
+    align-items:center;
+    margin-bottom:4px;
+}
+.admin-2fa-secret{
+    padding:2px 6px;
+    border-radius:6px;
+    background-color:#151515;
+    font-family:monospace;
+    font-size:11px;
+}
+.admin-2fa-hint{
+    font-size:11px;
+    color:rgba(255,255,255,0.7);
+    margin-bottom:4px;
+}
