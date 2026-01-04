@@ -3327,3 +3327,14 @@ textarea {
     font-family:inherit;
     box-sizing:border-box;
 }
+
+.admin-table-selects input[type="number"]{
+    padding:4px 6px;
+    border-radius:8px;
+    border:1px solid rgba(255,255,255,0.3);
+    background-color:#151515;
+    color:#FFFFFF;
+    font-family:inherit;
+    font-size:13px;
+    outline:none;
+}

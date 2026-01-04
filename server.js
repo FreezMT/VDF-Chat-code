@@ -4613,7 +4613,7 @@ app.post('/api/admin/tables', requireLoggedIn, async (req, res) => {
   }
 });
 
-// /api/admin/table-data - данные таблицы (первые N строк)
+// /api/admin/table-data - данные таблицы (страницы с LIMIT/OFFSET)
 app.post('/api/admin/table-data', requireLoggedIn, async (req, res) => {
   try {
     const sessLogin = req.session.login;
@@ -4622,7 +4622,7 @@ app.post('/api/admin/table-data', requireLoggedIn, async (req, res) => {
       return res.status(403).json({ ok: false, error: 'Доступ запрещён' });
     }
 
-    let { db: dbName, table, limit } = req.body;
+    let { db: dbName, table, limit, offset } = req.body;
     dbName = dbName === 'msg' ? 'msg' : 'main';
 
     table = (table || '').trim();
@@ -4634,14 +4634,17 @@ app.post('/api/admin/table-data', requireLoggedIn, async (req, res) => {
     if (!pageSize || pageSize <= 0) pageSize = 100;
     if (pageSize > 1000) pageSize = 1000;
 
+    let off = parseInt(offset, 10);
+    if (!off || off < 0) off = 0;
+
     let pragmaRows, rows;
 
     if (dbName === 'msg') {
       pragmaRows = await allMsg(`PRAGMA table_info(${table})`, []);
-      rows       = await allMsg(`SELECT * FROM ${table} LIMIT ?`, [pageSize]);
+      rows       = await allMsg(`SELECT * FROM ${table} LIMIT ? OFFSET ?`, [pageSize, off]);
     } else {
       pragmaRows = await all(db, `PRAGMA table_info(${table})`, []);
-      rows       = await all(db, `SELECT * FROM ${table} LIMIT ?`, [pageSize]);
+      rows       = await all(db, `SELECT * FROM ${table} LIMIT ? OFFSET ?`, [pageSize, off]);
     }
 
     const columns = pragmaRows.map(r => r.name);
@@ -4659,7 +4662,9 @@ app.post('/api/admin/table-data', requireLoggedIn, async (req, res) => {
       table,
       columns,
       primaryKey,
-      rows
+      rows,
+      limit: pageSize,
+      offset: off
     });
   } catch (e) {
     console.error('ADMIN TABLE DATA ERROR:', e);

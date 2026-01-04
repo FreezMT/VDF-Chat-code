@@ -443,6 +443,18 @@ var admin2faConfirmBtn = document.getElementById('admin2faConfirmBtn');
 
 var admin2faSecret     = document.getElementById('admin2faSecret');
 
+var adminTableLimitInput = document.getElementById('adminTableLimitInput');
+var adminLoadMoreBtn     = document.getElementById('adminLoadMoreBtn');
+
+// состояние пагинации
+var adminTableCurrentDb     = 'main';
+var adminTableCurrentTable  = '';
+var adminTableCurrentLimit  = 200;
+var adminTableCurrentOffset = 0;
+var adminTableCurrentRows   = [];
+var adminTableCurrentCols   = [];
+var adminTableCurrentPk     = null;
+
 // МОДАЛКА ПОЛЬЗОВАТЕЛЯ
 var chatUserModal     = document.getElementById('chatUserModal');
 var chatUserAvatar    = document.getElementById('chatUserAvatar');
@@ -3134,13 +3146,16 @@ async function loadMutedChats() {
 function showBottomNav() {
     if (!bottomNav) return;
     bottomNav.style.display = 'flex';
+    bottomNav.setAttribute('aria-hidden', 'false');
     requestAnimationFrame(function () {
         bottomNav.classList.add('bottom-nav-visible');
     });
 }
+
 function hideBottomNav() {
     if (!bottomNav) return;
     bottomNav.classList.remove('bottom-nav-visible');
+    bottomNav.setAttribute('aria-hidden', 'true');
     setTimeout(function () {
         if (!bottomNav.classList.contains('bottom-nav-visible')) {
             bottomNav.style.display = 'none';
@@ -6405,54 +6420,32 @@ async function loadFeed() {
 // ---------- ЭКРАНЫ: ПОСЛЕ ЛОГИНА / ЧАТ / ПРОФИЛЬ / СОЗДАНИЕ ГРУППЫ ----------
 
 function hideAllMainScreens() {
-    if (welcomeScreen) {
-        welcomeScreen.style.display = 'none';
-        welcomeScreen.setAttribute('aria-hidden', 'true');
+    // 1) Сначала снимаем фокус, чтобы он не остался в скрытом экране
+    try {
+        if (document.activeElement && typeof document.activeElement.blur === 'function') {
+            document.activeElement.blur();
+        }
+    } catch (e) {}
+
+    function hideScreen(el) {
+        if (!el) return;
+        el.style.display = 'none';
+        el.setAttribute('aria-hidden', 'true');
     }
-    if (registerScreen) {
-        registerScreen.style.display = 'none';
-        registerScreen.setAttribute('aria-hidden', 'true');
-    }
-    if (parentInfoScreen) {
-        parentInfoScreen.style.display = 'none';
-        parentInfoScreen.setAttribute('aria-hidden', 'true');
-    }
-    if (dancerInfoScreen) {
-        dancerInfoScreen.style.display = 'none';
-        dancerInfoScreen.setAttribute('aria-hidden', 'true');
-    }
-    if (loginScreen) {
-        loginScreen.style.display = 'none';
-        loginScreen.setAttribute('aria-hidden', 'true');
-    }
-    if (feedScreen) {
-        feedScreen.style.display = 'none';
-        feedScreen.setAttribute('aria-hidden', 'true');
-    }
-    if (mainScreen) {
-        mainScreen.style.display = 'none';
-        mainScreen.setAttribute('aria-hidden', 'true');
-    }
-    if (chatScreen) {
-        chatScreen.style.display = 'none';
-        chatScreen.setAttribute('aria-hidden', 'true');
-    }
-    if (profileScreen) {
-        profileScreen.style.display = 'none';
-        profileScreen.setAttribute('aria-hidden', 'true');
-    }
-    if (createGroupScreen) {
-        createGroupScreen.style.display = 'none';
-        createGroupScreen.setAttribute('aria-hidden', 'true');
-    }
-    if (plusScreen) {
-        plusScreen.style.display = 'none';
-        plusScreen.setAttribute('aria-hidden', 'true');
-    }
-    if (adminScreen) {
-        adminScreen.style.display = 'none';
-        adminScreen.setAttribute('aria-hidden', 'true');
-    }
+
+    hideScreen(welcomeScreen);
+    hideScreen(registerScreen);
+    hideScreen(parentInfoScreen);
+    hideScreen(dancerInfoScreen);
+    hideScreen(loginScreen);
+    hideScreen(feedScreen);
+    hideScreen(mainScreen);
+    hideScreen(chatScreen);
+    hideScreen(profileScreen);
+    hideScreen(createGroupScreen);
+    hideScreen(plusScreen);
+    hideScreen(adminScreen);
+    // bottomNav НЕ трогаем здесь — им управляют showBottomNav/hideBottomNav
 }
 
 async function openMainScreen(user) {
@@ -6508,8 +6501,7 @@ async function openChatsScreen() {
     mainScreen.style.display = 'flex';
     mainScreen.setAttribute('aria-hidden','false');
     showBottomNav();
-
-    setNavActive('chats'); // чаты = домик;
+    setNavActive('chats');
 
     hideChatUserModal();
     hideGroupModal();
@@ -6517,6 +6509,9 @@ async function openChatsScreen() {
     clearReply();
     stopChatStatusUpdates();
     stopMessagePolling();
+
+    // всегда с верха
+    try { window.scrollTo(0, 0); } catch (e) {}
 
     await reloadChatList();
     startChatListPolling();
@@ -6534,6 +6529,7 @@ async function openFeedScreen() {
     feedScreen.style.display = 'flex';
     feedScreen.setAttribute('aria-hidden','false');
     showBottomNav();
+    setNavActive('feed');
 
     hideChatUserModal();
     hideGroupModal();
@@ -6543,22 +6539,21 @@ async function openFeedScreen() {
     stopMessagePolling();
     stopChatListPolling();
 
-    setNavActive('feed');
+    // всегда с верха
+    try { window.scrollTo(0, 0); } catch (e) {}
 
     if (createPostBtn) {
         var roleLower = (currentUser.role || '').toLowerCase();
         createPostBtn.style.display =
-            (roleLower === 'trainer' || roleLower === 'тренер' || roleLower === 'admin') ? 'block' : 'none';
+            (roleLower === 'trainer' || roleLower === 'тренер' || roleLower === 'admin')
+            ? 'block' : 'none';
     }
 
-    // Ленту загружаем только первый раз.
-    // При возврате на вкладку показываем уже отрендеренный список.
     if (!feedInitialized) {
         await loadFeed();
         feedInitialized = true;
     }
 }
-
 
 async function openChat(chat) {
     if (!chatScreen) return;
@@ -6710,6 +6705,7 @@ function openProfileScreen() {
     profileScreen.style.display = 'flex';
     profileScreen.setAttribute('aria-hidden','false');
     showBottomNav();
+    setNavActive('profile');
 
     hideChatUserModal();
     hideGroupModal();
@@ -6719,7 +6715,9 @@ function openProfileScreen() {
     stopMessagePolling();
     stopChatListPolling();
 
-    setNavActive('profile');
+    // всегда с верха
+    try { window.scrollTo(0, 0); } catch (e) {}
+
     updateProfileUI();
 }
 function openCreateGroupScreen() {
@@ -6776,7 +6774,7 @@ function openPlusScreen() {
     hideAllMainScreens();
 
     plusScreen.style.display = 'block';
-    plusScreen.setAttribute('aria-hidden', 'false');
+    plusScreen.setAttribute('aria-hidden','false');
     showBottomNav();
     setNavActive('plus');
 
@@ -6788,7 +6786,9 @@ function openPlusScreen() {
     stopMessagePolling();
     stopChatListPolling();
 
-    // Показ / скрытие кнопки "Создать группу"
+    // всегда с верха
+    try { window.scrollTo(0, 0); } catch (e) {}
+
     if (openCreateGroupScreenBtn) {
         var roleLower = (currentUser.role || '').toLowerCase();
         var canCreateGroup =
@@ -6852,6 +6852,12 @@ function openAdminScreen() {
 
 async function adminLoadTables() {
     if (!isCurrentUserAdmin() || !adminUiDbSelect || !adminTableSelect) return;
+
+    adminTableCurrentOffset = 0;
+    adminTableCurrentRows   = [];
+    adminTableCurrentCols   = [];
+    adminTableCurrentPk     = null;
+
     var dbName = adminUiDbSelect.value || 'main';
     try {
         var resp = await fetch('/api/admin/tables', {
@@ -6880,26 +6886,64 @@ async function adminLoadTables() {
     }
 }
 
-async function adminLoadTableData() {
+async function adminLoadTableData(reset) {
     if (!isCurrentUserAdmin() || !adminUiDbSelect || !adminTableSelect || !adminTableContainer) return;
-    var dbName   = adminUiDbSelect.value || 'main';
-    var table    = adminTableSelect.value;
+
+    var dbName = adminUiDbSelect.value || 'main';
+    var table  = adminTableSelect.value;
     if (!table) {
         alert('Сначала выберите таблицу');
         return;
     }
+
+    var lim = adminTableLimitInput ? parseInt(adminTableLimitInput.value, 10) : 100;
+    if (!lim || lim <= 0) lim = 100;
+    if (lim > 1000) lim = 1000;
+
+    if (reset) {
+        adminTableCurrentOffset = 0;
+        adminTableCurrentRows   = [];
+        adminTableCurrentCols   = [];
+        adminTableCurrentPk     = null;
+    }
+
     try {
         var resp = await fetch('/api/admin/table-data', {
             method: 'POST',
             headers: { 'Content-Type':'application/json' },
-            body: JSON.stringify({ db: dbName, table: table, limit: 100 })
+            body: JSON.stringify({
+                db: dbName,
+                table: table,
+                limit: lim,
+                offset: adminTableCurrentOffset
+            })
         });
         var data = await resp.json();
         if (!resp.ok || !data.ok) {
             alert(data.error || 'Ошибка загрузки данных таблицы');
             return;
         }
-        renderAdminTable(data.table, data.columns || [], data.rows || [], data.primaryKey || null);
+
+        var newRows = data.rows || [];
+
+        if (reset) {
+            adminTableCurrentRows = newRows;
+        } else {
+            adminTableCurrentRows = adminTableCurrentRows.concat(newRows);
+        }
+
+        adminTableCurrentCols   = data.columns    || [];
+        adminTableCurrentPk     = data.primaryKey || null;
+        adminTableCurrentDb     = data.db         || dbName;
+        adminTableCurrentTable  = data.table      || table;
+        adminTableCurrentLimit  = lim;
+        adminTableCurrentOffset = adminTableCurrentOffset + newRows.length;
+
+        renderAdminTable(adminTableCurrentTable, adminTableCurrentCols, adminTableCurrentRows, adminTableCurrentPk);
+
+        if (!newRows.length && !reset) {
+            alert('Больше строк нет');
+        }
     } catch (e) {
         alert('Сетевая ошибка при загрузке данных таблицы');
     }
@@ -7420,6 +7464,33 @@ if (adminTableContainer) {
         } catch (err) {
             alert('Сетевая ошибка при изменении таблицы');
         }
+    });
+}
+
+// Табличный редактор: смена БД
+if (adminUiDbSelect) {
+    adminUiDbSelect.addEventListener('change', function () {
+        if (isCurrentUserAdmin()) {
+            adminLoadTables();
+        }
+    });
+}
+
+// Табличный редактор: кнопка "Загрузить" (с нуля)
+if (adminLoadTableBtn) {
+    adminLoadTableBtn.addEventListener('click', function () {
+        adminLoadTableData(true);
+    });
+}
+
+// Табличный редактор: "Ещё" (следующая пачка)
+if (adminLoadMoreBtn) {
+    adminLoadMoreBtn.addEventListener('click', function () {
+        if (!adminTableCurrentTable) {
+            alert('Сначала загрузите таблицу');
+            return;
+        }
+        adminLoadTableData(false);
     });
 }
 
