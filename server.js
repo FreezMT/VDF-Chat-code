@@ -3029,26 +3029,43 @@ app.post('/api/user/info', requireLoggedIn, async (req, res) => {
       return res.status(400).json({ error: 'Нет логина' });
     }
 
-    const user = await get(
+    const target = await get(
       db,
       'SELECT public_id, login, role, first_name, last_name, team, dob, avatar FROM users WHERE login = ?',
       [login]
     );
 
-    if (!user) {
+    if (!target) {
+      return res.status(404).json({ error: 'Пользователь не найден' });
+    }
+
+    const requesterLogin = req.session && req.session.login;
+    let requesterRole = null;
+    if (requesterLogin) {
+      const reqUser = await get(db, 'SELECT role FROM users WHERE login = ?', [requesterLogin]);
+      requesterRole = reqUser ? (reqUser.role || '') : null;
+    }
+
+    const targetRoleLower    = String(target.role || '').toLowerCase();
+    const requesterRoleLower = String(requesterRole || '').toLowerCase();
+    const isRequesterAdmin   = requesterRoleLower === 'admin';
+    const isSelf             = requesterLogin && requesterLogin.toLowerCase() === target.login.toLowerCase();
+
+    // Админ невидим для обычных пользователей: нельзя запросить его info
+    if (targetRoleLower === 'admin' && !isSelf && !isRequesterAdmin) {
       return res.status(404).json({ error: 'Пользователь не найден' });
     }
 
     res.json({
       ok:        true,
-      login:     user.login,
-      role:      user.role,
-      firstName: user.first_name,
-      lastName:  user.last_name,
-      team:      user.team,
-      dob:       user.dob,
-      avatar:    user.avatar,
-      publicId:  user.public_id
+      login:     target.login,
+      role:      target.role,
+      firstName: target.first_name,
+      lastName:  target.last_name,
+      team:      target.team,
+      dob:       target.dob,
+      avatar:    target.avatar,
+      publicId:  target.public_id
     });
   } catch (e) {
     console.error('USER INFO ERROR:', e);
@@ -3065,17 +3082,34 @@ app.post('/api/user/status', requireLoggedIn, async (req, res) => {
       return res.status(400).json({ error: 'Нет логина' });
     }
 
-    const user = await get(
+    const target = await get(
       db,
-      'SELECT last_seen FROM users WHERE login = ?',
+      'SELECT last_seen, role FROM users WHERE login = ?',
       [login]
     );
 
-    if (!user) {
+    if (!target) {
       return res.status(404).json({ error: 'Пользователь не найден' });
     }
 
-    const lastSeen = user.last_seen;
+    const requesterLogin = req.session && req.session.login;
+    let requesterRole = null;
+    if (requesterLogin) {
+      const reqUser = await get(db, 'SELECT role FROM users WHERE login = ?', [requesterLogin]);
+      requesterRole = reqUser ? (reqUser.role || '') : null;
+    }
+
+    const targetRoleLower    = String(target.role || '').toLowerCase();
+    const requesterRoleLower = String(requesterRole || '').toLowerCase();
+    const isRequesterAdmin   = requesterRoleLower === 'admin';
+    const isSelf             = requesterLogin && requesterLogin.toLowerCase() === login.toLowerCase();
+
+    // Статус админа скрыт от обычных пользователей
+    if (targetRoleLower === 'admin' && !isSelf && !isRequesterAdmin) {
+      return res.status(404).json({ error: 'Пользователь не найден' });
+    }
+
+    const lastSeen = target.last_seen;
     let online = false;
 
     if (lastSeen) {
@@ -4211,6 +4245,56 @@ app.post('/api/feed/like', requireAuth, async (req, res) => {
   } catch (e) {
     console.error('FEED LIKE ERROR:', e);
     res.status(500).json({ ok: false, error: 'Ошибка сервера при лайке поста' });
+  }
+});
+
+// /api/admin/sql - прямой SQL-доступ для администратора
+app.post('/api/admin/sql', requireLoggedIn, async (req, res) => {
+  try {
+    const sessLogin = req.session.login;
+    if (!sessLogin) {
+      return res.status(401).json({ ok: false, error: 'Не авторизован' });
+    }
+
+    const adminUser = await get(db, 'SELECT role FROM users WHERE login = ?', [sessLogin]);
+    if (!adminUser || String(adminUser.role || '').toLowerCase() !== 'admin') {
+      return res.status(403).json({ ok: false, error: 'Доступ запрещён' });
+    }
+
+    let { db: dbName, sql } = req.body;
+    sql = (sql || '').trim();
+    if (!sql) {
+      return res.status(400).json({ ok: false, error: 'Пустой SQL-запрос' });
+    }
+
+    const isSelect = /^select\b/i.test(sql);
+    const isPragma = /^pragma\b/i.test(sql);
+
+    let connAll, connRun;
+
+    if (dbName === 'msg') {
+      connAll = allMsg;
+      connRun = runMsg;
+    } else {
+      connAll = all;
+      connRun = run;
+      dbName = 'main';
+    }
+
+    let result;
+
+    if (isSelect || isPragma) {
+      const rows = await connAll(sql, []);
+      result = { rows };
+    } else {
+      const r = await connRun(sql, []);
+      result = { changes: r.changes || 0, lastID: r.lastID || null };
+    }
+
+    res.json({ ok: true, db: dbName, result });
+  } catch (e) {
+    console.error('ADMIN SQL ERROR:', e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
   }
 });
 

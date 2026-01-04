@@ -348,6 +348,14 @@ var profileIdEl       = document.getElementById('profileId');
 var profileTeamEl     = document.getElementById('profileTeam');
 var profileDobEl      = document.getElementById('profileDob');
 var logoutBtn         = document.getElementById('logoutBtn');
+var profileAdminBtn  = document.getElementById('profileAdminBtn');
+
+// ADMIN SCREEN
+var adminScreen     = document.getElementById('adminScreen');
+var adminDbSelect   = document.getElementById('adminDbSelect');
+var adminSqlInput   = document.getElementById('adminSqlInput');
+var adminSqlRunBtn  = document.getElementById('adminSqlRunBtn');
+var adminSqlResult  = document.getElementById('adminSqlResult');
 
 // МОДАЛКА ПОЛЬЗОВАТЕЛЯ
 var chatUserModal     = document.getElementById('chatUserModal');
@@ -2890,6 +2898,12 @@ function updateProfileUI() {
             profileDobEl.style.display = '';
             profileDobEl.textContent   = currentUser.dobFormatted;
         }
+    }
+
+    // Кнопка "Админ‑панель" только для admin
+    if (profileAdminBtn) {
+        var roleLower2 = (currentUser.role || '').toLowerCase();
+        profileAdminBtn.style.display = (roleLower2 === 'admin') ? '' : 'none';
     }
 }
 
@@ -6370,6 +6384,33 @@ function openCreateGroupScreen() {
     if (ageValue) ageValue.value = '';
 }
 
+function openAdminScreen() {
+    if (!adminScreen) return;
+    if (!currentUser || (currentUser.role || '').toLowerCase() !== 'admin') {
+        alert('Доступ только для администратора');
+        return;
+    }
+
+    hideAllMainScreens();
+
+    adminScreen.style.display = 'flex';
+    adminScreen.setAttribute('aria-hidden','false');
+    showBottomNav();
+
+    hideChatUserModal();
+    hideGroupModal();
+    hideGroupAddModal();
+    clearReply();
+    stopChatStatusUpdates();
+    stopMessagePolling();
+    stopChatListPolling();
+
+    // Админ логически ближе всего к профилю
+    setNavActive('profile');
+
+    if (adminSqlResult) adminSqlResult.textContent = '';
+}
+
 // === КОНТЕКСТНОЕ МЕНЮ ЧАТОВ ===
 
 function createChatContextMenu() {
@@ -7985,6 +8026,40 @@ if (forwardSubmitBtn) {
             }
         } catch (e) {
             alert('Сетевая ошибка при пересылке');
+        }
+    });
+}
+
+if (profileAdminBtn) {
+    profileAdminBtn.addEventListener('click', function () {
+        openAdminScreen();
+    });
+}
+
+if (adminSqlRunBtn && adminSqlInput && adminDbSelect && adminSqlResult) {
+    adminSqlRunBtn.addEventListener('click', async function () {
+        var sql = adminSqlInput.value;
+        var dbName = adminDbSelect.value || 'main';
+        sql = (sql || '').trim();
+        if (!sql) {
+            alert('Введите SQL‑запрос');
+            return;
+        }
+
+        try {
+            var resp = await fetch('/api/admin/sql', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ db: dbName, sql: sql })
+            });
+            var data = await resp.json();
+            if (!resp.ok || !data.ok) {
+                alert(data.error || 'Ошибка выполнения запроса');
+                return;
+            }
+            adminSqlResult.textContent = JSON.stringify(data.result, null, 2);
+        } catch (e) {
+            alert('Сетевая ошибка при выполнении запроса');
         }
     });
 }

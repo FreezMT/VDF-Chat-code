@@ -553,6 +553,36 @@
             <button type="button" class="profile-logout-btn" id="logoutBtn">
                 Выйти из аккаунта
             </button>
+            <button type="button" class="profile-admin-btn" id="profileAdminBtn">
+                Админ‑панель
+            </button>
+        </div>
+    </main>
+    <main id="adminScreen" class="admin-screen" aria-hidden="true">
+        <div class="admin-content">
+            <h1 class="register-title">Админ‑панель</h1>
+            <p class="register-subtitle">
+                Внимание: прямой доступ к базе данных<br>
+                Используйте осторожно
+            </p>
+
+            <div class="admin-db-select">
+                <label>
+                    <span>База данных:</span>
+                    <select id="adminDbSelect">
+                        <option value="main">Основная (db.sqlite)</option>
+                        <option value="msg">Сообщения (messages.sqlite)</option>
+                    </select>
+                </label>
+            </div>
+
+            <div class="admin-sql-wrapper">
+                <textarea id="adminSqlInput" placeholder="Например: SELECT * FROM users LIMIT 10;"></textarea>
+            </div>
+
+            <button type="button" class="btn btn-primary" id="adminSqlRunBtn">Выполнить</button>
+
+            <pre id="adminSqlResult" class="admin-sql-result"></pre>
         </div>
     </main>
 
