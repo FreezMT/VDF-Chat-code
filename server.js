@@ -21,6 +21,10 @@ ffmpeg.setFfmpegPath(ffmpegPath);
 const rateLimit = require('express-rate-limit');
 
 const app   = express();
+// На Render / Heroku / любом обратном прокси ОБЯЗАТЕЛЬНО:
+app.set('trust proxy', 1);
+
+
 const db    = new sqlite3.Database(path.join(__dirname, 'db.sqlite'));
 const msgDb = new sqlite3.Database(path.join(__dirname, 'messages.sqlite'));
 // Оптимизация SQLite: WAL + безопасные PRAGMA
@@ -332,7 +336,9 @@ const sessionMiddleware = session({
   cookie: {
     httpOnly: true,
     sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
+    // Для твоей текущей конфигурации (HTTP / локально) лучше оставить secure: false.
+    // Когда перейдёшь на полноценный HTTPS, можно будет включить secure: true.
+    secure: false,
     maxAge: 30 * 24 * 60 * 60 * 1000   // 30 дней
   }
 });
