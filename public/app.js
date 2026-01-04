@@ -364,12 +364,15 @@ var adminSqlInput   = document.getElementById('adminSqlInput');
 var adminSqlRunBtn  = document.getElementById('adminSqlRunBtn');
 var adminSqlResult  = document.getElementById('adminSqlResult');
 
-// ADMIN SCREEN
-var adminScreen        = document.getElementById('adminScreen');
-var adminDbSelect      = document.getElementById('adminDbSelect');
-var adminSqlInput      = document.getElementById('adminSqlInput');
-var adminSqlRunBtn     = document.getElementById('adminSqlRunBtn');
-var adminSqlResult     = document.getElementById('adminSqlResult');
+// Admin: пользователи и журнал
+var adminUserSearch     = document.getElementById('adminUserSearch');
+var adminUserRoleFilter = document.getElementById('adminUserRoleFilter');
+var adminUserReloadBtn  = document.getElementById('adminUserReloadBtn');
+var adminUsersList      = document.getElementById('adminUsersList');
+
+var adminAuditSearch    = document.getElementById('adminAuditSearch');
+var adminAuditReloadBtn = document.getElementById('adminAuditReloadBtn');
+var adminAuditList      = document.getElementById('adminAuditList');
 
 var adminUiDbSelect    = document.getElementById('adminUiDbSelect');
 var adminTableSelect   = document.getElementById('adminTableSelect');
@@ -6526,7 +6529,6 @@ function openAdminScreen() {
     stopMessagePolling();
     stopChatListPolling();
 
-    // Логически ближе всего к профилю
     setNavActive('profile');
 
     if (adminSqlResult) {
@@ -6539,8 +6541,13 @@ function openAdminScreen() {
     if (adminUiDbSelect) {
         adminUiDbSelect.value = 'main';
     }
-    // При открытии сразу грузим список таблиц основной БД
-    adminLoadTables();
+
+    // табличный редактор
+    if (isCurrentUserAdmin()) {
+        adminLoadTables();
+        adminLoadUsers();
+        adminLoadAudit();
+    }
 }
 
 async function adminLoadTables() {
@@ -6597,6 +6604,7 @@ async function adminLoadTableData() {
         alert('Сетевая ошибка при загрузке данных таблицы');
     }
 }
+
 
 function renderAdminTable(tableName, columns, rows, primaryKey) {
     if (!adminTableContainer) return;
@@ -6656,6 +6664,165 @@ function renderAdminTable(tableName, columns, rows, primaryKey) {
     html.push('</tr></tbody></table>');
 
     adminTableContainer.innerHTML = html.join('');
+}
+
+async function adminLoadUsers() {
+    if (!isCurrentUserAdmin() || !adminUsersList) return;
+
+    var q    = adminUserSearch     ? adminUserSearch.value.trim()     : '';
+    var role = adminUserRoleFilter ? adminUserRoleFilter.value.trim() : '';
+
+    try {
+        var resp = await fetch('/api/admin/users', {
+            method: 'POST',
+            headers: { 'Content-Type':'application/json' },
+            body: JSON.stringify({ q: q, role: role })
+        });
+        var data = await resp.json();
+        if (!resp.ok || !data.ok) {
+            alert(data.error || 'Ошибка загрузки пользователей');
+            return;
+        }
+        renderAdminUsers(data.users || []);
+    } catch (e) {
+        alert('Сетевая ошибка при загрузке пользователей');
+    }
+}
+
+function renderAdminUsers(users) {
+    if (!adminUsersList) return;
+
+    if (!users.length) {
+        adminUsersList.innerHTML =
+            '<span style="font-size:12px;color:rgba(255,255,255,0.7);">Пользователи не найдены.</span>';
+        return;
+    }
+
+    var html = [];
+    users.forEach(function(u){
+        var fullName = ((u.firstName || '') + ' ' + (u.lastName || '')).trim();
+        html.push('<div class="admin-user-card" data-login="' + escapeHtml(u.login) + '">');
+
+        html.push('<div class="admin-user-header">');
+        html.push('<div class="admin-user-login">' + escapeHtml(u.login) + '</div>');
+        if (u.publicId) {
+            html.push('<div class="admin-user-publicid">ID: ' + escapeHtml(u.publicId) + '</div>');
+        }
+        html.push('</div>');
+
+        if (fullName) {
+            html.push('<div class="admin-user-name">' + escapeHtml(fullName) + '</div>');
+        }
+
+        html.push('<div class="admin-user-meta">');
+
+        html.push('<label><span>Роль:</span>' +
+            '<select class="admin-user-role-select">' +
+            '<option value="parent"'   + ((u.role || '').toLowerCase()==='parent'   ? ' selected':'') + '>parent</option>' +
+            '<option value="dancer"'   + ((u.role || '').toLowerCase()==='dancer'   ? ' selected':'') + '>dancer</option>' +
+            '<option value="trainer"'  + ((u.role || '').toLowerCase()==='trainer'  ? ' selected':'') + '>trainer</option>' +
+            '<option value="тренер"'   + ((u.role || '').toLowerCase()==='тренер'   ? ' selected':'') + '>тренер</option>' +
+            '<option value="admin"'    + ((u.role || '').toLowerCase()==='admin'    ? ' selected':'') + '>admin</option>' +
+            '</select></label>');
+
+        html.push('<label><span>Команда:</span>' +
+            '<input type="text" class="admin-user-team-input" value="' + escapeHtml(u.team || '') + '"></label>');
+
+        html.push('<button type="button" class="admin-user-save-btn">Сохранить</button>');
+
+        html.push('</div>'); // meta
+        html.push('</div>'); // card
+    });
+
+    adminUsersList.innerHTML = html.join('');
+}
+
+async function adminSaveUserCard(cardEl) {
+    if (!cardEl) return;
+    var login = cardEl.dataset.login;
+    if (!login) return;
+
+    var roleSel = cardEl.querySelector('.admin-user-role-select');
+    var teamInp = cardEl.querySelector('.admin-user-team-input');
+    var newRole = roleSel ? roleSel.value.trim() : '';
+    var newTeam = teamInp ? teamInp.value.trim() : '';
+
+    try {
+        var resp = await fetch('/api/admin/user/update', {
+            method: 'POST',
+            headers: { 'Content-Type':'application/json' },
+            body: JSON.stringify({ login: login, role: newRole, team: newTeam })
+        });
+        var data = await resp.json();
+        if (!resp.ok || !data.ok) {
+            alert(data.error || 'Ошибка сохранения пользователя');
+            return;
+        }
+        alert('Изменения сохранены');
+        // перечитывать список необязательно, но можно:
+        // adminLoadUsers();
+    } catch (e) {
+        alert('Сетевая ошибка при сохранении пользователя');
+    }
+}
+
+async function adminLoadAudit() {
+    if (!isCurrentUserAdmin() || !adminAuditList) return;
+
+    var q = adminAuditSearch ? adminAuditSearch.value.trim() : '';
+
+    try {
+        var resp = await fetch('/api/admin/audit', {
+            method: 'POST',
+            headers: { 'Content-Type':'application/json' },
+            body: JSON.stringify({ q: q, limit: 200 })
+        });
+        var data = await resp.json();
+        if (!resp.ok || !data.ok) {
+            alert(data.error || 'Ошибка загрузки журнала');
+            return;
+        }
+        renderAdminAudit(data.entries || []);
+    } catch (e) {
+        alert('Сетевая ошибка при загрузке журнала');
+    }
+}
+
+function renderAdminAudit(entries) {
+    if (!adminAuditList) return;
+
+    if (!entries.length) {
+        adminAuditList.innerHTML =
+            '<span style="font-size:12px;color:rgba(255,255,255,0.7);">Пока нет записей журнала.</span>';
+        return;
+    }
+
+    var html = [];
+    entries.forEach(function(e){
+        html.push('<div class="admin-audit-entry">');
+
+        html.push('<div class="admin-audit-line1">');
+        html.push('<span>' + escapeHtml(e.createdAt || '') + '</span>');
+        html.push('<span>' + escapeHtml(e.actorLogin || '') + '</span>');
+        html.push('</div>');
+
+        html.push('<div class="admin-audit-line2">');
+        html.push('<strong>' + escapeHtml(e.action || '') + '</strong>');
+        if (e.targetType || e.targetId) {
+            html.push(' &mdash; ' + escapeHtml(e.targetType || '') +
+                (e.targetId ? (' [' + escapeHtml(e.targetId) + ']') : ''));
+        }
+        html.push('</div>');
+
+        if (e.details) {
+            html.push('<div class="admin-audit-details">' +
+                escapeHtml(e.details) + '</div>');
+        }
+
+        html.push('</div>');
+    });
+
+    adminAuditList.innerHTML = html.join('');
 }
 
 // === КОНТЕКСТНОЕ МЕНЮ ЧАТОВ ===
@@ -8592,6 +8759,32 @@ if (friendFormEl && friendIdInput) {
         } catch (e2) {
             alert('Сетевая ошибка при добавлении друга');
         }
+    });
+}
+
+// Админ-панель: пользователи
+if (adminUserReloadBtn) {
+    adminUserReloadBtn.addEventListener('click', function () {
+        adminLoadUsers();
+    });
+}
+if (adminUsersList) {
+    adminUsersList.addEventListener('click', function (e) {
+        var btn = e.target.closest('.admin-user-save-btn');
+        if (!btn) return;
+        if (!isCurrentUserAdmin()) {
+            alert('Доступ только для администратора');
+            return;
+        }
+        var card = e.target.closest('.admin-user-card');
+        adminSaveUserCard(card);
+    });
+}
+
+// Админ-панель: журнал
+if (adminAuditReloadBtn) {
+    adminAuditReloadBtn.addEventListener('click', function () {
+        adminLoadAudit();
     });
 }
 

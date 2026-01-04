@@ -562,8 +562,7 @@
         <div class="admin-content">
             <h1 class="register-title">Админ‑панель</h1>
             <p class="register-subtitle">
-                Прямой доступ к базе данных.<br>
-                Будьте осторожны, изменения необратимы.
+                Прямой доступ к данным. Будьте осторожны — изменения необратимы.
             </p>
 
             <!-- SQL режим -->
@@ -578,14 +577,14 @@
             </div>
 
             <div class="admin-sql-wrapper">
-                <textarea id="adminSqlInput" placeholder="Например: SELECT * FROM users LIMIT 10."></textarea>
+                <textarea id="adminSqlInput" placeholder="Например: SELECT * FROM users LIMIT 10;"></textarea>
             </div>
 
             <button type="button" class="btn btn-primary" id="adminSqlRunBtn">Выполнить SQL</button>
 
             <pre id="adminSqlResult" class="admin-sql-result">Результат будет показан здесь</pre>
 
-            <!-- UI‑режим (без SQL) -->
+            <!-- UI-редактор таблиц -->
             <hr style="border:none;border-top:1px solid rgba(255,255,255,0.1);margin:20px 0;">
 
             <h2 class="register-title" style="font-size:20px;margin-bottom:8px;">Редактор таблиц</h2>
@@ -616,6 +615,50 @@
                     Выберите базу и таблицу, затем нажмите «Загрузить».
                 </span>
             </div>
+
+            <!-- Пользователи -->
+            <hr style="border:none;border-top:1px solid rgba(255,255,255,0.1);margin:20px 0;">
+
+            <h2 class="register-title" style="font-size:20px;margin-bottom:8px;">Пользователи</h2>
+
+            <div class="admin-users-controls">
+                <input id="adminUserSearch" type="text" placeholder="Поиск по логину, ФИО или ID">
+                <select id="adminUserRoleFilter">
+                    <option value="">Все роли</option>
+                    <option value="parent">родитель</option>
+                    <option value="dancer">танцор</option>
+                    <option value="trainer">тренер</option>
+                    <option value="тренер">тренер (ru)</option>
+                    <option value="admin">admin</option>
+                </select>
+                <button type="button" class="admin-users-reload-btn" id="adminUserReloadBtn">
+                    Обновить
+                </button>
+            </div>
+
+            <div id="adminUsersList" class="admin-users-list">
+                <span style="font-size:12px;color:rgba(255,255,255,0.7);">
+                    Нажмите «Обновить», чтобы загрузить список пользователей.
+                </span>
+            </div>
+
+            <!-- Журнал действий -->
+            <hr style="border:none;border-top:1px solid rgba(255,255,255,0.1);margin:20px 0;">
+
+            <h2 class="register-title" style="font-size:20px;margin-bottom:8px;">Журнал действий</h2>
+
+            <div class="admin-audit-controls">
+                <input id="adminAuditSearch" type="text" placeholder="Фильтр по логину, действию или объекту">
+                <button type="button" class="admin-users-reload-btn" id="adminAuditReloadBtn">
+                    Обновить
+                </button>
+            </div>
+
+            <div id="adminAuditList" class="admin-audit-list">
+                <span style="font-size:12px;color:rgba(255,255,255,0.7);">
+                    Нажмите «Обновить», чтобы увидеть последние действия.
+                </span>
+            </div>
         </div>
     </main>
 
@@ -636,6 +679,7 @@
             Создать группу
         </button>
     </main>
+
 
     <!-- CREATE GROUP -->
     <main id="createGroupScreen" class="create-group-screen" aria-hidden="true">
