@@ -29,7 +29,61 @@
     <link rel="apple-touch-icon" href="/logo.png">
 </head>
 <body>
-    <noscript>Для работы приложения необходим JavaScript.</noscript>
+
+    <!-- INSTALL GUIDE / ИНСТРУКЦИЯ ПО УСТАНОВКЕ PWA -->
+    <main id="installScreen" class="install-screen" aria-hidden="true" style="display:none;">
+        <div class="install-content">
+            <h1 class="install-title">Как установить VDF Chat на iPhone?</h1>
+            <p class="install-subtitle">
+                Пара простых шагов, чтобы добавить приложение на главный экран.
+            </p>
+
+            <section class="install-steps">
+                <div class="install-step">
+                    <div class="install-step-title">Шаг 1</div>
+                    <div class="install-step-text">
+                        Откройте этот сайт на вашем iPhone в&nbsp;браузере <strong>Safari</strong>.
+                    </div>
+                </div>
+                <div class="install-step">
+                    <div class="install-step-title">Шаг 2</div>
+                    <div class="install-step-text">
+                        Нажмите значок <strong>«Поделиться»</strong> (квадрат со стрелкой) внизу экрана.
+                    </div>
+                </div>
+                <div class="install-step">
+                    <div class="install-step-title">Шаг 3</div>
+                    <div class="install-step-text">
+                        В списке действий выберите <strong>«На экран “Домой”»</strong>.
+                    </div>
+                </div>
+                <div class="install-step">
+                    <div class="install-step-title">Шаг 4</div>
+                    <div class="install-step-text">
+                        Подтвердите добавление — ярлык VDF Chat появится на главном экране.
+                    </div>
+                </div>
+            </section>
+
+            <!-- Для Android/Chrome покажем кнопку установки через beforeinstallprompt -->
+            <button type="button" class="btn install-install-btn" id="installInstallBtn" style="display:none;">
+                Установить приложение
+            </button>
+
+            <button type="button" class="btn btn-primary install-continue-btn" id="installContinueBtn">
+                Продолжить в приложении
+            </button>
+
+            <label class="install-dontshow">
+                <input type="checkbox" id="installDontShow">
+                <span>Больше не показывать эту инструкцию</span>
+            </label>
+
+            <p class="install-note">
+                Если вы уже добавили VDF Chat на главный экран, просто нажмите «Продолжить».
+            </p>
+        </div>
+    </main>
 
     <!-- SPLASH -->
     <main id="splash" class="splash" aria-hidden="true">

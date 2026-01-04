@@ -44,6 +44,18 @@ if (GLOBAL_CONTEXT_LOCK_ENABLED) {
 
 // ---------- АВТО-ВОССТАНОВЛЕНИЕ СЕССИИ / СПЛЭШ ----------
 
+// beforeinstallprompt для Android/Chrome
+window.addEventListener('beforeinstallprompt', function (e) {
+    // Chrome по умолчанию показывает свой баннер — отключим
+    e.preventDefault();
+    deferredInstallPrompt = e;
+
+    // Если экран инструкции уже загружен — показываем кнопку установки
+    if (installInstallBtn) {
+        installInstallBtn.style.display = 'block';
+    }
+});
+
 window.addEventListener('load', function () {
     var splash  = document.getElementById('splash');
     var welcome = document.getElementById('welcome');
@@ -70,6 +82,7 @@ window.addEventListener('load', function () {
         } else {
             document.body.classList.remove('welcome-active');
         }
+        maybeShowInstallScreen();
     })();
 });
 
@@ -111,6 +124,13 @@ var msgCtxOpenedAt = 0; // время последнего открытия ме
 // состояние поиска по чатам
 var chatSearchInput   = document.getElementById('chatSearchInput');
 var currentChatSearch = '';
+
+var installScreen      = document.getElementById('installScreen');
+var installContinueBtn = document.getElementById('installContinueBtn');
+var installInstallBtn  = document.getElementById('installInstallBtn');
+var installDontShow    = document.getElementById('installDontShow');
+
+var deferredInstallPrompt = null;
 
 // вложения в модалке пользователя
 var chatUserAttachments   = document.getElementById('chatUserAttachments');
@@ -656,6 +676,28 @@ function escapeHtml(str){
     });
 }
 
+function maybeShowInstallScreen() {
+    if (!installScreen) return;
+
+    // Если уже установлено как standalone PWA — инструкцию не показываем
+    if (IS_STANDALONE_PWA) return;
+
+    // Если пользователь запретил показывать — тоже выходим
+    try {
+        var skip = localStorage.getItem('installGuideHidden');
+        if (skip === '1') return;
+    } catch (e) {}
+
+    // Показываем инструкцию поверх текущего экрана
+    installScreen.style.display = 'flex';
+    installScreen.setAttribute('aria-hidden','false');
+    try { window.scrollTo(0, 0); } catch (e) {}
+
+    // Если beforeinstallprompt уже был — покажем кнопку установки
+    if (deferredInstallPrompt && installInstallBtn) {
+        installInstallBtn.style.display = 'block';
+    }
+}
 
 function ensureMediaMsgOverlay(){
     if (mediaMsgOverlay) return;
@@ -9222,6 +9264,41 @@ if (adminUsersList) {
 if (adminAuditReloadBtn) {
     adminAuditReloadBtn.addEventListener('click', function () {
         adminLoadAudit();
+    });
+}
+
+// Инструкция по установке: "Продолжить"
+if (installContinueBtn) {
+    installContinueBtn.addEventListener('click', function () {
+        if (installDontShow && installDontShow.checked) {
+            try {
+                localStorage.setItem('installGuideHidden', '1');
+            } catch (e) {}
+        }
+        if (installScreen) {
+            installScreen.style.display = 'none';
+            installScreen.setAttribute('aria-hidden','true');
+        }
+    });
+}
+
+// Инструкция по установке: "Установить приложение" (Android/Chrome)
+if (installInstallBtn) {
+    installInstallBtn.addEventListener('click', async function () {
+        if (!deferredInstallPrompt) {
+            alert('Установка из браузера доступна в Chrome/Android.');
+            return;
+        }
+        try {
+            deferredInstallPrompt.prompt();
+            var choice = await deferredInstallPrompt.userChoice;
+            // choice.outcome: 'accepted' | 'dismissed'
+            deferredInstallPrompt = null;
+            // Можно больше не показывать кнопку после установки/попытки
+            installInstallBtn.style.display = 'none';
+        } catch (e) {
+            deferredInstallPrompt = null;
+        }
     });
 }
 
