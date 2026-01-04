@@ -359,7 +359,12 @@ const storage = multer.diskStorage({
     cb(null, login + '-' + Date.now() + ext);
   }
 });
-const upload = multer({ storage });
+const upload = multer({
+  storage,
+  limits: {
+    fileSize: 500 * 1024 * 1024 // 500 МБ
+  }
+});
 
 // статика с кэшированием
 app.use('/avatars', express.static(avatarsDir, {
@@ -2907,6 +2912,13 @@ app.post('/api/chat/mark-read', requireAuth, async (req, res) => {
     );
     if (!user) {
       return res.status(404).json({ error: 'Пользователь не найден' });
+    }
+
+    const participants = await getChatParticipantsLogins(chatId);
+    const lowerLogin   = String(login || '').toLowerCase();
+    const inChat = participants.some(l => String(l || '').toLowerCase() === lowerLogin);
+    if (!inChat) {
+      return res.status(403).json({ error: 'Вы не состоите в этом чате' });
     }
 
     await updateLastSeen(login);

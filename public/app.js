@@ -635,13 +635,13 @@ function showMediaContextMenu(msgInfo, item){
     mediaMsgPreview.innerHTML = '';
     mediaMsgMenu.innerHTML    = '';
 
-    // Находим реальный медиа‑элемент в сообщении
     var mediaEl = item.querySelector('.msg-attachment-image') ||
-                  item.querySelector('.msg-attachment-video');
+                item.querySelector('.msg-attachment-video');
     if (!mediaEl) {
-        // если что‑то пошло не так – просто показываем обычное меню без превью
-        // (через стандартный контекст, без media‑оверлея)
+        // fallback в обычное меню, но с флагом, чтобы избежать рекурсии
+        msgInfo._disableMediaMenu = true;
         showMsgContextMenu(msgInfo, item);
+        delete msgInfo._disableMediaMenu;
         return;
     }
 
@@ -3140,7 +3140,8 @@ function stopChatStatusUpdates() {
 
 // ---------- РЕНДЕР СООБЩЕНИЯ (включая голосовые / видео‑таймер) ----------
 
-function renderMessage(msg) {
+function renderMessage(msg, opts) {
+    opts = opts || {};
     if (!chatContent) return;
 
     var parsed    = parseReplyWrappedText(msg.text || '');
@@ -3596,10 +3597,14 @@ function renderMessage(msg) {
         }
     }
 
-    // Плавное появление нового сообщения
-    requestAnimationFrame(function () {
+    // Плавное появление нового сообщения (можно отключить)
+    if (opts.skipAnimation) {
         item.classList.add('msg-visible');
-    });
+    } else {
+        requestAnimationFrame(function () {
+            item.classList.add('msg-visible');
+        });
+    }
 }
 
 
@@ -3959,7 +3964,10 @@ function showMsgContextMenu(msgInfo, item) {
     if (!msgInfo || !currentUser || !item) return;
 
     // Для фото/видео — отдельное медиа-меню
-    if (msgInfo.attachmentType === 'image' || msgInfo.attachmentType === 'video') {
+// Для фото/видео — отдельное медиа-меню,
+// но не вызываем его, если стоит флаг _disableMediaMenu (fallback)
+    if (!msgInfo._disableMediaMenu &&
+        (msgInfo.attachmentType === 'image' || msgInfo.attachmentType === 'video')) {
         showMediaContextMenu(msgInfo, item);
         return;
     }
@@ -4207,8 +4215,16 @@ async function editMessage(msgInfo) {
                     var rLogin = (r.senderLogin || '').trim();
                     var rText  = String(r.text || '').replace(/\s+/g,' ').trim();
 
+                    // если есть числовой ID исходного сообщения – сохраняем его в [r:ID]
+                    var header;
+                    if (r.messageId && /^\d+$/.test(String(r.messageId))) {
+                        header = '[r:' + String(r.messageId) + ']';
+                    } else {
+                        header = '[r]';
+                    }
+
                     fullText =
-                        '[r]' + rName + '\n' +
+                        header + rName + '\n' +
                         rLogin + '\n' +
                         rText + '\n[/r]\n' +
                         newText;
@@ -5954,7 +5970,6 @@ async function loadFeed() {
 
         var posts = data.posts || [];
         feedList.innerHTML = '';
-                feedList.innerHTML = '';
         if (!posts.length) {
             var empty = document.createElement('div');
             empty.style.padding = '16px';
@@ -6182,6 +6197,11 @@ async function openChat(chat) {
 
 function closeChatScreenToMain() {
     if (!chatScreen) return;
+    if (chatScreen) {
+        chatScreen.classList.remove('chat-screen-visible');
+        chatScreen.style.display = 'none';
+        chatScreen.setAttribute('aria-hidden','true');
+    }
 
     // Гарантированно снимаем состояние загрузки и показываем контент
     try {
@@ -6194,12 +6214,6 @@ function closeChatScreenToMain() {
         try { chatInput.blur(); } catch (e) {}
     }
 
-    // Убираем класс видимости и просто скрываем чат-экран
-    chatScreen.style.display = 'flex';
-    chatScreen.classList.remove('chat-screen-visible');
-    requestAnimationFrame(function () {
-        chatScreen.classList.add('chat-screen-visible');
-    });
 
     currentChat = null;
 
@@ -6508,11 +6522,26 @@ if (backToRegisterFromDancerBtn && registerScreen && dancerInfoScreen) {
     });
 }
 
-var backToMainFromChat = document.getElementById('backToMainFromChat');
 if (backToMainFromChat && chatScreen) {
     backToMainFromChat.addEventListener('click', function () {
-        closeChatScreenToMain();
+        closeChatWithSlideRight();
     });
+}
+
+function closeChatWithSlideRight() {
+    if (!chatScreen) return;
+
+    var duration = 250;
+    var maxW     = window.innerWidth || 375;
+
+    chatScreen.style.transition = 'transform 0.25s cubic-bezier(.4,0,.2,1)';
+    chatScreen.style.transform  = 'translateX(' + maxW + 'px)';
+
+    setTimeout(function () {
+        chatScreen.style.transition = '';
+        chatScreen.style.transform  = '';
+        closeChatScreenToMain();
+    }, duration);
 }
 
 // поиск по чатам
@@ -7622,6 +7651,9 @@ async function refreshMessages(preserveScroll) {
     }
     refreshingMessagesByChat[chatId] = true;
 
+    // запоминаем текущую позицию скролла
+    var prevScrollTop = chatContent.scrollTop;
+
     try {
         // Берём последние до 80 сообщений
         var page = await fetchMessagesPage(chatId, null, 80);
@@ -7660,22 +7692,12 @@ async function refreshMessages(preserveScroll) {
             return;
         }
 
-        newMessages.forEach(function (m) {
-            // если сообщение уже есть в DOM — не дублируем
-            if (chatContent.querySelector('.msg-item[data-msg-id="' + m.id + '"]')) {
-                return;
-            }
-
-            messagesById[m.id] = m;
-            renderMessage(m);
-            state.lastId = Math.max(state.lastId || 0, m.id);
-            if (!state.oldestId) state.oldestId = m.id;
-        });
-
+        // есть ли среди новых сообщения от самого пользователя
         var hadOwnNew = newMessages.some(function (m) {
             return currentUser && m.sender_login === currentUser.login;
         });
 
+        // сначала убираем временные сообщения, чтобы не было "двоения" и моргания
         if (hadOwnNew && chatContent) {
             var pendings = chatContent.querySelectorAll('.msg-item.msg-pending');
             pendings.forEach(function (el) {
@@ -7683,8 +7705,30 @@ async function refreshMessages(preserveScroll) {
             });
         }
 
+        // теперь рендерим новые сообщения
+        newMessages.forEach(function (m) {
+            // если сообщение уже есть в DOM — не дублируем
+            if (chatContent.querySelector('.msg-item[data-msg-id="' + m.id + '"]')) {
+                return;
+            }
+
+            messagesById[m.id] = m;
+
+            // свои сообщения рисуем без анимации, чтобы не "мигали" при замене временных
+            var skipAnim = currentUser && m.sender_login === currentUser.login;
+            renderMessage(m, { skipAnimation: skipAnim });
+
+            state.lastId = Math.max(state.lastId || 0, m.id);
+            if (!state.oldestId) state.oldestId = m.id;
+        });
+
+        // позиционирование скролла
         if (shouldStickToBottom) {
+            // пользователь у низа — держим приклеенным к концу
             chatContent.scrollTop = chatContent.scrollHeight;
+        } else {
+            // был где-то выше — сохраняем позицию
+            chatContent.scrollTop = prevScrollTop;
         }
     } catch (e) {
         console.error('refreshMessages error:', e);
