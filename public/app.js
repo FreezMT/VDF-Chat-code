@@ -6450,6 +6450,8 @@ function openCreateGroupScreen() {
     stopMessagePolling();
     stopChatListPolling();
 
+    window.scrollTo(0, 0);
+
     if (groupNameInput) groupNameInput.value = '';
     if (audienceParents) audienceParents.checked = false;
     if (audienceDancers) audienceDancers.checked = false;

@@ -145,7 +145,8 @@ textarea {
 .parent-form .field,
 .dancer-form .field,
 .login-form .field,
-.create-group-form .field {
+.create-group-form .field,
+.create-friend-form .field {
     width:100%;
     max-width:360px;
     margin:0 auto 16px;
@@ -167,7 +168,8 @@ textarea {
 .parent-form input,
 .dancer-form input,
 .login-form input,
-.create-group-form input {
+.create-group-form input,
+.create-friend-form input {
     background:transparent;
     border:none;
     outline:none;
@@ -180,9 +182,11 @@ textarea {
 .parent-form input::placeholder,
 .dancer-form input::placeholder,
 .login-form input::placeholder,
-.create-group-form input::placeholder {
+.create-group-form input::placeholder,
+.create-friend-form input::placeholder {
     color:rgba(255,255,255,.4);
 }
+
 .register-form .btn-primary,
 .parent-form .btn-primary,
 .dancer-form .btn-primary,
@@ -194,6 +198,13 @@ textarea {
     display:block;
     margin-left:auto;
     margin-right:auto;
+}
+
+.create-friend-form .btn-primary{
+    max-width:360px;
+    width:100%;
+    display:block;
+    margin:0 auto 8px;
 }
 
 /* BACK BUTTON */
@@ -1251,12 +1262,14 @@ textarea {
 /* ========== CREATE GROUP SCREEN ========== */
 .create-group-screen{
     display:none;
+    position:relative;      /* чтобы back-btn привязывался к экрану */
     min-height:100vh;
     padding:0 24px 40px;
     background-color:#1C1C1C;
     color:#FFFFFF;
     box-sizing:border-box;
 }
+
 .create-group-header{
     margin-top:96px;
     margin-bottom:32px;
