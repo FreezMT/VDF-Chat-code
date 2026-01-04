@@ -3103,14 +3103,14 @@ textarea {
     color:rgba(255,255,255,0.8);
 }
 
-/* Главные экраны слайдом влево/вправо */
+/* Главные экраны: плюс / лента / чаты / профиль */
 #plusScreen,
 #feedScreen,
 #mainScreen,
 #profileScreen {
     position: fixed;
     inset: 0;
-    z-index: 1; /* ниже bottomNav (у него z-index:50) */
+    z-index: 1; /* ниже bottomNav (50) */
     transform: translateX(0);
     transition: transform 0.25s cubic-bezier(.4,0,.2,1), opacity 0.2s ease-out;
 }

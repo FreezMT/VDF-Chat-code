@@ -1159,11 +1159,14 @@ if (chatMicBtn) {
 // ----- Главные вкладки: плюс, лента, чаты, профиль -----
 var MAIN_TABS = ['plus', 'feed', 'chats', 'profile'];
 
+// для временного "не скрывать" экраны при hideAllMainScreens (если будешь использовать)
+var mainSwipeKeepScreen = null;
+
 function getActiveMainTabIndex() {
-    if (plusScreen && plusScreen.style.display !== 'none')   return 0;
-    if (feedScreen && feedScreen.style.display !== 'none')   return 1;
-    if (mainScreen && mainScreen.style.display !== 'none')   return 2;
-    if (profileScreen && profileScreen.style.display !== 'none') return 3;
+    if (plusScreen && plusScreen.style.display !== 'none')      return 0;
+    if (feedScreen && feedScreen.style.display !== 'none')      return 1;
+    if (mainScreen && mainScreen.style.display !== 'none')      return 2;
+    if (profileScreen && profileScreen.style.display !== 'none')return 3;
     return -1;
 }
 
@@ -1175,72 +1178,54 @@ function getMainScreenElByKey(key) {
     return null;
 }
 
-// плавный переход между вкладками по свайпу
-var mainSwipeIsAnimating = false;
-
-function animateMainTabSwitch(fromIdx, toIdx, direction) {
-    if (mainSwipeIsAnimating) return;
-    if (fromIdx === toIdx || fromIdx < 0 || toIdx < 0 || toIdx >= MAIN_TABS.length) {
-        // на всякий случай — просто открыть цель без анимации
-        var key = MAIN_TABS[toIdx];
-        if (key === 'plus')      openPlusScreen();
-        else if (key === 'feed') openFeedScreen();
-        else if (key === 'chats')openChatsScreen();
-        else if (key === 'profile') openProfileScreen();
-        return;
+// Показываем экран для жеста (без hideAllMainScreens)
+function showMainScreenForGesture(key, el) {
+    if (!el) return;
+    if (key === 'plus') {
+        el.style.display = 'block';
+    } else {
+        el.style.display = 'flex';
     }
+    el.setAttribute('aria-hidden', 'false');
+}
 
-    var fromKey = MAIN_TABS[fromIdx];
-    var toKey   = MAIN_TABS[toIdx];
-    var fromEl  = getMainScreenElByKey(fromKey);
-    var toEl    = getMainScreenElByKey(toKey);
-    if (!fromEl || !toEl) return;
+// Сайд‑эффекты при переключении вкладок (без анимации DOM)
+async function applyMainTabSideEffects(key) {
+    hideChatUserModal();
+    hideGroupModal();
+    hideGroupAddModal();
+    clearReply();
+    stopChatStatusUpdates();
+    stopMessagePolling();
+    stopChatListPolling();
+    showBottomNav();
 
-    mainSwipeIsAnimating = true;
+    if (key === 'plus') {
+        setNavActive('plus');
+        // ничего дополнительного
+    } else if (key === 'feed') {
+        setNavActive('feed');
 
-    // на время вызова open* не даём hideAllMainScreens() скрыть текущий экран
-    mainSwipeKeepScreen = fromEl;
+        if (createPostBtn) {
+            var rl = (currentUser && currentUser.role || '').toLowerCase();
+            createPostBtn.style.display =
+                (rl === 'trainer' || rl === 'тренер' || rl === 'admin') ? 'block' : 'none';
+        }
 
-    if (toKey === 'plus')      openPlusScreen();
-    else if (toKey === 'feed') openFeedScreen();
-    else if (toKey === 'chats')openChatsScreen();
-    else if (toKey === 'profile') openProfileScreen();
-
-    // open* уже показал нужный экран, больше не нужно защищать fromEl
-    mainSwipeKeepScreen = null;
-
-    // убеждаемся, что оба экрана видимы
-    fromEl.style.display = (fromKey === 'feed' || fromKey === 'profile') ? 'flex' : 'block';
-    fromEl.setAttribute('aria-hidden', 'false');
-
-    toEl.style.display   = (toKey === 'feed' || toKey === 'profile') ? 'flex' : 'block';
-    toEl.setAttribute('aria-hidden', 'false');
-
-    // сбросить прошлые анимации
-    fromEl.style.transition = 'none';
-    toEl.style.transition   = 'none';
-    fromEl.style.transform  = 'translateX(0)';
-    toEl.style.transform    = (direction === 'left') ? 'translateX(100%)' : 'translateX(-100%)';
-
-    // форсируем reflow
-    void fromEl.offsetWidth;
-
-    // включаем анимацию
-    fromEl.style.transition =
-        'transform 0.25s cubic-bezier(.4,0,.2,1), opacity 0.2s ease-out';
-    toEl.style.transition   =
-        'transform 0.25s cubic-bezier(.4,0,.2,1), opacity 0.2s ease-out';
-
-    fromEl.style.transform = (direction === 'left') ? 'translateX(-20%)' : 'translateX(20%)';
-    toEl.style.transform   = 'translateX(0)';
-
-    setTimeout(function () {
-        // окончательно прячем старый экран
-        fromEl.style.display = 'none';
-        fromEl.setAttribute('aria-hidden', 'true');
-        fromEl.style.transform = 'translateX(0)';
-        mainSwipeIsAnimating = false;
-    }, 260);
+        if (!feedInitialized && currentUser && currentUser.login) {
+            await loadFeed();
+            feedInitialized = true;
+        }
+    } else if (key === 'chats') {
+        setNavActive('chats');
+        if (currentUser && currentUser.login) {
+            await reloadChatList();
+            startChatListPolling();
+        }
+    } else if (key === 'profile') {
+        setNavActive('profile');
+        updateProfileUI();
+    }
 }
 
 // свайп вправо для закрытия чата (контролируемый, на всю ширину)
@@ -1347,12 +1332,9 @@ function cleanupAttachmentObjectUrl(att) {
     }
 }
 
-// ----- Свайп влево/вправо между главными экранами (плюс / лента / чаты / профиль) -----
+// ----- Интерактивный свайп между главными экранами (плюс / лента / чаты / профиль) -----
 
-var mainSwipeStartX = null;
-var mainSwipeStartY = null;
-var mainSwipeDx     = 0;
-var mainSwipeActive = false;
+var mainSwipeCtx = null;
 
 function isAnyMainScreenVisible() {
     return (plusScreen && plusScreen.style.display !== 'none') ||
@@ -1364,78 +1346,180 @@ function isAnyMainScreenVisible() {
 document.addEventListener('touchstart', function (e) {
     if (e.touches.length !== 1) return;
 
-    // если открыт чат или модалка — свайп вкладок не работает
+    // если открыт чат или модалка — не трогаем
     if (chatScreen && chatScreen.classList.contains('chat-screen-visible')) return;
     if (typeof anyTopModalVisible === 'function' && anyTopModalVisible()) return;
 
     if (!isAnyMainScreenVisible()) return;
 
+    var activeIdx = getActiveMainTabIndex();
+    if (activeIdx === -1) return;
+
     var t = e.touches[0];
-    mainSwipeStartX = t.clientX;
-    mainSwipeStartY = t.clientY;
-    mainSwipeDx     = 0;
-    mainSwipeActive = true;
+
+    mainSwipeCtx = {
+        startX: t.clientX,
+        startY: t.clientY,
+        lastDx: 0,
+        activeIdx: activeIdx,
+        activeKey: MAIN_TABS[activeIdx],
+        activeEl:  getMainScreenElByKey(MAIN_TABS[activeIdx]),
+        neighborIdx: null,
+        neighborKey: null,
+        neighborEl:  null,
+        direction:   null,
+        decided:     false   // решили, что это горизонтальный свайп
+    };
 }, { passive:true });
 
 document.addEventListener('touchmove', function (e) {
-    if (!mainSwipeActive || mainSwipeStartX == null) return;
+    if (!mainSwipeCtx) return;
+    var ctx = mainSwipeCtx;
 
     var t  = e.touches[0];
-    var dx = t.clientX - mainSwipeStartX;
-    var dy = t.clientY - mainSwipeStartY;
+    var dx = t.clientX - ctx.startX;
+    var dy = t.clientY - ctx.startY;
 
-    // если вертикальное движение сильнее — считаем скроллом
-    if (Math.abs(dy) > Math.abs(dx)) {
-        mainSwipeActive = false;
-        mainSwipeStartX = mainSwipeStartY = null;
-        mainSwipeDx     = 0;
-        return;
+    // ещё не решили, горизонтальный это свайп или вертикальный
+    if (!ctx.decided) {
+        if (Math.abs(dy) > Math.abs(dx)) {
+            // вертикальный скролл — отменяем свайп
+            mainSwipeCtx = null;
+            return;
+        }
+        if (Math.abs(dx) < 5) {
+            // слишком маленькое смещение — пока ничего не делаем
+            return;
+        }
+
+        var maxIdx = MAIN_TABS.length - 1;
+        if (dx < 0 && ctx.activeIdx < maxIdx) {
+            // свайп влево -> следующий экран справа
+            ctx.direction   = 'left';
+            ctx.neighborIdx = ctx.activeIdx + 1;
+            ctx.neighborKey = MAIN_TABS[ctx.neighborIdx];
+            ctx.neighborEl  = getMainScreenElByKey(ctx.neighborKey);
+        } else if (dx > 0 && ctx.activeIdx > 0) {
+            // свайп вправо -> предыдущий экран слева
+            ctx.direction   = 'right';
+            ctx.neighborIdx = ctx.activeIdx - 1;
+            ctx.neighborKey = MAIN_TABS[ctx.neighborIdx];
+            ctx.neighborEl  = getMainScreenElByKey(ctx.neighborKey);
+        } else {
+            // нет соседнего экрана в эту сторону — даём скроллить как обычно
+            mainSwipeCtx = null;
+            return;
+        }
+
+        ctx.decided = true;
+
+        // подготавливаем соседний экран
+        if (ctx.neighborEl) {
+            showMainScreenForGesture(ctx.neighborKey, ctx.neighborEl);
+            ctx.activeEl.style.transition  = 'none';
+            ctx.neighborEl.style.transition = 'none';
+
+            var vw = window.innerWidth || 375;
+            if (ctx.direction === 'left') {
+                ctx.neighborEl.style.transform = 'translateX(' + vw + 'px)';
+            } else {
+                ctx.neighborEl.style.transform = 'translateX(' + (-vw) + 'px)';
+            }
+        }
     }
 
-    mainSwipeDx = dx;
-}, { passive:true });
+    if (!ctx.decided || !ctx.neighborEl) return;
+
+    // теперь это точно горизонтальный свайп — блокируем скролл
+    e.preventDefault();
+
+    var vw = window.innerWidth || 375;
+    var clampedDx = Math.max(-vw, Math.min(vw, dx));
+    ctx.lastDx = clampedDx;
+
+    // двигаем активный экран
+    if (ctx.activeEl) {
+        ctx.activeEl.style.transform = 'translateX(' + clampedDx + 'px)';
+    }
+
+    // и соседний
+    if (ctx.neighborEl) {
+        if (ctx.direction === 'left') {
+            ctx.neighborEl.style.transform = 'translateX(' + (vw + clampedDx) + 'px)';
+        } else {
+            ctx.neighborEl.style.transform = 'translateX(' + (-vw + clampedDx) + 'px)';
+        }
+    }
+}, { passive:false });
+
+function finishMainSwipe(commit) {
+    var ctx = mainSwipeCtx;
+    mainSwipeCtx = null;
+    if (!ctx || !ctx.neighborEl || !ctx.activeEl || !ctx.decided) return;
+
+    var vw = window.innerWidth || 375;
+
+    ctx.activeEl.style.transition  =
+        'transform 0.2s cubic-bezier(.4,0,.2,1)';
+    ctx.neighborEl.style.transition =
+        'transform 0.2s cubic-bezier(.4,0,.2,1)';
+
+    if (commit) {
+        // доводим переключение до конца
+        if (ctx.direction === 'left') {
+            ctx.activeEl.style.transform  = 'translateX(' + (-vw) + 'px)';
+            ctx.neighborEl.style.transform = 'translateX(0px)';
+        } else {
+            ctx.activeEl.style.transform  = 'translateX(' + vw + 'px)';
+            ctx.neighborEl.style.transform = 'translateX(0px)';
+        }
+
+        var key = ctx.neighborKey;
+        setTimeout(function () {
+            // прячем старый экран, оставляем новый
+            ctx.activeEl.style.display   = 'none';
+            ctx.activeEl.setAttribute('aria-hidden', 'true');
+            ctx.activeEl.style.transform = 'translateX(0px)';
+
+            ctx.neighborEl.style.transform = 'translateX(0px)';
+
+            // сайд‑эффекты новой вкладки (навигация, поллинги и т.п.)
+            applyMainTabSideEffects(key);
+        }, 220);
+    } else {
+        // откатываем жест
+        ctx.activeEl.style.transform = 'translateX(0px)';
+        if (ctx.direction === 'left') {
+            ctx.neighborEl.style.transform = 'translateX(' + vw + 'px)';
+        } else {
+            ctx.neighborEl.style.transform = 'translateX(' + (-vw) + 'px)';
+        }
+        setTimeout(function () {
+            ctx.neighborEl.style.display   = 'none';
+            ctx.neighborEl.setAttribute('aria-hidden', 'true');
+            ctx.neighborEl.style.transform = 'translateX(0px)';
+        }, 220);
+    }
+}
 
 document.addEventListener('touchend', function () {
-    if (!mainSwipeActive || mainSwipeStartX == null) {
-        mainSwipeActive = false;
-        mainSwipeStartX = mainSwipeStartY = null;
-        mainSwipeDx     = 0;
+    if (!mainSwipeCtx || !mainSwipeCtx.decided) {
+        mainSwipeCtx = null;
         return;
     }
+    var ctx = mainSwipeCtx;
 
-    var threshold = 80; // порог в пикселях
-    var dx = mainSwipeDx;
+    var vw = window.innerWidth || 375;
+    var threshold = vw * 0.25;
+    var commit = Math.abs(ctx.lastDx) >= threshold;
 
-    mainSwipeActive = false;
-    mainSwipeStartX = mainSwipeStartY = null;
-    mainSwipeDx     = 0;
-
-    if (Math.abs(dx) < threshold) return;
-
-    var currentIdx = getActiveMainTabIndex();
-    if (currentIdx === -1) return;
-
-    if (dx < 0) {
-        // свайп влево -> следующая вкладка
-        var nextIdx = currentIdx + 1;
-        if (nextIdx < MAIN_TABS.length) {
-            animateMainTabSwitch(currentIdx, nextIdx, 'left');
-        }
-    } else {
-        // свайп вправо -> предыдущая вкладка
-        var prevIdx = currentIdx - 1;
-        if (prevIdx >= 0) {
-            animateMainTabSwitch(currentIdx, prevIdx, 'right');
-        }
-    }
+    finishMainSwipe(commit);
 }, { passive:true });
 
 document.addEventListener('touchcancel', function () {
-    mainSwipeActive = false;
-    mainSwipeStartX = mainSwipeStartY = null;
-    mainSwipeDx     = 0;
+    if (!mainSwipeCtx) return;
+    finishMainSwipe(false);
 }, { passive:true });
-
 
 function initAttachmentTabs() {
     // Модалка пользователя
