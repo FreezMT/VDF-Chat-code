@@ -2955,12 +2955,10 @@ textarea {
     padding:80px 16px 90px;
     box-sizing:border-box;
 }
-
 .admin-content{
     max-width:480px;
     margin:0 auto;
 }
-
 .admin-db-select{
     margin:16px 0;
     font-size:14px;
@@ -2976,7 +2974,6 @@ textarea {
     font-size:14px;
     outline:none;
 }
-
 .admin-sql-wrapper{
     margin:12px 0;
 }
@@ -2993,7 +2990,6 @@ textarea {
     outline:none;
     resize:vertical;
 }
-
 .admin-sql-result{
     margin-top:12px;
     padding:8px 10px;
@@ -3006,4 +3002,90 @@ textarea {
     overflow:auto;
     white-space:pre-wrap;
     word-break:break-word;
+}
+
+/* UI-редактор таблиц */
+.admin-table-selects{
+    margin:8px 0 12px;
+    display:flex;
+    flex-wrap:wrap;
+    gap:8px;
+    align-items:center;
+    font-size:13px;
+}
+.admin-table-selects label{
+    display:flex;
+    align-items:center;
+    gap:4px;
+}
+.admin-table-selects select{
+    padding:4px 8px;
+    border-radius:8px;
+    border:1px solid rgba(255,255,255,0.3);
+    background-color:#151515;
+    color:#FFFFFF;
+    font-family:inherit;
+    font-size:13px;
+    outline:none;
+}
+.admin-table-container{
+    margin-top:8px;
+    padding:8px;
+    border-radius:12px;
+    background-color:#000000;
+    max-height:360px;
+    overflow:auto;
+    font-size:12px;
+}
+.admin-table{
+    width:100%;
+    border-collapse:collapse;
+}
+.admin-table th,
+.admin-table td{
+    border:1px solid rgba(255,255,255,0.15);
+    padding:4px 6px;
+    vertical-align:top;
+}
+.admin-table th{
+    position:sticky;
+    top:0;
+    background-color:#111111;
+    z-index:1;
+}
+.admin-table-input{
+    width:100%;
+    min-width:60px;
+    border:none;
+    border-radius:4px;
+    background-color:#151515;
+    color:#FFFFFF;
+    font-size:11px;
+    padding:2px 4px;
+    font-family:inherit;
+    box-sizing:border-box;
+}
+.admin-table-input[disabled]{
+    opacity:0.7;
+}
+.admin-table-row-actions{
+    white-space:nowrap;
+}
+.admin-table-small-btn{
+    border:none;
+    border-radius:999px;
+    background-color:#3F3F3F;
+    color:#FFFFFF;
+    padding:2px 8px;
+    font-size:11px;
+    cursor:pointer;
+    margin-left:2px;
+}
+.admin-table-small-btn:active{
+    opacity:0.85;
+}
+.admin-table-newrow-label{
+    margin-top:8px;
+    font-size:12px;
+    color:rgba(255,255,255,0.8);
 }

@@ -357,6 +357,18 @@ var adminSqlInput   = document.getElementById('adminSqlInput');
 var adminSqlRunBtn  = document.getElementById('adminSqlRunBtn');
 var adminSqlResult  = document.getElementById('adminSqlResult');
 
+// ADMIN SCREEN
+var adminScreen        = document.getElementById('adminScreen');
+var adminDbSelect      = document.getElementById('adminDbSelect');
+var adminSqlInput      = document.getElementById('adminSqlInput');
+var adminSqlRunBtn     = document.getElementById('adminSqlRunBtn');
+var adminSqlResult     = document.getElementById('adminSqlResult');
+
+var adminUiDbSelect    = document.getElementById('adminUiDbSelect');
+var adminTableSelect   = document.getElementById('adminTableSelect');
+var adminLoadTableBtn  = document.getElementById('adminLoadTableBtn');
+var adminTableContainer= document.getElementById('adminTableContainer');
+
 // МОДАЛКА ПОЛЬЗОВАТЕЛЯ
 var chatUserModal     = document.getElementById('chatUserModal');
 var chatUserAvatar    = document.getElementById('chatUserAvatar');
@@ -537,6 +549,24 @@ var suppressFeedReloadUntil = 0; // тайм-аут, пока не перери�
 var micTouchStartX = null;
 var micTouchStartY = null;
 var micGestureActive = false;
+
+function isCurrentUserAdmin(){
+    return currentUser && (currentUser.role || '').toLowerCase() === 'admin';
+}
+
+function escapeHtml(str){
+    if (str == null) return '';
+    return String(str).replace(/[&<>"']/g, function(ch){
+        switch(ch){
+            case '&': return '&amp;';
+            case '<': return '&lt;';
+            case '>': return '&gt;';
+            case '"': return '&quot;';
+            case "'": return '&#39;';
+            default: return ch;
+        }
+    });
+}
 
 
 function ensureMediaMsgOverlay(){
@@ -6405,10 +6435,136 @@ function openAdminScreen() {
     stopMessagePolling();
     stopChatListPolling();
 
-    // Админ логически ближе всего к профилю
+    // Логически ближе всего к профилю
     setNavActive('profile');
 
-    if (adminSqlResult) adminSqlResult.textContent = '';
+    if (adminSqlResult) {
+        adminSqlResult.textContent = 'Результат будет показан здесь';
+    }
+    if (adminTableContainer) {
+        adminTableContainer.innerHTML =
+            '<span style="font-size:12px;color:rgba(255,255,255,0.7);">Выберите базу и таблицу, затем нажмите «Загрузить».</span>';
+    }
+    if (adminUiDbSelect) {
+        adminUiDbSelect.value = 'main';
+    }
+    // При открытии сразу грузим список таблиц основной БД
+    adminLoadTables();
+}
+
+async function adminLoadTables() {
+    if (!isCurrentUserAdmin() || !adminUiDbSelect || !adminTableSelect) return;
+    var dbName = adminUiDbSelect.value || 'main';
+    try {
+        var resp = await fetch('/api/admin/tables', {
+            method: 'POST',
+            headers: { 'Content-Type':'application/json' },
+            body: JSON.stringify({ db: dbName })
+        });
+        var data = await resp.json();
+        if (!resp.ok || !data.ok) {
+            alert(data.error || 'Ошибка загрузки списка таблиц');
+            return;
+        }
+        adminTableSelect.innerHTML = '<option value="">— выберите —</option>';
+        (data.tables || []).forEach(function(name){
+            var opt = document.createElement('option');
+            opt.value = name;
+            opt.textContent = name;
+            adminTableSelect.appendChild(opt);
+        });
+        if (adminTableContainer) {
+            adminTableContainer.innerHTML =
+                '<span style="font-size:12px;color:rgba(255,255,255,0.7);">Выберите таблицу и нажмите «Загрузить».</span>';
+        }
+    } catch (e) {
+        alert('Сетевая ошибка при загрузке списка таблиц');
+    }
+}
+
+async function adminLoadTableData() {
+    if (!isCurrentUserAdmin() || !adminUiDbSelect || !adminTableSelect || !adminTableContainer) return;
+    var dbName   = adminUiDbSelect.value || 'main';
+    var table    = adminTableSelect.value;
+    if (!table) {
+        alert('Сначала выберите таблицу');
+        return;
+    }
+    try {
+        var resp = await fetch('/api/admin/table-data', {
+            method: 'POST',
+            headers: { 'Content-Type':'application/json' },
+            body: JSON.stringify({ db: dbName, table: table, limit: 100 })
+        });
+        var data = await resp.json();
+        if (!resp.ok || !data.ok) {
+            alert(data.error || 'Ошибка загрузки данных таблицы');
+            return;
+        }
+        renderAdminTable(data.table, data.columns || [], data.rows || [], data.primaryKey || null);
+    } catch (e) {
+        alert('Сетевая ошибка при загрузке данных таблицы');
+    }
+}
+
+function renderAdminTable(tableName, columns, rows, primaryKey) {
+    if (!adminTableContainer) return;
+    if (!columns.length) {
+        adminTableContainer.innerHTML =
+            '<span style="font-size:12px;color:rgba(255,255,255,0.7);">В таблице нет колонок.</span>';
+        return;
+    }
+
+    var html = [];
+    html.push('<div style="font-size:12px;color:rgba(255,255,255,0.7);margin-bottom:4px;">Таблица: ' +
+        escapeHtml(tableName) + '</div>');
+
+    html.push('<table class="admin-table"><thead><tr>');
+    columns.forEach(function(col){
+        html.push('<th>' + escapeHtml(col) + '</th>');
+    });
+    html.push('<th>Действия</th>');
+    html.push('</tr></thead><tbody>');
+
+    (rows || []).forEach(function(row){
+        var rowId = (primaryKey && row[primaryKey] != null) ? String(row[primaryKey]) : '';
+        html.push('<tr data-row-id="' + escapeHtml(rowId) + '">');
+        columns.forEach(function(col){
+            var val = row[col];
+            var disabled = (col === primaryKey) ? ' disabled' : '';
+            html.push(
+                '<td><input class="admin-table-input" data-col="' + escapeHtml(col) +
+                '" value="' + escapeHtml(val == null ? '' : val) + '"' + disabled + '></td>'
+            );
+        });
+        html.push(
+            '<td class="admin-table-row-actions">' +
+            '<button type="button" class="admin-table-small-btn admin-row-save-btn">Сохранить</button>' +
+            '</td>'
+        );
+        html.push('</tr>');
+    });
+
+    html.push('</tbody></table>');
+
+    // Новая строка
+    html.push('<div class="admin-table-newrow-label">Новая строка:</div>');
+    html.push('<table class="admin-table"><tbody><tr data-row-id="__new__">');
+    columns.forEach(function(col){
+        var disabled = (col === primaryKey) ? ' disabled' : '';
+        html.push(
+            '<td><input class="admin-table-input" data-col="' + escapeHtml(col) +
+            '" value=""' + disabled + '></td>'
+        );
+    });
+    html.push(
+        '<td class="admin-table-row-actions">' +
+        '<button type="button" class="admin-table-small-btn admin-row-insert-btn">Добавить</button>' +
+        '</td>'
+    );
+    html.push('</tr></tbody></table>');
+
+    adminTableContainer.innerHTML = html.join('');
 }
 
 // === КОНТЕКСТНОЕ МЕНЮ ЧАТОВ ===
@@ -6577,6 +6733,111 @@ async function leaveGroup(chat) {
     } catch (e) {
         alert('Сетевая ошибка при выходе из группы');
     }
+}
+
+// Кнопка "Админ‑панель" в профиле
+if (profileAdminBtn) {
+    profileAdminBtn.addEventListener('click', function () {
+        openAdminScreen();
+    });
+}
+
+// Админ-экран: загрузка списка таблиц при смене БД
+if (adminUiDbSelect) {
+    adminUiDbSelect.addEventListener('change', function () {
+        if (isCurrentUserAdmin()) {
+            adminLoadTables();
+        }
+    });
+}
+
+// Админ-экран: кнопка "Загрузить" таблицу
+if (adminLoadTableBtn) {
+    adminLoadTableBtn.addEventListener('click', function () {
+        adminLoadTableData();
+    });
+}
+
+// Админ-экран: выбор таблицы из списка (можно автозагружать)
+if (adminTableSelect) {
+    adminTableSelect.addEventListener('change', function () {
+        // можно сразу подгружать
+        // adminLoadTableData();
+    });
+}
+
+// Админ-экран: обработка кликов по кнопкам "Сохранить" и "Добавить" внутри таблицы
+if (adminTableContainer) {
+    adminTableContainer.addEventListener('click', async function (e) {
+        var saveBtn = e.target.closest('.admin-row-save-btn');
+        var insertBtn = e.target.closest('.admin-row-insert-btn');
+        if (!saveBtn && !insertBtn) return;
+
+        if (!isCurrentUserAdmin()) {
+            alert('Доступ только для администратора');
+            return;
+        }
+
+        var tr = e.target.closest('tr');
+        if (!tr) return;
+
+        var dbName  = adminUiDbSelect ? (adminUiDbSelect.value || 'main') : 'main';
+        var table   = adminTableSelect ? adminTableSelect.value : '';
+        if (!table) {
+            alert('Сначала выберите таблицу');
+            return;
+        }
+
+        var inputs = tr.querySelectorAll('.admin-table-input');
+        var rowData = {};
+        inputs.forEach(function(inp){
+            var col = inp.dataset.col;
+            if (!col) return;
+            if (inp.disabled) return; // pk не трогаем
+            rowData[col] = inp.value;
+        });
+
+        try {
+            if (insertBtn) {
+                // новая строка
+                var respIns = await fetch('/api/admin/table-insert', {
+                    method: 'POST',
+                    headers: { 'Content-Type':'application/json' },
+                    body: JSON.stringify({ db: dbName, table: table, row: rowData })
+                });
+                var dataIns = await respIns.json();
+                if (!respIns.ok || !dataIns.ok) {
+                    alert(dataIns.error || 'Ошибка добавления строки');
+                    return;
+                }
+                alert('Строка добавлена (ID: ' + (dataIns.lastID || 'unknown') + ')');
+                // перезагружаем таблицу
+                adminLoadTableData();
+            } else if (saveBtn) {
+                // обновление существующей строки
+                var rowId = tr.dataset.rowId;
+                if (!rowId || rowId === '__new__') {
+                    alert('Нет первичного ключа для обновления строки');
+                    return;
+                }
+                var respUp = await fetch('/api/admin/table-update', {
+                    method: 'POST',
+                    headers: { 'Content-Type':'application/json' },
+                    body: JSON.stringify({ db: dbName, table: table, id: rowId, updates: rowData })
+                });
+                var dataUp = await respUp.json();
+                if (!respUp.ok || !dataUp.ok) {
+                    alert(dataUp.error || 'Ошибка обновления строки');
+                    return;
+                }
+                alert('Строка обновлена');
+                // можно не перезагружать, но для надёжности:
+                adminLoadTableData();
+            }
+        } catch (err) {
+            alert('Сетевая ошибка при изменении таблицы');
+        }
+    });
 }
 
 // ---------- НАВИГАЦИЯ / КНОПКИ ----------

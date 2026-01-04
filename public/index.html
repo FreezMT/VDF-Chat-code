@@ -562,10 +562,11 @@
         <div class="admin-content">
             <h1 class="register-title">Админ‑панель</h1>
             <p class="register-subtitle">
-                Внимание: прямой доступ к базе данных<br>
-                Используйте осторожно
+                Прямой доступ к базе данных.<br>
+                Будьте осторожны, изменения необратимы.
             </p>
 
+            <!-- SQL режим -->
             <div class="admin-db-select">
                 <label>
                     <span>База данных:</span>
@@ -577,12 +578,44 @@
             </div>
 
             <div class="admin-sql-wrapper">
-                <textarea id="adminSqlInput" placeholder="Например: SELECT * FROM users LIMIT 10;"></textarea>
+                <textarea id="adminSqlInput" placeholder="Например: SELECT * FROM users LIMIT 10."></textarea>
             </div>
 
-            <button type="button" class="btn btn-primary" id="adminSqlRunBtn">Выполнить</button>
+            <button type="button" class="btn btn-primary" id="adminSqlRunBtn">Выполнить SQL</button>
 
-            <pre id="adminSqlResult" class="admin-sql-result"></pre>
+            <pre id="adminSqlResult" class="admin-sql-result">Результат будет показан здесь</pre>
+
+            <!-- UI‑режим (без SQL) -->
+            <hr style="border:none;border-top:1px solid rgba(255,255,255,0.1);margin:20px 0;">
+
+            <h2 class="register-title" style="font-size:20px;margin-bottom:8px;">Редактор таблиц</h2>
+
+            <div class="admin-table-selects">
+                <label>
+                    <span>База:</span>
+                    <select id="adminUiDbSelect">
+                        <option value="main">db.sqlite</option>
+                        <option value="msg">messages.sqlite</option>
+                    </select>
+                </label>
+
+                <label>
+                    <span>Таблица:</span>
+                    <select id="adminTableSelect">
+                        <option value="">— выберите —</option>
+                    </select>
+                </label>
+
+                <button type="button" class="btn" id="adminLoadTableBtn" style="max-width:140px;padding:8px 12px;font-size:14px;">
+                    Загрузить
+                </button>
+            </div>
+
+            <div id="adminTableContainer" class="admin-table-container">
+                <span style="font-size:12px;color:rgba(255,255,255,0.7);">
+                    Выберите базу и таблицу, затем нажмите «Загрузить».
+                </span>
+            </div>
         </div>
     </main>
 

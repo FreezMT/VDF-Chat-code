@@ -3213,19 +3213,46 @@ app.post('/api/groups/create', requireAuth, async (req, res) => {
       ageToSave = age;
     }
 
-    const result = await run(
-      db,
-      `INSERT INTO created_groups (owner_login, name, audience, age, avatar)
-       VALUES (?, ?, ?, ?, ?)`,
-      [login, cleanName, aud, ageToSave, null]
-    );
+  const result = await run(
+    db,
+    `INSERT INTO created_groups (owner_login, name, audience, age, avatar)
+    VALUES (?, ?, ?, ?, ?)`,
+    [login, cleanName, aud, ageToSave, null]
+  );
 
-    await run(
+  // добавляем создателя в участники
+  await run(
+    db,
+    `INSERT INTO group_custom_members (group_name, user_login)
+    VALUES (?, ?)`,
+    [cleanName, login]
+  );
+
+  // автоматически добавляем всех админов как скрытых участников
+  try {
+    const adminRows = await all(
       db,
-      `INSERT INTO group_custom_members (group_name, user_login)
-       VALUES (?, ?)`,
-      [cleanName, login]
+      'SELECT login FROM users WHERE LOWER(role) = "admin"'
     );
+    for (const a of adminRows) {
+      const admLogin = a.login;
+      if (!admLogin) continue;
+      const exists = await get(
+        db,
+        'SELECT id FROM group_custom_members WHERE group_name = ? AND user_login = ?',
+        [cleanName, admLogin]
+      );
+      if (!exists) {
+        await run(
+          db,
+          'INSERT INTO group_custom_members (group_name, user_login) VALUES (?, ?)',
+          [cleanName, admLogin]
+        );
+      }
+    }
+  } catch (e2) {
+    console.error('ADD ADMINS TO GROUP ERROR:', e2);
+  }
 
     res.status(201).json({
       ok: true,
@@ -3273,24 +3300,29 @@ app.post('/api/group/info', requireAuth, async (req, res) => {
     let groupName   = teamKey;
     let groupAvatar = '/group-avatar.png';
     let members     = [];
+    let audience    = null;
+    let age         = null;
 
     if (isCustom) {
       const groupRow = await get(
         db,
-        'SELECT name, avatar FROM created_groups WHERE name = ?',
+        'SELECT name, avatar, audience, age FROM created_groups WHERE name = ?',
         [teamKey]
       );
       if (groupRow) {
         groupName   = groupRow.name;
         groupAvatar = groupRow.avatar || '/group-avatar.png';
+        audience    = groupRow.audience || null;
+        age         = groupRow.age || null;
       }
 
+      // участники кастомной группы, КРОМЕ админов (они скрыты)
       members = await all(
         db,
         'SELECT u.id, u.first_name, u.last_name, u.avatar, u.login ' +
         'FROM group_custom_members gcm ' +
         'JOIN users u ON u.login = gcm.user_login ' +
-        'WHERE gcm.group_name = ? ' +
+        'WHERE gcm.group_name = ? AND LOWER(u.role) <> "admin" ' +
         'ORDER BY u.last_name, u.first_name',
         [teamKey]
       );
@@ -3320,28 +3352,10 @@ app.post('/api/group/info', requireAuth, async (req, res) => {
           members.push(tr);
         }
       });
-    }
 
-    let audience = null;
-    let age      = null;
-
-    if (isCustom) {
-      const groupRow = await get(
-        db,
-        'SELECT name, avatar, audience, age FROM created_groups WHERE name = ?',
-        [teamKey]
-      );
-      if (groupRow) {
-        groupName   = groupRow.name;
-        groupAvatar = groupRow.avatar || '/group-avatar.png';
-        audience    = groupRow.audience || null;
-        age         = groupRow.age || null;
-      }
-      // members уже есть
-    } else {
       // для официальных групп по команде:
-      audience = 'dancers'; // или null, но по описанию это всегда дети/родители
-      age      = null;      // нет фиксированного возраста
+      audience = 'dancers';
+      age      = null;
     }
 
     res.json({
@@ -4294,6 +4308,216 @@ app.post('/api/admin/sql', requireLoggedIn, async (req, res) => {
     res.json({ ok: true, db: dbName, result });
   } catch (e) {
     console.error('ADMIN SQL ERROR:', e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
+// /api/admin/tables - список таблиц в БД
+app.post('/api/admin/tables', requireLoggedIn, async (req, res) => {
+  try {
+    const sessLogin = req.session.login;
+    const adminUser = await get(db, 'SELECT role FROM users WHERE login = ?', [sessLogin]);
+    if (!adminUser || String(adminUser.role || '').toLowerCase() !== 'admin') {
+      return res.status(403).json({ ok: false, error: 'Доступ запрещён' });
+    }
+
+    let { db: dbName } = req.body;
+    dbName = dbName === 'msg' ? 'msg' : 'main';
+
+    const conn = dbName === 'msg' ? msgDb : db;
+
+    const tables = await all(
+      conn,
+      `SELECT name FROM sqlite_master
+       WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
+       ORDER BY name`
+    );
+
+    res.json({ ok: true, db: dbName, tables: tables.map(t => t.name) });
+  } catch (e) {
+    console.error('ADMIN TABLES ERROR:', e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
+// /api/admin/table-data - данные таблицы (первые N строк)
+app.post('/api/admin/table-data', requireLoggedIn, async (req, res) => {
+  try {
+    const sessLogin = req.session.login;
+    const adminUser = await get(db, 'SELECT role FROM users WHERE login = ?', [sessLogin]);
+    if (!adminUser || String(adminUser.role || '').toLowerCase() !== 'admin') {
+      return res.status(403).json({ ok: false, error: 'Доступ запрещён' });
+    }
+
+    let { db: dbName, table, limit } = req.body;
+    dbName = dbName === 'msg' ? 'msg' : 'main';
+
+    table = (table || '').trim();
+    if (!table || !/^[A-Za-z0-9_]+$/.test(table)) {
+      return res.status(400).json({ ok: false, error: 'Некорректное имя таблицы' });
+    }
+
+    let pageSize = parseInt(limit, 10);
+    if (!pageSize || pageSize <= 0) pageSize = 100;
+    if (pageSize > 1000) pageSize = 1000;
+
+    const connAllFn = dbName === 'msg' ? allMsg : all;
+
+    // Информация о колонках и PK
+    const pragmaRows = await connAllFn(`PRAGMA table_info(${table})`, []);
+    const columns = pragmaRows.map(r => r.name);
+    let primaryKey = null;
+    for (const r of pragmaRows) {
+      if (r.pk === 1) {
+        primaryKey = r.name;
+        break;
+      }
+    }
+
+    const rows = await connAllFn(
+      `SELECT * FROM ${table} LIMIT ?`,
+      [pageSize]
+    );
+
+    res.json({
+      ok: true,
+      db: dbName,
+      table,
+      columns,
+      primaryKey,
+      rows
+    });
+  } catch (e) {
+    console.error('ADMIN TABLE DATA ERROR:', e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
+// /api/admin/table-update - обновление одной строки по первичному ключу
+app.post('/api/admin/table-update', requireLoggedIn, async (req, res) => {
+  try {
+    const sessLogin = req.session.login;
+    const adminUser = await get(db, 'SELECT role FROM users WHERE login = ?', [sessLogin]);
+    if (!adminUser || String(adminUser.role || '').toLowerCase() !== 'admin') {
+      return res.status(403).json({ ok: false, error: 'Доступ запрещён' });
+    }
+
+    let { db: dbName, table, id, updates } = req.body;
+    dbName = dbName === 'msg' ? 'msg' : 'main';
+
+    table = (table || '').trim();
+    if (!table || !/^[A-Za-z0-9_]+$/.test(table)) {
+      return res.status(400).json({ ok: false, error: 'Некорректное имя таблицы' });
+    }
+
+    if (id === undefined || id === null || id === '') {
+      return res.status(400).json({ ok: false, error: 'Нет значения первичного ключа' });
+    }
+
+    updates = updates || {};
+    if (typeof updates !== 'object') {
+      return res.status(400).json({ ok: false, error: 'Некорректные данные обновления' });
+    }
+
+    const connAllFn = dbName === 'msg' ? allMsg : all;
+    const connRunFn = dbName === 'msg' ? runMsg : run;
+
+    const pragmaRows = await connAllFn(`PRAGMA table_info(${table})`, []);
+    const columns = pragmaRows.map(r => r.name);
+    let primaryKey = null;
+    for (const r of pragmaRows) {
+      if (r.pk === 1) {
+        primaryKey = r.name;
+        break;
+      }
+    }
+    if (!primaryKey) {
+      return res.status(400).json({ ok: false, error: 'У таблицы нет первичного ключа, обновление через UI не поддерживается' });
+    }
+
+    const setCols = [];
+    const params = [];
+    for (const col of columns) {
+      if (col === primaryKey) continue;
+      if (Object.prototype.hasOwnProperty.call(updates, col)) {
+        setCols.push(col + ' = ?');
+        params.push(updates[col]);
+      }
+    }
+
+    if (!setCols.length) {
+      return res.json({ ok: true, changed: 0 });
+    }
+
+    params.push(id);
+
+    const sql = `UPDATE ${table} SET ${setCols.join(', ')} WHERE ${primaryKey} = ?`;
+    const r = await connRunFn(sql, params);
+
+    res.json({ ok: true, changed: r.changes || 0 });
+  } catch (e) {
+    console.error('ADMIN TABLE UPDATE ERROR:', e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
+  }
+});
+
+// /api/admin/table-insert - вставка новой строки
+app.post('/api/admin/table-insert', requireLoggedIn, async (req, res) => {
+  try {
+    const sessLogin = req.session.login;
+    const adminUser = await get(db, 'SELECT role FROM users WHERE login = ?', [sessLogin]);
+    if (!adminUser || String(adminUser.role || '').toLowerCase() !== 'admin') {
+      return res.status(403).json({ ok: false, error: 'Доступ запрещён' });
+    }
+
+    let { db: dbName, table, row } = req.body;
+    dbName = dbName === 'msg' ? 'msg' : 'main';
+
+    table = (table || '').trim();
+    if (!table || !/^[A-Za-z0-9_]+$/.test(table)) {
+      return res.status(400).json({ ok: false, error: 'Некорректное имя таблицы' });
+    }
+
+    row = row || {};
+    if (typeof row !== 'object') {
+      return res.status(400).json({ ok: false, error: 'Некорректные данные строки' });
+    }
+
+    const connAllFn = dbName === 'msg' ? allMsg : all;
+    const connRunFn = dbName === 'msg' ? runMsg : run;
+
+    const pragmaRows = await connAllFn(`PRAGMA table_info(${table})`, []);
+    const columns = pragmaRows.map(r => r.name);
+    let primaryKey = null;
+    for (const r of pragmaRows) {
+      if (r.pk === 1) {
+        primaryKey = r.name;
+        break;
+      }
+    }
+
+    const insertCols = [];
+    const params = [];
+    for (const col of columns) {
+      // первичный ключ автоинкремент не заполняем
+      if (primaryKey && col === primaryKey) continue;
+      if (Object.prototype.hasOwnProperty.call(row, col)) {
+        insertCols.push(col);
+        params.push(row[col]);
+      }
+    }
+
+    if (!insertCols.length) {
+      return res.status(400).json({ ok: false, error: 'Нет данных для вставки' });
+    }
+
+    const placeholders = insertCols.map(() => '?').join(',');
+    const sql = `INSERT INTO ${table} (${insertCols.join(',')}) VALUES (${placeholders})`;
+    const r = await connRunFn(sql, params);
+
+    res.json({ ok: true, lastID: r.lastID || null });
+  } catch (e) {
+    console.error('ADMIN TABLE INSERT ERROR:', e);
     res.status(500).json({ ok: false, error: String(e.message || e) });
   }
 });
