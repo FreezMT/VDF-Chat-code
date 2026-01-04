@@ -1112,6 +1112,55 @@ if (admin2faSecret) {
     });
 }
 
+function applyAdminTableFilters() {
+    if (!adminTableContainer) return;
+
+    // Собираем фильтры вида { colName: 'значение' }
+    var filters = {};
+    var filterInputs = adminTableContainer.querySelectorAll('.admin-table-filter-input');
+    for (var i = 0; i < filterInputs.length; i++) {
+        var inp = filterInputs[i];
+        var col = inp.dataset.col;
+        if (!col) continue;
+        var val = (inp.value || '').toLowerCase();
+        filters[col] = val;
+    }
+
+    var rows = adminTableContainer.querySelectorAll('.admin-table tbody tr[data-row-id]');
+    for (var r = 0; r < rows.length; r++) {
+        var tr = rows[r];
+        var rowId = tr.getAttribute('data-row-id');
+        if (!rowId || rowId === '__new__') continue; // новую строку не фильтруем
+
+        var visible = true;
+
+        // Проверяем каждое непустое условие фильтра
+        for (var colName in filters) {
+            if (!filters.hasOwnProperty(colName)) continue;
+            var f = filters[colName];
+            if (!f) continue;
+
+            // ищем в строке input с data-col=colName
+            var cellInputs = tr.querySelectorAll('.admin-table-input');
+            var cellVal = '';
+            for (var j = 0; j < cellInputs.length; j++) {
+                var ci = cellInputs[j];
+                if (ci.dataset.col === colName) {
+                    cellVal = (ci.value || '').toLowerCase();
+                    break;
+                }
+            }
+
+            if (cellVal.indexOf(f) === -1) {
+                visible = false;
+                break;
+            }
+        }
+
+        tr.style.display = visible ? '' : 'none';
+    }
+}
+
 function applyKeyboardOffset() {
     var offset = keyboardOffset || 0;
 
@@ -6869,17 +6918,34 @@ function renderAdminTable(tableName, columns, rows, primaryKey) {
     html.push('<div style="font-size:12px;color:rgba(255,255,255,0.7);margin-bottom:4px;">Таблица: ' +
         escapeHtml(tableName) + '</div>');
 
-    html.push('<table class="admin-table"><thead><tr>');
-    columns.forEach(function(col){
+    // таблица с существующими строками
+    html.push('<table class="admin-table"><thead>');
+
+    // строка заголовков
+    html.push('<tr>');
+    columns.forEach(function (col) {
         html.push('<th>' + escapeHtml(col) + '</th>');
     });
     html.push('<th>Действия</th>');
-    html.push('</tr></thead><tbody>');
+    html.push('</tr>');
 
-    (rows || []).forEach(function(row){
+    // строка фильтров
+    html.push('<tr>');
+    columns.forEach(function (col) {
+        html.push(
+            '<th><input class="admin-table-filter-input" ' +
+            'data-col="' + escapeHtml(col) + '" placeholder="Фильтр"></th>'
+        );
+    });
+    html.push('<th></th>');
+    html.push('</tr>');
+
+    html.push('</thead><tbody>');
+
+    (rows || []).forEach(function (row) {
         var rowId = (primaryKey && row[primaryKey] != null) ? String(row[primaryKey]) : '';
         html.push('<tr data-row-id="' + escapeHtml(rowId) + '">');
-        columns.forEach(function(col){
+        columns.forEach(function (col) {
             var val = row[col];
             var disabled = (col === primaryKey) ? ' disabled' : '';
             html.push(
@@ -6900,7 +6966,7 @@ function renderAdminTable(tableName, columns, rows, primaryKey) {
     // Новая строка
     html.push('<div class="admin-table-newrow-label">Новая строка:</div>');
     html.push('<table class="admin-table"><tbody><tr data-row-id="__new__">');
-    columns.forEach(function(col){
+    columns.forEach(function (col) {
         var disabled = (col === primaryKey) ? ' disabled' : '';
         html.push(
             '<td><input class="admin-table-input" data-col="' + escapeHtml(col) +
@@ -6915,6 +6981,14 @@ function renderAdminTable(tableName, columns, rows, primaryKey) {
     html.push('</tr></tbody></table>');
 
     adminTableContainer.innerHTML = html.join('');
+
+    // вешаем обработчики на инпуты фильтра
+    var filterInputs = adminTableContainer.querySelectorAll('.admin-table-filter-input');
+    for (var i = 0; i < filterInputs.length; i++) {
+        filterInputs[i].addEventListener('input', function () {
+            applyAdminTableFilters();
+        });
+    }
 }
 
 async function adminLoadUsers() {
