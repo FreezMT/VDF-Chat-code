@@ -189,6 +189,7 @@ var currentPostImageFile = null;
 var loginScreenLogin    = document.getElementById('loginScreenLogin');
 var loginScreenPassword = document.getElementById('loginScreenPassword');
 var loginContinueBtn    = document.getElementById('loginContinueBtn');
+var loginScreenTotp     = document.getElementById('loginScreenTotp');
 
 // ЧАТ
 var chatList         = document.getElementById('chatList');
@@ -196,6 +197,58 @@ var chatHeaderTitle  = document.getElementById('chatHeaderTitle');
 var chatHeaderAvatar = document.getElementById('chatHeaderAvatar');
 var chatHeaderStatus = document.getElementById('chatHeaderStatus');
 var chatContent      = document.querySelector('.chat-content');
+
+// ----- ЧЕРНОВИКИ СООБЩЕНИЙ -----
+var chatDrafts = {};           // { chatId: 'текст черновика' }
+var chatDraftSaveTimer = null;
+var DRAFTS_STORAGE_PREFIX = 'chat_drafts_v1_';
+
+function getDraftsStorageKey() {
+    if (!currentUser || !currentUser.login) return null;
+    return DRAFTS_STORAGE_PREFIX + String(currentUser.login).toLowerCase();
+}
+
+function loadChatDraftsForUser() {
+    chatDrafts = {};
+    var key = getDraftsStorageKey();
+    if (!key) return;
+    try {
+        var raw = localStorage.getItem(key);
+        if (!raw) return;
+        var obj = JSON.parse(raw);
+        if (obj && typeof obj === 'object') {
+            chatDrafts = obj;
+        }
+    } catch (e) {
+        chatDrafts = {};
+    }
+}
+
+function saveChatDraftsForUser() {
+    var key = getDraftsStorageKey();
+    if (!key) return;
+    try {
+        var data = JSON.stringify(chatDrafts || {});
+        localStorage.setItem(key, data);
+    } catch (e) {}
+}
+
+function scheduleSaveCurrentChatDraft() {
+    if (!chatInput || !currentChat || !currentChat.id) return;
+
+    var text = chatInput.value || '';
+
+    if (!chatDrafts) chatDrafts = {};
+    if (text.trim()) {
+        chatDrafts[currentChat.id] = text;
+    } else {
+        delete chatDrafts[currentChat.id];
+    }
+
+    if (chatDraftSaveTimer) clearTimeout(chatDraftSaveTimer);
+    chatDraftSaveTimer = setTimeout(saveChatDraftsForUser, 400);
+}
+
 if (chatContent) {
     chatContent.addEventListener('scroll', async function () {
         if (!currentChat || !currentUser || !currentUser.login) return;
@@ -553,6 +606,8 @@ var chatLoadingOverlay = document.getElementById('chatLoadingOverlay');
 var voiceRecordHint = document.querySelector('.voice-record-hint');
 
 var suppressFeedReloadUntil = 0; // тайм-аут, пока не перерисовывать ленту по feedUpdated
+
+
 
 // --- управление микрофоном: удержание + свайп влево для отмены ---
 
@@ -2096,9 +2151,12 @@ function keepKeyboardAfterSend() {
     }, 50);
 }
 
-// авто-ресайз textarea
+// авто-ресайз textarea + сохранение черновика
 if (chatInput) {
-    chatInput.addEventListener('input', autoResizeChatInput);
+    chatInput.addEventListener('input', function () {
+        autoResizeChatInput();
+        scheduleSaveCurrentChatDraft();
+    });
     autoResizeChatInput();
 }
 
@@ -6178,7 +6236,11 @@ async function openMainScreen(user) {
         currentUser.avatar       = user.avatar    || currentUser.avatar;
         currentUser.publicId     = user.publicId  || currentUser.publicId;
     }
+
+    loadChatDraftsForUser();
+
     feedInitialized = false;
+
 
     hideAllMainScreens();
     hideChatUserModal();
@@ -6320,7 +6382,12 @@ async function openChat(chat) {
         };
     }
 
-    if (chatInput) chatInput.value = '';
+    if (chatInput) {
+        var draftText = (chatDrafts && chat && chat.id && chatDrafts[chat.id]) || '';
+        chatInput.value = draftText;
+        autoResizeChatInput();
+        updateSendButtonState();
+    }
     clearReply();
 
     // Всегда останавливаем поллинг списка и сообщений
@@ -8015,12 +8082,19 @@ if (loginScreenPassword) {
     });
 }
 
+if (loginScreenTotp) {
+    loginScreenTotp.addEventListener('input', function () {
+        this.value = this.value.replace(/\D/g, '').slice(0, 6);
+    });
+}
+
 var loginForm = document.querySelector('.login-form');
 if (loginForm && loginScreenLogin && loginScreenPassword) {
     loginForm.addEventListener('submit', async function (e) {
         e.preventDefault();
         var login    = loginScreenLogin.value.trim();
         var password = loginScreenPassword.value;
+        var code2fa  = loginScreenTotp ? loginScreenTotp.value.trim() : '';
 
         if (!login || !password) {
             alert('Введите логин и пароль');
@@ -8037,12 +8111,21 @@ if (loginForm && loginScreenLogin && loginScreenPassword) {
             var resp = await fetch('/api/login', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ login: login, password: password })
+                body: JSON.stringify({
+                    login:    login,
+                    password: password,
+                    code:     code2fa
+                })
             });
             var data = await resp.json();
 
             if (!resp.ok || !data.ok) {
                 alert(data.error || 'Ошибка входа');
+                // если сервер просит код 2FA — фокусируем поле
+                if (data.error && loginScreenTotp &&
+                    (data.error.indexOf('2FA') !== -1 || data.error.indexOf('код') !== -1)) {
+                    try { loginScreenTotp.focus(); } catch (e2) {}
+                }
                 return;
             }
 
@@ -8147,6 +8230,10 @@ if (chatInputForm && chatInput) {
             autoResizeChatInput();
             clearReply();
             keepKeyboardAfterSend();
+            if (currentChat && currentChat.id && chatDrafts) {
+                delete chatDrafts[currentChat.id];
+                saveChatDraftsForUser();
+            }
 
             try {
                 for (var i = 0; i < usedAttachments.length; i++) {
@@ -8228,6 +8315,10 @@ if (chatInputForm && chatInput) {
         autoResizeChatInput();
         clearReply();
         keepKeyboardAfterSend();
+        if (currentChat && currentChat.id && chatDrafts) {
+            delete chatDrafts[currentChat.id];
+            saveChatDraftsForUser();
+        }
 
         var payload = {
             chatId:      currentChat.id,

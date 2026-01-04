@@ -9,6 +9,7 @@ const multer   = require('multer');
 const webPush  = require('web-push');
 const ffmpeg   = require('fluent-ffmpeg');
 const ffmpegPath = require('@ffmpeg-installer/ffmpeg').path;
+const speakeasy = require('speakeasy');
 
 const http  = require('http');
 const { WebSocketServer } = require('ws');
@@ -222,6 +223,18 @@ db.run(
     if (err) console.error('CREATE TABLE audit_log error:', err);
   }
 );
+
+// 2FA
+db.run('ALTER TABLE users ADD COLUMN totp_secret TEXT', err => {
+  if (err && !String(err).includes('duplicate column')) {
+    console.error('ALTER TABLE users ADD totp_secret error:', err);
+  }
+});
+db.run('ALTER TABLE users ADD COLUMN totp_enabled INTEGER DEFAULT 0', err => {
+  if (err && !String(err).includes('duplicate column')) {
+    console.error('ALTER TABLE users ADD totp_enabled error:', err);
+  }
+});
 
 // ---------- СХЕМА messages.sqlite ----------
 
@@ -1121,7 +1134,7 @@ app.post('/api/register', authLimiter, async (req, res) => {
 // /api/login
 app.post('/api/login', authLimiter, async (req, res) => {
   try {
-    const { login, password } = req.body;
+    const { login, password, code } = req.body;
 
     if (!login || !password) {
       return res.status(400).json({ error: 'Введите логин и пароль' });
@@ -1133,7 +1146,7 @@ app.post('/api/login', authLimiter, async (req, res) => {
 
     const user = await get(
       db,
-      'SELECT id, public_id, login, password_hash, role, first_name, last_name, team, dob, avatar FROM users WHERE login = ?',
+      'SELECT id, public_id, login, password_hash, role, first_name, last_name, team, dob, avatar, totp_secret, totp_enabled FROM users WHERE login = ?',
       [login]
     );
 
@@ -1144,6 +1157,30 @@ app.post('/api/login', authLimiter, async (req, res) => {
     const match = await bcrypt.compare(password, user.password_hash);
     if (!match) {
       return res.status(401).json({ error: 'Неверный логин или пароль' });
+    }
+
+    // ---- 2FA для админа ----
+    const roleLower = (user.role || '').toLowerCase();
+    const isAdmin   = roleLower === 'admin';
+    const totpOn    = isAdmin && user.totp_secret && Number(user.totp_enabled);
+
+    if (totpOn) {
+      const token = (code || '').trim();
+
+      if (!/^\d{6}$/.test(token)) {
+        return res.status(401).json({ error: 'Введите 6‑значный код 2FA' });
+      }
+
+      const okCode = speakeasy.totp.verify({
+        secret:   user.totp_secret,
+        encoding: 'base32',
+        token:    token,
+        window:   1          // принимает текущий и соседний интервал (±30с)
+      });
+
+      if (!okCode) {
+        return res.status(401).json({ error: 'Неверный код 2FA' });
+      }
     }
 
     await updateLastSeen(user.login);
