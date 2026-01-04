@@ -87,6 +87,11 @@ var IS_STANDALONE_PWA =
     (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) ||
     (window.navigator && window.navigator.standalone === true);
 
+// Определяем, что это iOS (для особой обработки скачивания медиа)
+var IS_IOS =
+    /iP(hone|od|ad)/i.test(navigator.userAgent) ||
+    (navigator.userAgent.indexOf('Mac') !== -1 && 'ontouchend' in document);
+
 // состояние рендера сообщений по чатам
 // chatRenderState[chatId] = {
 //   initialized: bool,
@@ -3842,20 +3847,67 @@ function createMsgContextMenu() {
 function downloadMessageAttachment(msgInfo) {
     if (!msgInfo || !msgInfo.attachmentUrl) return;
 
-    var link = document.createElement('a');
-    link.href = msgInfo.attachmentUrl;
-
+    var url  = msgInfo.attachmentUrl;
+    var type = msgInfo.attachmentType || '';
     var fileName = msgInfo.attachmentName || '';
+
     if (!fileName) {
-        if (msgInfo.attachmentType === 'image')      fileName = 'photo.jpg';
-        else if (msgInfo.attachmentType === 'video') fileName = 'video.mp4';
-        else                                         fileName = 'file';
+        if (type === 'image')      fileName = 'photo.jpg';
+        else if (type === 'video') fileName = 'video.mp4';
+        else if (type === 'audio') fileName = 'audio.m4a';
+        else                       fileName = 'file';
     }
+
+    // На iOS (особенно в PWA) атрибут download и программный клик по ссылке
+    // почти не работают. Вместо этого открываем медиа в Safari / новом окне,
+    // а пользователь сохраняет через меню «Поделиться».
+    if (IS_IOS && (type === 'image' || type === 'video' || type === 'audio')) {
+        try {
+            var opened = window.open(url, '_blank');
+            if (!opened) {
+                // Если блокируется попап — навигируемся в это же окно
+                window.location.href = url;
+            }
+        } catch (e) {
+            window.location.href = url;
+        }
+
+        if (typeof showInfoBanner === 'function') {
+            var hint;
+            if (type === 'image') {
+                hint = 'Фото открыто. Нажмите «Поделиться» → «Сохранить изображение», чтобы сохранить в галерею.';
+            } else if (type === 'video') {
+                hint = 'Видео открыто. Нажмите «Поделиться» → «Сохранить видео», чтобы сохранить в галерею.';
+            } else {
+                hint = 'Файл открыт. Используйте меню «Поделиться», чтобы сохранить.';
+            }
+            showInfoBanner(hint);
+        }
+        return;
+    }
+
+    // На остальных платформах пробуем стандартный download
+    var link = document.createElement('a');
+    link.href = url;
     link.download = fileName;
+    link.style.display = 'none';
 
     document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+
+    try {
+        link.click();
+        if (typeof showInfoBanner === 'function') {
+            showInfoBanner('Скачивание началось');
+        }
+    } catch (e) {
+        // Fallback: просто открываем файл, чтобы пользователь мог его сохранить
+        window.location.href = url;
+        if (typeof showInfoBanner === 'function') {
+            showInfoBanner('Файл открыт. Сохраните его вручную.');
+        }
+    } finally {
+        document.body.removeChild(link);
+    }
 }
 
 // === ОБРАБОТЧИКИ ДЛЯ СООБЩЕНИЙ ===
