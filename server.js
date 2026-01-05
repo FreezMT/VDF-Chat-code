@@ -1120,9 +1120,23 @@ app.post('/api/register', authLimiter, async (req, res) => {
     await run(
       db,
       `INSERT INTO users (public_id, login, password_hash, role, first_name, last_name, team, dob, avatar)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [publicId, login, passwordHash, role, firstName, lastName, team, dobToSave, null]
     );
+
+    // логируем регистрацию
+    try {
+      await logAudit(
+        login,                 // actor_login — сам зарегистрировался
+        'user_register',       // action
+        'user',                // target_type
+        login,                 // target_id
+        { role, team }         // details
+      );
+    } catch (e) {
+      // не падаем, даже если аудит не записался
+      console.error('AUDIT user_register error:', e);
+    }
 
     req.session.login = login;
 
@@ -4980,8 +4994,12 @@ app.post('/api/admin/audit', requireLoggedIn, async (req, res) => {
       for (let i = 0; i < 4; i++) params.push('%' + q + '%');
     }
 
+    // ВРЕМЯ В МОСКОВСКОМ: strftime(..., created_at, '+3 hours')
     const sql =
-      'SELECT id, created_at, actor_login, action, target_type, target_id, details ' +
+      'SELECT ' +
+      '  id, ' +
+      "  strftime('%d.%m.%Y %H:%M', created_at, '+3 hours') AS created_at_local, " +
+      '  actor_login, action, target_type, target_id, details ' +
       'FROM audit_log ' +
       (where.length ? ('WHERE ' + where.join(' AND ') + ' ') : '') +
       'ORDER BY id DESC ' +
@@ -4995,7 +5013,7 @@ app.post('/api/admin/audit', requireLoggedIn, async (req, res) => {
       ok: true,
       entries: rows.map(r => ({
         id:         r.id,
-        createdAt:  r.created_at,
+        createdAt:  r.created_at_local,   // уже строка "ДД.ММ.ГГГГ ЧЧ:ММ" по Москве
         actorLogin: r.actor_login,
         action:     r.action,
         targetType: r.target_type,
