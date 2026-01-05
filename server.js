@@ -574,6 +574,8 @@ function getMsg(sql, params = []) {
   });
 }
 
+
+
 // ---------- FFmpeg превью для видео ----------
 
 function generateVideoPreview(inputPath, outputPath) {
@@ -1308,6 +1310,7 @@ app.post('/api/messages/delete', requireAuth, async (req, res) => {
 });
 
 // /api/messages/react
+// /api/messages/react
 app.post('/api/messages/react', requireAuth, async (req, res) => {
   try {
     const { login, messageId, emoji } = req.body;
@@ -1368,6 +1371,11 @@ app.post('/api/messages/react', requireAuth, async (req, res) => {
       'SELECT emoji FROM message_reactions WHERE message_id = ? AND login = ?',
       [messageId, login]
     );
+
+    // уведомляем всех участников этого чата
+    if (msg && msg.chat_id) {
+      broadcastChatUpdated(msg.chat_id).catch(() => {});
+    }
 
     res.json({
       ok: true,
@@ -5157,6 +5165,68 @@ app.post('/api/admin/2fa/disable', requireLoggedIn, async (req, res) => {
   } catch (e) {
     console.error('ADMIN 2FA DISABLE ERROR:', e);
     res.status(500).json({ ok: false, error: 'Ошибка сервера' });
+  }
+});
+
+// /api/admin/table-delete - удаление одной строки по первичному ключу
+app.post('/api/admin/table-delete', requireLoggedIn, async (req, res) => {
+  try {
+    const sessLogin = req.session.login;
+    const adminUser = await get(db, 'SELECT role FROM users WHERE login = ?', [sessLogin]);
+    if (!adminUser || String(adminUser.role || '').toLowerCase() !== 'admin') {
+      return res.status(403).json({ ok: false, error: 'Доступ запрещён' });
+    }
+
+    let { db: dbName, table, id } = req.body || {};
+    dbName = dbName === 'msg' ? 'msg' : 'main';
+
+    table = (table || '').trim();
+    if (!table || !/^[A-Za-z0-9_]+$/.test(table)) {
+      return res.status(400).json({ ok: false, error: 'Некорректное имя таблицы' });
+    }
+
+    if (id === undefined || id === null || id === '') {
+      return res.status(400).json({ ok: false, error: 'Нет значения первичного ключа' });
+    }
+
+    let pragmaRows;
+    if (dbName === 'msg') {
+      pragmaRows = await allMsg(`PRAGMA table_info(${table})`, []);
+    } else {
+      pragmaRows = await all(db, `PRAGMA table_info(${table})`, []);
+    }
+
+    let primaryKey = null;
+    for (const r of pragmaRows) {
+      if (r.pk === 1) {
+        primaryKey = r.name;
+        break;
+      }
+    }
+    if (!primaryKey) {
+      return res.status(400).json({ ok: false, error: 'У таблицы нет первичного ключа, удаление через UI не поддерживается' });
+    }
+
+    const sql = `DELETE FROM ${table} WHERE ${primaryKey} = ?`;
+    let r;
+    if (dbName === 'msg') {
+      r = await runMsg(sql, [id]);
+    } else {
+      r = await run(db, sql, [id]);
+    }
+
+    await logAudit(
+      sessLogin,
+      'admin_table_delete',
+      dbName + ':' + table,
+      String(id),
+      null
+    );
+
+    res.json({ ok: true, deleted: r.changes || 0 });
+  } catch (e) {
+    console.error('ADMIN TABLE DELETE ERROR:', e);
+    res.status(500).json({ ok: false, error: String(e.message || e) });
   }
 });
 

@@ -658,6 +658,72 @@ var micTouchStartX = null;
 var micTouchStartY = null;
 var micGestureActive = false;
 
+function patchMessageDomFromData(msg) {
+    if (!chatContent || !msg) return;
+
+    var item = chatContent.querySelector('.msg-item[data-msg-id="' + msg.id + '"]');
+    if (!item) return;
+
+    var bubble = item.querySelector('.msg-bubble');
+    if (!bubble) return;
+
+    // разбор текста с [r]...[/r]
+    var parsed  = parseReplyWrappedText(msg.text || '');
+    var mainText = (typeof parsed.mainText === 'string') ? parsed.mainText : (msg.text || '');
+    var cleanMain = (mainText || '').toString();
+
+    // Обновляем текст
+    var textDiv = bubble.querySelector('.msg-text');
+    if (textDiv) {
+        textDiv.textContent = cleanMain;
+    }
+    item.dataset.msgText = cleanMain;
+
+    // Обновляем "(изменено)"
+    var metaLine = bubble.querySelector('.msg-meta');
+    if (metaLine) {
+        var editedSpan = metaLine.querySelector('.msg-edited');
+        if (msg.edited) {
+            if (!editedSpan) {
+                editedSpan = document.createElement('span');
+                editedSpan.className = 'msg-edited';
+                editedSpan.textContent = ' (изменено)';
+                metaLine.appendChild(editedSpan);
+            }
+        } else if (editedSpan) {
+            editedSpan.parentNode.removeChild(editedSpan);
+        }
+    }
+
+    // Обновляем реакции
+    var reactRow = bubble.querySelector('.msg-reactions');
+    var list = msg.reactions || [];
+    if (!list.length) {
+        if (reactRow && reactRow.parentNode) reactRow.parentNode.removeChild(reactRow);
+    } else {
+        if (!reactRow) {
+            reactRow = document.createElement('div');
+            reactRow.className = 'msg-reactions';
+            bubble.appendChild(reactRow);
+        }
+        reactRow.innerHTML = '';
+        list.forEach(function (r) {
+            var sp = document.createElement('span');
+            sp.className = 'msg-reaction';
+            if (msg.myReaction === r.emoji) sp.classList.add('my');
+            sp.textContent = r.emoji + ' ' + r.count;
+            reactRow.appendChild(sp);
+        });
+    }
+
+    // Обновляем кэш msgInfo внутри элемента (если есть)
+    if (item._msgInfo) {
+        item._msgInfo.text       = cleanMain;
+        item._msgInfo.reactions  = msg.reactions || [];
+        item._msgInfo.myReaction = msg.myReaction || null;
+    }
+}
+
 function isCurrentUserAdmin(){
     return currentUser && (currentUser.role || '').toLowerCase() === 'admin';
 }
@@ -7016,10 +7082,10 @@ function renderAdminTable(tableName, columns, rows, primaryKey) {
     html.push('<div style="font-size:12px;color:rgba(255,255,255,0.7);margin-bottom:4px;">Таблица: ' +
         escapeHtml(tableName) + '</div>');
 
-    // таблица с существующими строками
+    // Таблица существующих строк
     html.push('<table class="admin-table"><thead>');
 
-    // строка заголовков
+    // Заголовки
     html.push('<tr>');
     columns.forEach(function (col) {
         html.push('<th>' + escapeHtml(col) + '</th>');
@@ -7027,7 +7093,7 @@ function renderAdminTable(tableName, columns, rows, primaryKey) {
     html.push('<th>Действия</th>');
     html.push('</tr>');
 
-    // строка фильтров
+    // Фильтры
     html.push('<tr>');
     columns.forEach(function (col) {
         html.push(
@@ -7051,11 +7117,18 @@ function renderAdminTable(tableName, columns, rows, primaryKey) {
                 '" value="' + escapeHtml(val == null ? '' : val) + '"' + disabled + '></td>'
             );
         });
-        html.push(
-            '<td class="admin-table-row-actions">' +
-            '<button type="button" class="admin-table-small-btn admin-row-save-btn">Сохранить</button>' +
-            '</td>'
-        );
+
+        // Кнопки Сохранить / Удалить (удаление только если есть PK)
+        html.push('<td class="admin-table-row-actions">');
+        html.push('<button type="button" class="admin-table-small-btn admin-row-save-btn">Сохранить</button>');
+        if (primaryKey) {
+            html.push(
+                '<button type="button" class="admin-table-small-btn admin-table-small-btn-danger admin-row-delete-btn">' +
+                'Удалить</button>'
+            );
+        }
+        html.push('</td>');
+
         html.push('</tr>');
     });
 
@@ -7080,7 +7153,7 @@ function renderAdminTable(tableName, columns, rows, primaryKey) {
 
     adminTableContainer.innerHTML = html.join('');
 
-    // вешаем обработчики на инпуты фильтра
+    // обработчики фильтра
     var filterInputs = adminTableContainer.querySelectorAll('.admin-table-filter-input');
     for (var i = 0; i < filterInputs.length; i++) {
         filterInputs[i].addEventListener('input', function () {
@@ -7450,9 +7523,11 @@ if (adminTableSelect) {
 // Админ-экран: обработка кликов по кнопкам "Сохранить" и "Добавить" внутри таблицы
 if (adminTableContainer) {
     adminTableContainer.addEventListener('click', async function (e) {
-        var saveBtn = e.target.closest('.admin-row-save-btn');
+        var saveBtn   = e.target.closest('.admin-row-save-btn');
         var insertBtn = e.target.closest('.admin-row-insert-btn');
-        if (!saveBtn && !insertBtn) return;
+        var deleteBtn = e.target.closest('.admin-row-delete-btn');
+
+        if (!saveBtn && !insertBtn && !deleteBtn) return;
 
         if (!isCurrentUserAdmin()) {
             alert('Доступ только для администратора');
@@ -7469,9 +7544,39 @@ if (adminTableContainer) {
             return;
         }
 
+        // Удаление строки
+        if (deleteBtn) {
+            var delId = tr.dataset.rowId;
+            if (!delId || delId === '__new__') {
+                alert('Нельзя удалить эту строку (нет первичного ключа)');
+                return;
+            }
+            if (!confirm('Удалить эту строку?')) return;
+
+            try {
+                var respDel = await fetch('/api/admin/table-delete', {
+                    method: 'POST',
+                    headers: { 'Content-Type':'application/json' },
+                    body: JSON.stringify({ db: dbName, table: table, id: delId })
+                });
+                var dataDel = await respDel.json();
+                if (!respDel.ok || !dataDel.ok) {
+                    alert(dataDel.error || 'Ошибка удаления строки');
+                    return;
+                }
+                alert('Строка удалена');
+                // перезагрузим таблицу с нуля
+                adminLoadTableData(true);
+            } catch (errDel) {
+                alert('Сетевая ошибка при удалении строки');
+            }
+            return;
+        }
+
+        // Для сохранения / вставки собираем данные из инпутов
         var inputs = tr.querySelectorAll('.admin-table-input');
         var rowData = {};
-        inputs.forEach(function(inp){
+        inputs.forEach(function (inp) {
             var col = inp.dataset.col;
             if (!col) return;
             if (inp.disabled) return; // pk не трогаем
@@ -7479,8 +7584,8 @@ if (adminTableContainer) {
         });
 
         try {
+            // Добавление новой строки
             if (insertBtn) {
-                // новая строка
                 var respIns = await fetch('/api/admin/table-insert', {
                     method: 'POST',
                     headers: { 'Content-Type':'application/json' },
@@ -7492,10 +7597,10 @@ if (adminTableContainer) {
                     return;
                 }
                 alert('Строка добавлена (ID: ' + (dataIns.lastID || 'unknown') + ')');
-                // перезагружаем таблицу
-                adminLoadTableData();
-            } else if (saveBtn) {
-                // обновление существующей строки
+                adminLoadTableData(true);
+            }
+            // Обновление существующей строки
+            else if (saveBtn) {
                 var rowId = tr.dataset.rowId;
                 if (!rowId || rowId === '__new__') {
                     alert('Нет первичного ключа для обновления строки');
@@ -7512,8 +7617,7 @@ if (adminTableContainer) {
                     return;
                 }
                 alert('Строка обновлена');
-                // можно не перезагружать, но для надёжности:
-                adminLoadTableData();
+                adminLoadTableData(true);
             }
         } catch (err) {
             alert('Сетевая ошибка при изменении таблицы');
@@ -8786,7 +8890,7 @@ async function refreshMessages(preserveScroll) {
         var msgs = page.messages || [];
         if (!msgs.length) return;
 
-        // обновляем pinned, если нужно
+        // pinned / myLastReadId как раньше
         var newPinnedId = page.pinnedId || null;
         if (newPinnedId !== state.pinnedId) {
             state.pinnedId = newPinnedId;
@@ -8801,16 +8905,37 @@ async function refreshMessages(preserveScroll) {
             renderPinnedTop(pinnedMsg);
         }
 
-        var fromBottom = chatContent.scrollHeight - (chatContent.scrollTop + chatContent.clientHeight);
-        var justOpened = Date.now() - chatJustOpenedAt < 1500;
-        var shouldStickToBottom = (fromBottom <= 80 || justOpened);
+        // обновляем статусы прочтения
+        updateReadStatusInDom(msgs);
+        await markChatRead(chatId);
 
+        // --- НОВОЕ: патчим существующие сообщения в DOM текстом/реакциями ---
+        msgs.forEach(function (m) {
+            messagesById[m.id] = m;      // обновляем кэш
+            patchMessageDomFromData(m);  // обновляем DOM, если сообщение уже есть
+        });
+
+        // далее как и раньше: работаем с новыми сообщениями
         var maxExistingId = state.lastId || 0;
         var newMessages = msgs.filter(function (m) { return m.id > maxExistingId; });
 
-        // даже если нет новых, обновим "галочки" прочитано/нет
+        if (!newMessages.length) {
+            return;
+        }
+
+        // обновляем статусы прочтения
         updateReadStatusInDom(msgs);
         await markChatRead(chatId);
+
+        // --- НОВОЕ: патчим существующие сообщения в DOM текстом/реакциями ---
+        msgs.forEach(function (m) {
+            messagesById[m.id] = m;      // обновляем кэш
+            patchMessageDomFromData(m);  // обновляем DOM, если сообщение уже есть
+        });
+
+        // далее как и раньше: работаем с новыми сообщениями
+        var maxExistingId = state.lastId || 0;
+        var newMessages = msgs.filter(function (m) { return m.id > maxExistingId; });
 
         if (!newMessages.length) {
             return;
