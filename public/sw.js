@@ -1,6 +1,6 @@
 // ====== PWA / OFFLINE КЭШИРОВАНИЕ ======
 
-const STATIC_CACHE_VERSION = 'v12';
+const STATIC_CACHE_VERSION = 'v22';
 const STATIC_CACHE_NAME    = 'vdf-chat-static-' + STATIC_CACHE_VERSION;
 const RUNTIME_CACHE_NAME   = 'vdf-chat-runtime-' + STATIC_CACHE_VERSION;
 
@@ -185,14 +185,27 @@ self.addEventListener('push', function (event) {
 
   const notifData = { url, chatId };
 
-  event.waitUntil(
-    self.registration.showNotification(title, {
+  event.waitUntil((async () => {
+    // Если хотя бы одно окно нашего приложения сейчас видно — НЕ показываем пуш
+    const clientsList = await self.clients.matchAll({
+      type: 'window',
+      includeUncontrolled: true
+    });
+
+    const hasVisibleClient = clientsList.some(c => c.visibilityState === 'visible');
+
+    if (hasVisibleClient) {
+      // Пользователь уже в приложении — тихо игнорируем пуш
+      return;
+    }
+
+    await self.registration.showNotification(title, {
       body,
       icon,
       tag,
       data: notifData
-    })
-  );
+    });
+  })());
 });
 
 self.addEventListener('notificationclick', function (event) {

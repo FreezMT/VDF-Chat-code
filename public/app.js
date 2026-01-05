@@ -8859,6 +8859,7 @@ if (chatInputForm && chatInput) {
 
 // локи, чтобы не было одновременных refresh по одному чату
 var refreshingMessagesByChat = {};
+var queuedRefreshByChat = {};
 
 async function refreshMessages(preserveScroll) {
     if (!chatContent || !currentUser || !currentUser.login || !currentChat) return;
@@ -8873,11 +8874,13 @@ async function refreshMessages(preserveScroll) {
         return;
     }
 
-    // если уже идёт refresh для этого чата — выходим
+    // если уже идёт refresh для этого чата — просто отмечаем, что нужен ещё один
     if (refreshingMessagesByChat[chatId]) {
+        queuedRefreshByChat[chatId] = true;
         return;
     }
     refreshingMessagesByChat[chatId] = true;
+    queuedRefreshByChat[chatId]      = false;
 
     // запоминаем текущую позицию скролла
     var prevScrollTop = chatContent.scrollTop;
@@ -8890,7 +8893,7 @@ async function refreshMessages(preserveScroll) {
         var msgs = page.messages || [];
         if (!msgs.length) return;
 
-        // pinned / myLastReadId как раньше
+        // Pinned
         var newPinnedId = page.pinnedId || null;
         if (newPinnedId !== state.pinnedId) {
             state.pinnedId = newPinnedId;
@@ -8909,31 +8912,16 @@ async function refreshMessages(preserveScroll) {
         updateReadStatusInDom(msgs);
         await markChatRead(chatId);
 
-        // --- НОВОЕ: патчим существующие сообщения в DOM текстом/реакциями ---
+        // ОБНОВЛЯЕМ УЖЕ СУЩЕСТВУЮЩИЕ сообщения в DOM (текст, "(изменено)", реакции)
         msgs.forEach(function (m) {
-            messagesById[m.id] = m;      // обновляем кэш
-            patchMessageDomFromData(m);  // обновляем DOM, если сообщение уже есть
+            messagesById[m.id] = m;
+            patchMessageDomFromData(m);
         });
 
-        // далее как и раньше: работаем с новыми сообщениями
-        var maxExistingId = state.lastId || 0;
-        var newMessages = msgs.filter(function (m) { return m.id > maxExistingId; });
+        var fromBottom = chatContent.scrollHeight - (chatContent.scrollTop + chatContent.clientHeight);
+        var justOpened = Date.now() - chatJustOpenedAt < 1500;
+        var shouldStickToBottom = (fromBottom <= 80 || justOpened);
 
-        if (!newMessages.length) {
-            return;
-        }
-
-        // обновляем статусы прочтения
-        updateReadStatusInDom(msgs);
-        await markChatRead(chatId);
-
-        // --- НОВОЕ: патчим существующие сообщения в DOM текстом/реакциями ---
-        msgs.forEach(function (m) {
-            messagesById[m.id] = m;      // обновляем кэш
-            patchMessageDomFromData(m);  // обновляем DOM, если сообщение уже есть
-        });
-
-        // далее как и раньше: работаем с новыми сообщениями
         var maxExistingId = state.lastId || 0;
         var newMessages = msgs.filter(function (m) { return m.id > maxExistingId; });
 
@@ -8946,7 +8934,7 @@ async function refreshMessages(preserveScroll) {
             return currentUser && m.sender_login === currentUser.login;
         });
 
-        // сначала убираем временные сообщения, чтобы не было "двоения" и моргания
+        // если были pending-сообщения — убираем их
         if (hadOwnNew && chatContent) {
             var pendings = chatContent.querySelectorAll('.msg-item.msg-pending');
             pendings.forEach(function (el) {
@@ -8954,16 +8942,14 @@ async function refreshMessages(preserveScroll) {
             });
         }
 
-        // теперь рендерим новые сообщения
+        // рендерим новые сообщения
         newMessages.forEach(function (m) {
-            // если сообщение уже есть в DOM — не дублируем
             if (chatContent.querySelector('.msg-item[data-msg-id="' + m.id + '"]')) {
                 return;
             }
 
             messagesById[m.id] = m;
 
-            // свои сообщения рисуем без анимации, чтобы не "мигали" при замене временных
             var skipAnim = currentUser && m.sender_login === currentUser.login;
             renderMessage(m, { skipAnimation: skipAnim });
 
@@ -8973,16 +8959,21 @@ async function refreshMessages(preserveScroll) {
 
         // позиционирование скролла
         if (shouldStickToBottom) {
-            // пользователь у низа — держим приклеенным к концу
             chatContent.scrollTop = chatContent.scrollHeight;
-        } else {
-            // был где-то выше — сохраняем позицию
+        } else if (preserveScroll) {
             chatContent.scrollTop = prevScrollTop;
         }
     } catch (e) {
         console.error('refreshMessages error:', e);
     } finally {
         refreshingMessagesByChat[chatId] = false;
+
+        // если пока мы обновляли чат, пришли ещё обновления — запускаем refresh ещё раз
+        if (queuedRefreshByChat[chatId]) {
+            queuedRefreshByChat[chatId] = false;
+            // важно: не сохраняем scroll, чтобы новые сообщения внизу были видны
+            refreshMessages(false);
+        }
     }
 }
 
