@@ -6662,17 +6662,24 @@ async function openFeedScreen() {
     // всегда с верха
     try { window.scrollTo(0, 0); } catch (e) {}
 
+    // Показ/скрытие кнопки "Создать пост"
     if (createPostBtn) {
         var roleLower = (currentUser.role || '').toLowerCase();
         createPostBtn.style.display =
             (roleLower === 'trainer' || roleLower === 'тренер' || roleLower === 'admin')
-            ? 'block' : 'none';
+            ? 'block'
+            : 'none';
     }
 
-    if (!feedInitialized) {
+    // ВСЕГДА перезагружаем ленту при входе
+    try {
         await loadFeed();
-        feedInitialized = true;
+    } catch (e) {
+        // loadFeed внутри уже показывает алерты при ошибке
     }
+
+    // флаг feedInitialized можно вообще не использовать, но если где-то проверяешь — оставим true
+    feedInitialized = true;
 }
 
 async function openChat(chat) {

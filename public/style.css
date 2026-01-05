@@ -3424,3 +3424,20 @@ textarea {
 .admin-table-small-btn-danger{
     background-color:#FF3B30;
 }
+
+/* Разрешаем копирование/выделение текста в админских списках и логах */
+.admin-users-list,
+.admin-users-list * ,
+.admin-audit-list,
+.admin-audit-list * ,
+.admin-sql-result,
+.admin-sql-result * ,
+.admin-table-container,
+.admin-table-container * ,
+.admin-2fa-secret {
+    -webkit-user-select: text !important;
+    -moz-user-select: text !important;
+    -ms-user-select: text !important;
+    user-select: text !important;
+    -webkit-touch-callout: default !important;
+}
