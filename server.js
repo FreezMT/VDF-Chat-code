@@ -773,7 +773,7 @@ async function appendFriendChatsForUser(user, chats) {
       chat.partnerLogin = otherUser.login;
     } else if (chatId.startsWith('trainer-') ||
                chatId.startsWith('veselovavdf-') ||
-               chatId.startsWith('Veselovavdf-')) {
+               chatId.startsWith('veselovavdf-')) {
       chat.type = 'trainer';
 
       const myRole  = (user.role || '').toLowerCase();
@@ -884,7 +884,7 @@ async function appendFriendChatsForUser(user, chats) {
     // Тренерский чат (trainer-..., vesелovavdf-...)
     else if (chatId.startsWith('trainer-') ||
              chatId.startsWith('veselovavdf-') ||
-             chatId.startsWith('Veselovavdf-')) {
+             chatId.startsWith('veselovavdf-')) {
       chat.type = 'trainer';
 
       const myRole  = (user.role || '').toLowerCase();
@@ -1678,6 +1678,8 @@ app.post('/api/messages/pin', requireAuth, async (req, res) => {
 // ---------- /api/chats ----------
 
 
+// ---------- /api/chats ----------
+
 app.post('/api/chats', requireAuth, async (req, res) => {
   try {
     const { login } = req.body;
@@ -1836,7 +1838,6 @@ app.post('/api/chats', requireAuth, async (req, res) => {
 
       for (const m of trainerCustomMemberships) {
         const groupName = m.group_name;
-        // если тренер и так владелец, группа уже добавлена
         if (ownedNames.has(groupName)) continue;
 
         const g = await get(
@@ -1891,20 +1892,16 @@ app.post('/api/chats', requireAuth, async (req, res) => {
         chats.push(chat);
       }
 
-      // 3) friend‑чаты (добавленные через "Добавить друга" /api/friend/add)
-      await appendFriendChatsForUser(user, chats);
-
-      // 4) личные pm‑чаты (по существующим сообщениям)
+      // 3) личные pm-чаты
       await appendPersonalChatsForUser(user, chats);
 
-      // 5) чаты "тренер ↔ тренер" по общим командам (даже если ещё нет сообщений)
+      // 4) чаты "тренер ↔ тренер" по общим командам (даже если ещё нет сообщений)
       const teamsOfTrainer = await all(
         db,
         'SELECT DISTINCT team FROM trainer_teams WHERE trainer_id = ?',
         [userId]
       );
 
-      // idSet уже нужен для недублирования
       const idSet = new Set(chats.map(c => c.id));
 
       for (const row of teamsOfTrainer) {
@@ -1924,7 +1921,7 @@ app.post('/api/chats', requireAuth, async (req, res) => {
           const highId = Math.max(userId, ot.id);
 
           const chatId = 'trainer-' + lowId + '-' + highId;
-          if (idSet.has(chatId)) continue; // уже есть
+          if (idSet.has(chatId)) continue;
           idSet.add(chatId);
 
           const chat = {
@@ -2028,7 +2025,7 @@ app.post('/api/chats', requireAuth, async (req, res) => {
       chats.push(groupChat);
     }
 
-    // 2) чаты с тренерами по текущей команде
+    // 2) чаты с тренерами по текущей команде (официальные)
     const trainers = await all(
       db,
       'SELECT DISTINCT u.id, u.first_name, u.last_name, u.login, u.avatar ' +
@@ -2085,7 +2082,7 @@ app.post('/api/chats', requireAuth, async (req, res) => {
       chats.push(chat);
     }
 
-    // 3) отдельный чат с Ангелиной для родителей
+    // 3) отдельный чат с Ангелиной для родителей (официальный)
     const roleLowerUser = (user.role || '').toLowerCase();
     if (roleLowerUser === 'parent') {
       const angelina = await get(
@@ -2135,6 +2132,78 @@ app.post('/api/chats', requireAuth, async (req, res) => {
         }
 
         chats.push(chat);
+      }
+    }
+
+    // 3.5) дополнительные trainer- / Veselovavdf- чаты по сообщениям (через "Добавить друга", другие команды)
+    {
+      const existingIds = new Set(chats.map(c => c.id));
+
+      const extraTrainerRows = await allMsg(
+        'SELECT DISTINCT chat_id FROM messages ' +
+        'WHERE (deleted IS NULL OR deleted = 0) ' +
+        '  AND (chat_id LIKE ? OR chat_id LIKE ?)',
+        [`trainer-%-${userId}`, `veselovavdf-%-${userId}`]
+      );
+
+      for (const row of extraTrainerRows) {
+        const chatId = row.chat_id;
+        if (!chatId || existingIds.has(chatId)) continue;
+
+        const parts = String(chatId).split('-');
+        if (parts.length < 3) continue;
+
+        // Форматы:
+        // trainer-<trainerId>-<userId>
+        // Veselovavdf-<trainerId>-<userId>
+        const trainerId = parseInt(parts[1], 10);
+        if (!trainerId || isNaN(trainerId)) continue;
+
+        const tr = await get(
+          db,
+          'SELECT id, first_name, last_name, login, avatar FROM users WHERE id = ?',
+          [trainerId]
+        );
+        if (!tr) continue;
+
+        const chat = {
+          id:           chatId,
+          type:         'trainer',
+          title:        ((tr.first_name || '') + ' ' + (tr.last_name || '')).trim() || tr.login,
+          subtitle:     '',
+          avatar:       tr.avatar || '/img/default-avatar.png',
+          trainerId:    tr.id,
+          trainerLogin: tr.login
+        };
+
+        const last = await getMsg(
+          'SELECT sender_login, text, created_at, attachment_type ' +
+          'FROM messages ' +
+          'WHERE chat_id = ? AND (deleted IS NULL OR deleted = 0) ' +
+          'ORDER BY created_at DESC, id DESC LIMIT 1',
+          [chatId]
+        );
+        if (last) {
+          chat.lastMessageSenderLogin    = last.sender_login;
+          chat.lastMessageText           = last.text;
+          chat.lastMessageCreatedAt      = last.created_at;
+          chat.lastMessageAttachmentType = last.attachment_type;
+          try {
+            const lu = await get(
+              db,
+              'SELECT first_name, last_name FROM users WHERE login = ?',
+              [last.sender_login]
+            );
+            if (lu) {
+              chat.lastMessageSenderName = (lu.first_name + ' ' + lu.last_name).trim();
+            }
+          } catch (e2) {
+            console.error('CHATS last sender name error (extra trainer):', e2);
+          }
+        }
+
+        chats.push(chat);
+        existingIds.add(chatId);
       }
     }
 
@@ -2206,10 +2275,7 @@ app.post('/api/chats', requireAuth, async (req, res) => {
       chats.push(chat);
     }
 
-    // 5) friend‑чаты (созданные через "Добавить друга")
-    await appendFriendChatsForUser(user, chats);
-
-    // 6) личные pm‑чаты (по существующим сообщениям)
+    // 5) личные pm‑чаты
     await appendPersonalChatsForUser(user, chats);
 
     await enrichChatsWithUnreadAndSort(login, chats);
