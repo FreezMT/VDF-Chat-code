@@ -1,3 +1,7 @@
 node_modules/
 *.sqlite-shm
 *.sqlite-wal
+db.sqlite
+db.sqlite-*
+messages.sqlite
+messages.sqlite-*
