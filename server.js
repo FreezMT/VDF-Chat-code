@@ -779,7 +779,10 @@ async function appendFriendChatsForUser(user, chats) {
 
   const friendRows = await all(
     db,
-    'SELECT chat_id, user1_login, user2_login FROM friends WHERE user1_login = ? OR user2_login = ?',
+    `SELECT chat_id, user1_login, user2_login
+    FROM friends
+    WHERE LOWER(user1_login) = LOWER(?)
+        OR LOWER(user2_login) = LOWER(?)`,
     [meLogin, meLogin]
   );
   if (!friendRows || !friendRows.length) return;
@@ -788,7 +791,11 @@ async function appendFriendChatsForUser(user, chats) {
     const chatId = fr.chat_id;
     if (!chatId || existingIds.has(chatId)) continue;
 
-    const otherLogin = (fr.user1_login === meLogin) ? fr.user2_login : fr.user1_login;
+    const myLower = String(meLogin || '').toLowerCase();
+    const otherLogin =
+      String(fr.user1_login || '').toLowerCase() === myLower
+        ? fr.user2_login
+        : fr.user1_login;
 
     const otherUser = await get(
       db,
@@ -810,7 +817,7 @@ async function appendFriendChatsForUser(user, chats) {
       chat.partnerLogin = otherUser.login;
     }
     // Тренерский чат (trainer-..., Veselovavdf-...)
-    else if (chatId.startsWith('trainer-') || chatId.startsWith('Veselovavdf-')) {
+    else if (chatId.startsWith('trainer-') || chatId.startsWith('veselovavdf-')) {
       chat.type = 'trainer';
 
       const myRole    = (user.role || '').toLowerCase();
@@ -1633,7 +1640,7 @@ app.post('/api/chats', requireAuth, async (req, res) => {
 
       // 1) личные чаты тренера (trainer-..., Veselovavdf-...) по существующим сообщениям
       const pattern1 = `trainer-${userId}-%`;
-      const pattern2 = `Veselovavdf-${userId}-%`;
+      const pattern2 = `veselovavdf-${userId}-%`;
 
       const rows = await allMsg(
         'SELECT DISTINCT chat_id FROM messages ' +
@@ -2022,7 +2029,7 @@ app.post('/api/chats', requireAuth, async (req, res) => {
       );
 
       if (angelina && !trainerIds.has(angelina.id)) {
-        const chatId = 'Veselovavdf-' + angelina.id + '-' + userId;
+        const chatId = 'veselovavdf-' + angelina.id + '-' + userId;
 
         const chat = {
           id:           chatId,
@@ -2056,7 +2063,7 @@ app.post('/api/chats', requireAuth, async (req, res) => {
               chat.lastMessageSenderName = (lu.first_name + ' ' + lu.last_name).trim();
             }
           } catch (e2) {
-            console.error('CHATS last sender name error (user-Veselovavdf):', e2);
+            console.error('CHATS last sender name error (user-veselovavdf):', e2);
           }
         }
 
