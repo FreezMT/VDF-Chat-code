@@ -775,27 +775,33 @@ async function appendFriendChatsForUser(user, chats) {
   if (!user || !user.login || !Array.isArray(chats)) return;
 
   const meLogin = user.login;
+  const meLower = String(meLogin || '').toLowerCase();
+
   const existingIds = new Set(chats.map(c => c.id));
 
+  // ВАЖНО: сравниваем логин без учёта регистра
   const friendRows = await all(
     db,
     `SELECT chat_id, user1_login, user2_login
-    FROM friends
-    WHERE LOWER(user1_login) = LOWER(?)
+     FROM friends
+     WHERE LOWER(user1_login) = LOWER(?)
         OR LOWER(user2_login) = LOWER(?)`,
     [meLogin, meLogin]
   );
-  if (!friendRows || !friendRows.length) return;
+
+  if (!friendRows || !friendRows.length) {
+    return;
+  }
 
   for (const fr of friendRows) {
     const chatId = fr.chat_id;
     if (!chatId || existingIds.has(chatId)) continue;
 
-    const myLower = String(meLogin || '').toLowerCase();
-    const otherLogin =
-      String(fr.user1_login || '').toLowerCase() === myLower
-        ? fr.user2_login
-        : fr.user1_login;
+    const u1 = String(fr.user1_login || '');
+    const u2 = String(fr.user2_login || '');
+
+    const otherLogin = u1.toLowerCase() === meLower ? u2 : u1;
+    if (!otherLogin) continue;
 
     const otherUser = await get(
       db,
@@ -816,8 +822,8 @@ async function appendFriendChatsForUser(user, chats) {
       chat.partnerId    = otherUser.id;
       chat.partnerLogin = otherUser.login;
     }
-    // Тренерский чат (trainer-..., Veselovavdf-...)
-    else if (chatId.startsWith('trainer-') || chatId.startsWith('veselovavdf-')) {
+    // Тренерский чат (trainer-..., vesелovavdf-...)
+    else if (chatId.startsWith('trainer-') || chatId.startsWith('veselovavdf-') || chatId.startsWith('Veselovavdf-')) {
       chat.type = 'trainer';
 
       const myRole    = (user.role || '').toLowerCase();
