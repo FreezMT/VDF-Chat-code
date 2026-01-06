@@ -819,7 +819,7 @@ async function appendFriendChatsForUser(user, chats) {
       chat.partnerId    = otherUser.id;
       chat.partnerLogin = otherUser.login;
     }
-    // Тренерский чат (trainer-..., veselovavdf-...)
+    // Тренерский чат (trainer-..., vesелovavdf-...)
     else if (chatId.startsWith('trainer-') ||
              chatId.startsWith('veselovavdf-') ||
              chatId.startsWith('Veselovavdf-')) {
@@ -851,7 +851,7 @@ async function appendFriendChatsForUser(user, chats) {
       chat.partnerLogin = otherUser.login;
     }
 
-    // последнее сообщение (если есть)
+    // Последнее сообщение (если есть)
     const last = await getMsg(
       'SELECT sender_login, text, created_at, attachment_type ' +
       'FROM messages ' +
