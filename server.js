@@ -705,50 +705,101 @@ async function enrichChatsWithUnreadAndSort(userLogin, chats) {
   return chats;
 }
 
-async function appendPersonalChatsForUser(user, chats) {
-  if (!user || !user.id || !chats) return;
-  const userId = user.id;
+async function appendFriendChatsForUser(user, chats) {
+  console.error('FRIEND DEBUG: called for', user && user.login);
 
-  const pattern1 = `pm-${userId}-%`;
-  const pattern2 = `pm-%-${userId}`;
+  if (!user || !user.login || !Array.isArray(chats)) {
+    console.error('FRIEND DEBUG: invalid args', !!user, user && user.login, Array.isArray(chats));
+    return;
+  }
 
-  const rows = await allMsg(
-    'SELECT DISTINCT chat_id FROM messages WHERE chat_id LIKE ? OR chat_id LIKE ?',
-    [pattern1, pattern2]
-  );
+  const meLogin = user.login;
+  const meLower = String(meLogin || '').toLowerCase();
 
   const existingIds = new Set(chats.map(c => c.id));
 
-  for (const row of rows) {
-    const chatId = row.chat_id;
-    if (existingIds.has(chatId)) continue;
+  const friendRows = await all(
+    db,
+    `SELECT chat_id, user1_login, user2_login
+     FROM friends
+     WHERE LOWER(user1_login) = LOWER(?)
+        OR LOWER(user2_login) = LOWER(?)`,
+    [meLogin, meLogin]
+  );
 
-    const parts = String(chatId).split('-');
-    if (parts.length !== 3) continue;
+  console.error('FRIEND DEBUG: me=', meLogin, 'friendRows=', friendRows.length);
 
-    const a = parseInt(parts[1], 10);
-    const b = parseInt(parts[2], 10);
-    if (Number.isNaN(a) || Number.isNaN(b)) continue;
+  if (!friendRows || !friendRows.length) return;
 
-    if (a !== userId && b !== userId) continue;
-    const otherId = (a === userId) ? b : a;
+  for (const fr of friendRows) {
+    const chatId = fr.chat_id;
+    if (!chatId) {
+      console.error('FRIEND DEBUG: skip row without chatId', fr);
+      continue;
+    }
+    if (existingIds.has(chatId)) {
+      console.error('FRIEND DEBUG: skip existing chatId', chatId);
+      continue;
+    }
+
+    const u1 = String(fr.user1_login || '');
+    const u2 = String(fr.user2_login || '');
+
+    const otherLogin = u1.toLowerCase() === meLower ? u2 : u1;
+    if (!otherLogin) {
+      console.error('FRIEND DEBUG: no otherLogin for row', fr);
+      continue;
+    }
 
     const otherUser = await get(
       db,
-      'SELECT first_name, last_name, login, avatar FROM users WHERE id = ?',
-      [otherId]
+      'SELECT id, login, role, first_name, last_name, avatar FROM users WHERE login = ?',
+      [otherLogin]
     );
-    if (!otherUser) continue;
+    if (!otherUser) {
+      console.error('FRIEND DEBUG: no otherUser for', otherLogin);
+      continue;
+    }
 
-    const chat = {
-      id:           chatId,
-      type:         'personal',
-      title:        (otherUser.first_name + ' ' + otherUser.last_name).trim(),
-      subtitle:     '',
-      avatar:       otherUser.avatar || '/img/default-avatar.png',
-      partnerId:    otherId,
-      partnerLogin: otherUser.login
-    };
+    const fullName = ((otherUser.first_name || '') + ' ' + (otherUser.last_name || '')).trim();
+
+    const chat = { id: chatId };
+
+    if (chatId.startsWith('pm-')) {
+      chat.type         = 'personal';
+      chat.title        = fullName || otherUser.login;
+      chat.avatar       = otherUser.avatar || '/img/default-avatar.png';
+      chat.partnerId    = otherUser.id;
+      chat.partnerLogin = otherUser.login;
+    } else if (chatId.startsWith('trainer-') ||
+               chatId.startsWith('veselovavdf-') ||
+               chatId.startsWith('Veselovavdf-')) {
+      chat.type = 'trainer';
+
+      const myRole  = (user.role || '').toLowerCase();
+      const hisRole = (otherUser.role || '').toLowerCase();
+
+      const meIsTrainer    = (myRole === 'trainer' || myRole === 'тренер' || user.login === ANGELINA_LOGIN);
+      const otherIsTrainer = (hisRole === 'trainer' || hisRole === 'тренер' || otherUser.login === ANGELINA_LOGIN);
+
+      const trainerUser = meIsTrainer ? user      : otherUser;
+      const partnerUser = meIsTrainer ? otherUser : user;
+
+      const pFull = ((partnerUser.first_name || '') + ' ' + (partnerUser.last_name || '')).trim();
+
+      chat.title        = pFull || partnerUser.login;
+      chat.avatar       = partnerUser.avatar || '/img/default-avatar.png';
+      chat.trainerId    = trainerUser.id;
+      chat.trainerLogin = trainerUser.login;
+      chat.partnerId    = partnerUser.id;
+      chat.partnerLogin = partnerUser.login;
+    } else {
+      chat.type         = 'personal';
+      chat.title        = fullName || otherUser.login;
+      chat.avatar       = otherUser.avatar || '/img/default-avatar.png';
+      chat.partnerId    = otherUser.id;
+      chat.partnerLogin = otherUser.login;
+    }
 
     const last = await getMsg(
       'SELECT sender_login, text, created_at, attachment_type ' +
@@ -757,7 +808,6 @@ async function appendPersonalChatsForUser(user, chats) {
       'ORDER BY created_at DESC, id DESC LIMIT 1',
       [chatId]
     );
-
     if (last) {
       chat.lastMessageSenderLogin    = last.sender_login;
       chat.lastMessageText           = last.text;
@@ -773,10 +823,11 @@ async function appendPersonalChatsForUser(user, chats) {
           chat.lastMessageSenderName = (lu.first_name + ' ' + lu.last_name).trim();
         }
       } catch (e2) {
-        console.error('CHATS last sender name error (personal):', e2);
+        console.error('FRIEND CHATS last sender name error:', e2);
       }
     }
 
+    console.error('FRIEND DEBUG: push chat', chatId, 'for', meLogin, 'type', chat.type);
     chats.push(chat);
     existingIds.add(chatId);
   }
