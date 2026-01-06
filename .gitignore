@@ -5,3 +5,6 @@ db.sqlite
 db.sqlite-*
 messages.sqlite
 messages.sqlite-*
+public/uploads/
+public/video-previews/
+public/avatars/user-*
