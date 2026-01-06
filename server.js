@@ -71,6 +71,16 @@ const TEAMS = [
   'Вика 7+ Реутов'
 ];
 
+const TEAM_ALIASES = {
+  'VDF Kids Crew': 'vdf-kids-crew'
+};
+
+function normalizeTeam(team) {
+  if (!team) return team;
+  if (TEAM_ALIASES[team]) return TEAM_ALIASES[team];
+  return team;
+}
+
 // ---------- VAPID ДЛЯ WEB-PUSH ----------
 
 const VAPID_PUBLIC_KEY  = 'BG3M55GRSlmaufWbQKN_ykIZmlY0oEqhKvBGMiQX-dwpOPiqpnjtcrEmmRT3kq36nJwWBg7KO-MeZjOKvkr_qSQ';
@@ -1200,7 +1210,7 @@ app.get('/api/session/me', requireLoggedIn, async (req, res) => {
 app.post('/api/register', authLimiter, async (req, res) => {
   try {
     const { login, password, role, firstName, lastName, team, dob } = req.body;
-
+    const normalizedTeam = normalizeTeam(team);
     if (!login || !password || !role || !firstName || !lastName || !team) {
       return res.status(400).json({ error: 'Заполните все обязательные поля' });
     }
@@ -1221,7 +1231,7 @@ app.post('/api/register', authLimiter, async (req, res) => {
       return res.status(400).json({ error: 'Имя и фамилия должны содержать только русские буквы' });
     }
 
-    if (!isValidTeam(team)) {
+    if (!isValidTeam(normalizedTeam)) {
       return res.status(400).json({ error: 'Некорректная команда' });
     }
 
@@ -1245,7 +1255,7 @@ app.post('/api/register', authLimiter, async (req, res) => {
       db,
       `INSERT INTO users (public_id, login, password_hash, role, first_name, last_name, team, dob, avatar)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [publicId, login, passwordHash, role, firstName, lastName, team, dobToSave, null]
+      [publicId, login, passwordHash, role, firstName, lastName, normalizedTeam, dobToSave, null]
     );
 
     // логируем регистрацию
