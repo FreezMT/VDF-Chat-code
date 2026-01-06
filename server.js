@@ -639,7 +639,8 @@ function isValidCyrillicField(v, max) {
 }
 
 function isValidTeam(team) {
-  return TEAMS.includes(team);
+  const t = normalizeTeam(team);
+  return TEAMS.includes(t);
 }
 
 function isValidDateIso(dateStr) {
