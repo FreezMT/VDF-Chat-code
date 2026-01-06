@@ -235,6 +235,19 @@ db.run('ALTER TABLE users ADD COLUMN totp_enabled INTEGER DEFAULT 0', err => {
   }
 });
 
+db.run(
+  `CREATE TABLE IF NOT EXISTS friends (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_id TEXT NOT NULL,
+    user1_login TEXT NOT NULL,
+    user2_login TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user1_login, user2_login)
+  )`,
+  err => {
+    if (err) console.error('CREATE TABLE friends error:', err);
+  }
+);
 // ---------- СХЕМА messages.sqlite ----------
 
 msgDb.run(
@@ -758,6 +771,106 @@ async function appendPersonalChatsForUser(user, chats) {
   }
 }
 
+async function appendFriendChatsForUser(user, chats) {
+  if (!user || !user.login || !Array.isArray(chats)) return;
+
+  const meLogin = user.login;
+  const existingIds = new Set(chats.map(c => c.id));
+
+  const friendRows = await all(
+    db,
+    'SELECT chat_id, user1_login, user2_login FROM friends WHERE user1_login = ? OR user2_login = ?',
+    [meLogin, meLogin]
+  );
+  if (!friendRows || !friendRows.length) return;
+
+  for (const fr of friendRows) {
+    const chatId = fr.chat_id;
+    if (!chatId || existingIds.has(chatId)) continue;
+
+    const otherLogin = (fr.user1_login === meLogin) ? fr.user2_login : fr.user1_login;
+
+    const otherUser = await get(
+      db,
+      'SELECT id, login, role, first_name, last_name, avatar FROM users WHERE login = ?',
+      [otherLogin]
+    );
+    if (!otherUser) continue;
+
+    const fullName = ((otherUser.first_name || '') + ' ' + (otherUser.last_name || '')).trim();
+
+    const chat = { id: chatId };
+
+    // Личный чат
+    if (chatId.startsWith('pm-')) {
+      chat.type         = 'personal';
+      chat.title        = fullName || otherUser.login;
+      chat.avatar       = otherUser.avatar || '/img/default-avatar.png';
+      chat.partnerId    = otherUser.id;
+      chat.partnerLogin = otherUser.login;
+    }
+    // Тренерский чат (trainer-..., Veselovavdf-...)
+    else if (chatId.startsWith('trainer-') || chatId.startsWith('Veselovavdf-')) {
+      chat.type = 'trainer';
+
+      const myRole    = (user.role || '').toLowerCase();
+      const hisRole   = (otherUser.role || '').toLowerCase();
+
+      const meIsTrainer    = (myRole === 'trainer' || myRole === 'тренер' || user.login === ANGELINA_LOGIN);
+      const otherIsTrainer = (hisRole === 'trainer' || hisRole === 'тренер' || otherUser.login === ANGELINA_LOGIN);
+
+      const trainerUser = meIsTrainer ? user      : otherUser;
+      const partnerUser = meIsTrainer ? otherUser : user;
+
+      const pFull = ((partnerUser.first_name || '') + ' ' + (partnerUser.last_name || '')).trim();
+
+      chat.title        = pFull || partnerUser.login;
+      chat.avatar       = partnerUser.avatar || '/img/default-avatar.png';
+      chat.trainerId    = trainerUser.id;
+      chat.trainerLogin = trainerUser.login;
+      chat.partnerId    = partnerUser.id;
+      chat.partnerLogin = partnerUser.login;
+    } else {
+      // дефолт — как обычный личный
+      chat.type         = 'personal';
+      chat.title        = fullName || otherUser.login;
+      chat.avatar       = otherUser.avatar || '/img/default-avatar.png';
+      chat.partnerId    = otherUser.id;
+      chat.partnerLogin = otherUser.login;
+    }
+
+    // Подтягиваем последнее сообщение (если уже переписывались)
+    const last = await getMsg(
+      'SELECT sender_login, text, created_at, attachment_type ' +
+      'FROM messages ' +
+      'WHERE chat_id = ? AND (deleted IS NULL OR deleted = 0) ' +
+      'ORDER BY created_at DESC, id DESC LIMIT 1',
+      [chatId]
+    );
+    if (last) {
+      chat.lastMessageSenderLogin    = last.sender_login;
+      chat.lastMessageText           = last.text;
+      chat.lastMessageCreatedAt      = last.created_at;
+      chat.lastMessageAttachmentType = last.attachment_type;
+      try {
+        const lu = await get(
+          db,
+          'SELECT first_name, last_name FROM users WHERE login = ?',
+          [last.sender_login]
+        );
+        if (lu) {
+          chat.lastMessageSenderName = (lu.first_name + ' ' + lu.last_name).trim();
+        }
+      } catch (e2) {
+        console.error('FRIEND CHATS last sender name error:', e2);
+      }
+    }
+
+    chats.push(chat);
+    existingIds.add(chatId);
+  }
+}
+
 
 // ---------- FFmpeg перекодирование аудио в m4a (для кросс‑браузерности) ----------
 function transcodeAudioToM4A(inputPath, outputPath) {
@@ -773,7 +886,7 @@ function transcodeAudioToM4A(inputPath, outputPath) {
 
 // кого уведомлять в чате
 async function getChatParticipantsLogins(chatId) {
-  if (chatId.startsWith('trainer-') || chatId.startsWith('Veselovavdf-') || chatId.startsWith('pm-')) {
+  if (chatId.startsWith('trainer-') || chatId.startsWith('veselovavdf-') || chatId.startsWith('pm-')) {
     const parts = chatId.split('-');
     if (parts.length < 3) return [];
     const id1 = parseInt(parts[1], 10);
@@ -878,7 +991,7 @@ async function sendPushForMessage(row) {
 
     const isTrainerChat =
       chatId.startsWith('trainer-') ||
-      chatId.startsWith('Veselovavdf-');
+      chatId.startsWith('veselovavdf-');
 
     const isPmChat = chatId.startsWith('pm-');
     const isPersonal = isTrainerChat || isPmChat;
@@ -1447,7 +1560,7 @@ app.post('/api/messages/pin', requireAuth, async (req, res) => {
       }
     } else if (
       !chatIdLower.startsWith('trainer-') &&
-      !chatIdLower.startsWith('Veselovavdf-') &&
+      !chatIdLower.startsWith('veselovavdf-') &&
       !chatIdLower.startsWith('pm-')
     ) {
       const group = await get(
@@ -1489,6 +1602,7 @@ app.post('/api/messages/pin', requireAuth, async (req, res) => {
 
 
 // ---------- /api/chats ----------
+
 
 app.post('/api/chats', requireAuth, async (req, res) => {
   try {
@@ -1581,6 +1695,7 @@ app.post('/api/chats', requireAuth, async (req, res) => {
 
         chats.push(chat);
       }
+
       // 2) кастомные группы, созданные этим тренером
       const groups = await all(
         db,
@@ -1702,9 +1817,13 @@ app.post('/api/chats', requireAuth, async (req, res) => {
         chats.push(chat);
       }
 
-      // 3) личные pm-чаты
+      // 3) friend‑чаты (добавленные через "Добавить друга" /api/friend/add)
+      await appendFriendChatsForUser(user, chats);
+
+      // 4) личные pm‑чаты (по существующим сообщениям)
       await appendPersonalChatsForUser(user, chats);
-      // 4) чаты "тренер ↔ тренер" по общим командам (даже если ещё нет сообщений)
+
+      // 5) чаты "тренер ↔ тренер" по общим командам (даже если ещё нет сообщений)
       const teamsOfTrainer = await all(
         db,
         'SELECT DISTINCT team FROM trainer_teams WHERE trainer_id = ?',
@@ -2013,7 +2132,10 @@ app.post('/api/chats', requireAuth, async (req, res) => {
       chats.push(chat);
     }
 
-    // 5) личные pm-чаты
+    // 5) friend‑чаты (созданные через "Добавить друга")
+    await appendFriendChatsForUser(user, chats);
+
+    // 6) личные pm‑чаты (по существующим сообщениям)
     await appendPersonalChatsForUser(user, chats);
 
     await enrichChatsWithUnreadAndSort(login, chats);
@@ -2084,7 +2206,7 @@ app.post('/api/chat/personal', requireAuth, async (req, res) => {
         }
 
         if (trainerUser.login === ANGELINA_LOGIN && (otherUser.role || '').toLowerCase() === 'parent') {
-          chatId = 'Veselovavdf-' + trainerUser.id + '-' + otherUser.id;
+          chatId = 'veselovavdf-' + trainerUser.id + '-' + otherUser.id;
         } else {
           chatId = 'trainer-' + trainerUser.id + '-' + otherUser.id;
         }
@@ -2225,7 +2347,7 @@ app.post('/api/friend/add', requireAuth, async (req, res) => {
         }
 
         if (trainerUser.login === ANGELINA_LOGIN && (otherUser.role || '').toLowerCase() === 'parent') {
-          chatId = 'Veselovavdf-' + trainerUser.id + '-' + otherUser.id;
+          chatId = 'veselovavdf-' + trainerUser.id + '-' + otherUser.id;
         } else {
           chatId = 'trainer-' + trainerUser.id + '-' + otherUser.id;
         }
@@ -2280,6 +2402,24 @@ app.post('/api/friend/add', requireAuth, async (req, res) => {
       chat.lastMessageSenderLogin = last.sender_login;
       chat.lastMessageText        = last.text;
       chat.lastMessageCreatedAt   = last.created_at;
+    }
+
+    // --- Сохраняем дружбу, чтобы чат был виден в списке даже без сообщений ---
+    const aLogin = u1.login < u2.login ? u1.login : u2.login;
+    const bLogin = u1.login < u2.login ? u2.login : u1.login;
+
+    try {
+      await run(
+        db,
+        `INSERT INTO friends (chat_id, user1_login, user2_login)
+         VALUES (?, ?, ?)
+         ON CONFLICT(user1_login, user2_login)
+         DO UPDATE SET chat_id = excluded.chat_id`,
+        [chatId, aLogin, bLogin]
+      );
+    } catch (e) {
+      console.error('FRIEND INSERT ERROR:', e);
+      // не роняем запрос — чат всё равно вернём на фронт
     }
 
     res.json({ ok: true, chat });
