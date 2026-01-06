@@ -779,7 +779,7 @@ async function appendFriendChatsForUser(user, chats) {
 
   const existingIds = new Set(chats.map(c => c.id));
 
-  // ВАЖНО: сравниваем логин без учёта регистра
+  // логины сравниваем без учёта регистра
   const friendRows = await all(
     db,
     `SELECT chat_id, user1_login, user2_login
@@ -788,10 +788,7 @@ async function appendFriendChatsForUser(user, chats) {
         OR LOWER(user2_login) = LOWER(?)`,
     [meLogin, meLogin]
   );
-
-  if (!friendRows || !friendRows.length) {
-    return;
-  }
+  if (!friendRows || !friendRows.length) return;
 
   for (const fr of friendRows) {
     const chatId = fr.chat_id;
@@ -822,12 +819,14 @@ async function appendFriendChatsForUser(user, chats) {
       chat.partnerId    = otherUser.id;
       chat.partnerLogin = otherUser.login;
     }
-    // Тренерский чат (trainer-..., vesелovavdf-...)
-    else if (chatId.startsWith('trainer-') || chatId.startsWith('veselovavdf-') || chatId.startsWith('Veselovavdf-')) {
+    // Тренерский чат (trainer-..., veselovavdf-...)
+    else if (chatId.startsWith('trainer-') ||
+             chatId.startsWith('veselovavdf-') ||
+             chatId.startsWith('Veselovavdf-')) {
       chat.type = 'trainer';
 
-      const myRole    = (user.role || '').toLowerCase();
-      const hisRole   = (otherUser.role || '').toLowerCase();
+      const myRole  = (user.role || '').toLowerCase();
+      const hisRole = (otherUser.role || '').toLowerCase();
 
       const meIsTrainer    = (myRole === 'trainer' || myRole === 'тренер' || user.login === ANGELINA_LOGIN);
       const otherIsTrainer = (hisRole === 'trainer' || hisRole === 'тренер' || otherUser.login === ANGELINA_LOGIN);
@@ -852,7 +851,7 @@ async function appendFriendChatsForUser(user, chats) {
       chat.partnerLogin = otherUser.login;
     }
 
-    // Подтягиваем последнее сообщение (если уже переписывались)
+    // последнее сообщение (если есть)
     const last = await getMsg(
       'SELECT sender_login, text, created_at, attachment_type ' +
       'FROM messages ' +
