@@ -46,14 +46,14 @@ const SALT_ROUNDS = 10;
 const session = require('express-session');
 const crypto  = require('crypto');
 
-const ANGELINA_LOGIN = 'angelina';
+const ANGELINA_LOGIN = 'Veselovavdf';
 
 const TEAMS = [
   'vinyl-dance-family',
   'vinyl-junior-family',
   'vinyl-kids-family',
   'vdf-crew',
-  'vdf-kidz-crew',
+  'vdf-kids-crew',
   'Аделя 10+',
   'Ди 10+',
   'Аделя 18+',
@@ -773,7 +773,7 @@ function transcodeAudioToM4A(inputPath, outputPath) {
 
 // кого уведомлять в чате
 async function getChatParticipantsLogins(chatId) {
-  if (chatId.startsWith('trainer-') || chatId.startsWith('angelina-') || chatId.startsWith('pm-')) {
+  if (chatId.startsWith('trainer-') || chatId.startsWith('Veselovavdf-') || chatId.startsWith('pm-')) {
     const parts = chatId.split('-');
     if (parts.length < 3) return [];
     const id1 = parseInt(parts[1], 10);
@@ -878,7 +878,7 @@ async function sendPushForMessage(row) {
 
     const isTrainerChat =
       chatId.startsWith('trainer-') ||
-      chatId.startsWith('angelina-');
+      chatId.startsWith('Veselovavdf-');
 
     const isPmChat = chatId.startsWith('pm-');
     const isPersonal = isTrainerChat || isPmChat;
@@ -1447,7 +1447,7 @@ app.post('/api/messages/pin', requireAuth, async (req, res) => {
       }
     } else if (
       !chatIdLower.startsWith('trainer-') &&
-      !chatIdLower.startsWith('angelina-') &&
+      !chatIdLower.startsWith('Veselovavdf-') &&
       !chatIdLower.startsWith('pm-')
     ) {
       const group = await get(
@@ -1517,9 +1517,9 @@ app.post('/api/chats', requireAuth, async (req, res) => {
     if (roleLower === 'trainer' || roleLower === 'тренер') {
       const chats = [];
 
-      // 1) личные чаты тренера (trainer-..., angelina-...) по существующим сообщениям
+      // 1) личные чаты тренера (trainer-..., Veselovavdf-...) по существующим сообщениям
       const pattern1 = `trainer-${userId}-%`;
-      const pattern2 = `angelina-${userId}-%`;
+      const pattern2 = `Veselovavdf-${userId}-%`;
 
       const rows = await allMsg(
         'SELECT DISTINCT chat_id FROM messages ' +
@@ -1903,7 +1903,7 @@ app.post('/api/chats', requireAuth, async (req, res) => {
       );
 
       if (angelina && !trainerIds.has(angelina.id)) {
-        const chatId = 'angelina-' + angelina.id + '-' + userId;
+        const chatId = 'Veselovavdf-' + angelina.id + '-' + userId;
 
         const chat = {
           id:           chatId,
@@ -1937,7 +1937,7 @@ app.post('/api/chats', requireAuth, async (req, res) => {
               chat.lastMessageSenderName = (lu.first_name + ' ' + lu.last_name).trim();
             }
           } catch (e2) {
-            console.error('CHATS last sender name error (user-angelina):', e2);
+            console.error('CHATS last sender name error (user-Veselovavdf):', e2);
           }
         }
 
@@ -2084,7 +2084,7 @@ app.post('/api/chat/personal', requireAuth, async (req, res) => {
         }
 
         if (trainerUser.login === ANGELINA_LOGIN && (otherUser.role || '').toLowerCase() === 'parent') {
-          chatId = 'angelina-' + trainerUser.id + '-' + otherUser.id;
+          chatId = 'Veselovavdf-' + trainerUser.id + '-' + otherUser.id;
         } else {
           chatId = 'trainer-' + trainerUser.id + '-' + otherUser.id;
         }
@@ -2225,7 +2225,7 @@ app.post('/api/friend/add', requireAuth, async (req, res) => {
         }
 
         if (trainerUser.login === ANGELINA_LOGIN && (otherUser.role || '').toLowerCase() === 'parent') {
-          chatId = 'angelina-' + trainerUser.id + '-' + otherUser.id;
+          chatId = 'Veselovavdf-' + trainerUser.id + '-' + otherUser.id;
         } else {
           chatId = 'trainer-' + trainerUser.id + '-' + otherUser.id;
         }
