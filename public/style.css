@@ -3441,3 +3441,14 @@ textarea {
     user-select: text !important;
     -webkit-touch-callout: default !important;
 }
+
+.msg-text a,
+.msg-link {
+    color: #ffd93d;          /* можно подобрать свой цвет */
+    text-decoration: underline;
+    word-break: break-all;   /* чтобы длинные ссылки переносились */
+}
+.msg-item.msg-me .msg-text a,
+.msg-item.msg-me .msg-link {
+    color: #0040a0;          /* цвет ссылок в своих сообщениях (фон голубой) */
+}

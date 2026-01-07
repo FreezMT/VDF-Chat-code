@@ -675,7 +675,7 @@ function patchMessageDomFromData(msg) {
     // Обновляем текст
     var textDiv = bubble.querySelector('.msg-text');
     if (textDiv) {
-        textDiv.textContent = cleanMain;
+        linkifyText(textDiv, cleanMain);
     }
     item.dataset.msgText = cleanMain;
 
@@ -3625,6 +3625,48 @@ function stopChatStatusUpdates() {
 // app.js — PART 2/4
 
 // ---------- РЕНДЕР СООБЩЕНИЯ (включая голосовые / видео‑таймер) ----------
+
+// Заменяет URL в тексте на кликабельные <a>, без innerHTML (безопасно)
+function linkifyText(container, text) {
+    container.innerHTML = '';
+    if (!text) return;
+
+    var str = String(text);
+    // Ищем http/https ссылки
+    var urlRegex = /(\bhttps?:\/\/[^\s]+)/gi;
+    var lastIndex = 0;
+    var match;
+
+    while ((match = urlRegex.exec(str)) !== null) {
+        var url  = match[0];
+        var idx  = match.index;
+
+        // Текст до ссылки
+        if (idx > lastIndex) {
+            container.appendChild(
+                document.createTextNode(str.slice(lastIndex, idx))
+            );
+        }
+
+        // Сама ссылка
+        var a = document.createElement('a');
+        a.href = url;
+        a.textContent = url;
+        a.target = '_blank';
+        a.rel = 'noopener noreferrer';
+        a.className = 'msg-link';
+        container.appendChild(a);
+
+        lastIndex = idx + url.length;
+    }
+
+    // Хвост после последней ссылки
+    if (lastIndex < str.length) {
+        container.appendChild(
+            document.createTextNode(str.slice(lastIndex))
+        );
+    }
+}
 
 function renderMessage(msg, opts) {
     if (!chatContent) return;
