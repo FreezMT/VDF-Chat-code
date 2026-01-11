@@ -945,6 +945,87 @@ async function appendFriendChatsForUser(user, chats) {
   }
 }
 
+// Личные pm‑чаты по сообщениям (pm-<lowId>-<highId>)
+async function appendPersonalChatsForUser(user, chats) {
+  if (!user || !user.id || !Array.isArray(chats)) return;
+
+  const userId = user.id;
+
+  const pattern1 = `pm-${userId}-%`;
+  const pattern2 = `pm-%-${userId}`;
+
+  const rows = await allMsg(
+    'SELECT DISTINCT chat_id FROM messages ' +
+    'WHERE (deleted IS NULL OR deleted = 0) ' +
+    '  AND (chat_id LIKE ? OR chat_id LIKE ?)',
+    [pattern1, pattern2]
+  );
+
+  const existingIds = new Set(chats.map(c => c.id));
+
+  for (const row of rows) {
+    const chatId = row.chat_id;
+    if (!chatId || existingIds.has(chatId)) continue;
+
+    const parts = String(chatId).split('-');
+    if (parts.length !== 3) continue;
+
+    const a = parseInt(parts[1], 10);
+    const b = parseInt(parts[2], 10);
+    if (Number.isNaN(a) || Number.isNaN(b)) continue;
+    if (a !== userId && b !== userId) continue;
+
+    const otherId = (a === userId) ? b : a;
+
+    const otherUser = await get(
+      db,
+      'SELECT first_name, last_name, login, avatar FROM users WHERE id = ?',
+      [otherId]
+    );
+    if (!otherUser) continue;
+
+    const chat = {
+      id:           chatId,
+      type:         'personal',
+      title:        (otherUser.first_name + ' ' + otherUser.last_name).trim(),
+      subtitle:     '',
+      avatar:       otherUser.avatar || '/img/default-avatar.png',
+      partnerId:    otherId,
+      partnerLogin: otherUser.login
+    };
+
+    const last = await getMsg(
+      'SELECT sender_login, text, created_at, attachment_type ' +
+      'FROM messages ' +
+      'WHERE chat_id = ? AND (deleted IS NULL OR deleted = 0) ' +
+      'ORDER BY created_at DESC, id DESC LIMIT 1',
+      [chatId]
+    );
+
+    if (last) {
+      chat.lastMessageSenderLogin    = last.sender_login;
+      chat.lastMessageText           = last.text;
+      chat.lastMessageCreatedAt      = last.created_at;
+      chat.lastMessageAttachmentType = last.attachment_type;
+      try {
+        const lu = await get(
+          db,
+          'SELECT first_name, last_name FROM users WHERE login = ?',
+          [last.sender_login]
+        );
+        if (lu) {
+          chat.lastMessageSenderName = (lu.first_name + ' ' + lu.last_name).trim();
+        }
+      } catch (e2) {
+        console.error('CHATS last sender name error (personal):', e2);
+      }
+    }
+
+    chats.push(chat);
+    existingIds.add(chatId);
+  }
+}
+
 
 // ---------- FFmpeg перекодирование аудио в m4a (для кросс‑браузерности) ----------
 function transcodeAudioToM4A(inputPath, outputPath) {
