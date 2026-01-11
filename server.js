@@ -1751,7 +1751,7 @@ async function appendPersonalChatsForUser(user, chats) {
         if (lu) {
           chat.lastMessageSenderName = (lu.first_name + ' ' + lu.last_name).trim();
         }
-      } catch (e2) {
+      } catch (e2) {``
         console.error('CHATS last sender name error (personal):', e2);
       }
     }
@@ -1791,79 +1791,81 @@ app.post('/api/chats', requireAuth, async (req, res) => {
     if (roleLower === 'trainer' || roleLower === 'тренер') {
       const chats = [];
 
-    // 1) личные чаты тренера (trainer-..., vesелovavdf-...) по существующим сообщениям
-    // Учитываем оба положения ID тренера в симметричном chatId:
-    // trainer-<мойId>-<другойId> и trainer-<другойId>-<мойId>
-    const pattern1 = `trainer-${userId}-%`;   // trainer-<мойId>-...
-    const pattern2 = `trainer-%-${userId}`;   // trainer-...-<мойId>
-    const pattern3 = `veselovavdf-${userId}-%`;
-    const pattern4 = `veselovavdf-%-${userId}`;
+      // 1) личные чаты тренера (trainer-..., vesелovavdf-...) по существующим сообщениям
+      // Учитываем оба положения ID тренера в симметричном chatId:
+      // trainer-<мойId>-<другойId> и trainer-<другойId>-<мойId>
+      const pattern1 = `trainer-${userId}-%`;   // trainer-<мойId>-...
+      const pattern2 = `trainer-%-${userId}`;   // trainer-...-<мойId>
+      const pattern3 = `veselovavdf-${userId}-%`;
+      const pattern4 = `veselovavdf-%-${userId}`;
 
-    const rows = await allMsg(
-      'SELECT DISTINCT chat_id FROM messages ' +
-      'WHERE (deleted IS NULL OR deleted = 0) ' +
-      '  AND (chat_id LIKE ? OR chat_id LIKE ? OR chat_id LIKE ? OR chat_id LIKE ?)',
-      [pattern1, pattern2, pattern3, pattern4]
-    );
-
-    for (const row of rows) {
-      const chatId = row.chat_id;
-      const parts  = String(chatId).split('-');
-      if (parts.length < 3) continue;
-
-      const idPart1 = parseInt(parts[1], 10);
-      const idPart2 = parseInt(parts[2], 10);
-      if (isNaN(idPart1) || isNaN(idPart2)) continue;
-
-      // определяем, какой из id — "другой" тренер
-      const otherUserId = (idPart1 === userId) ? idPart2 : idPart1;
-      if (!otherUserId || isNaN(otherUserId)) continue;
-
-      const otherUser = await get(
-        db,
-        'SELECT first_name, last_name, login, avatar FROM users WHERE id = ?',
-        [otherUserId]
+      const rows = await allMsg(
+        'SELECT DISTINCT chat_id FROM messages ' +
+        'WHERE (deleted IS NULL OR deleted = 0) ' +
+        '  AND (chat_id LIKE ? OR chat_id LIKE ? OR chat_id LIKE ? OR chat_id LIKE ?)',
+        [pattern1, pattern2, pattern3, pattern4]
       );
-      if (!otherUser) continue;
 
-      const chat = {
-        id:           chatId,
-        type:         'trainer',
-        title:        (otherUser.first_name + ' ' + otherUser.last_name).trim(),
-        subtitle:     '',
-        avatar:       otherUser.avatar || '/img/default-avatar.png',
-        partnerId:    otherUserId,
-        partnerLogin: otherUser.login
-      };
+      for (const row of rows) {
+        const chatId = row.chat_id;
+        const parts  = String(chatId).split('-');
+        if (parts.length < 3) continue;
 
-      const last = await getMsg(
-        'SELECT sender_login, text, created_at, attachment_type ' +
-        'FROM messages ' +
-        'WHERE chat_id = ? AND (deleted IS NULL OR deleted = 0) ' +
-        'ORDER BY created_at DESC, id DESC LIMIT 1',
-        [chatId]
-      );
-      if (last) {
-        chat.lastMessageSenderLogin    = last.sender_login;
-        chat.lastMessageText           = last.text;
-        chat.lastMessageCreatedAt      = last.created_at;
-        chat.lastMessageAttachmentType = last.attachment_type;
-        try {
-          const lu = await get(
-            db,
-            'SELECT first_name, last_name FROM users WHERE login = ?',
-            [last.sender_login]
-          );
-          if (lu) {
-            chat.lastMessageSenderName = (lu.first_name + ' ' + lu.last_name).trim();
+        const id1 = parseInt(parts[1], 10);
+        const id2 = parseInt(parts[2], 10);
+        if (isNaN(id1) || isNaN(id2)) continue;
+
+        // убеждаемся, что этот чат действительно с текущим тренером
+        if (id1 !== userId && id2 !== userId) continue;
+
+        const otherUserId = (id1 === userId) ? id2 : id1;
+        if (!otherUserId || isNaN(otherUserId)) continue;
+
+        const otherUser = await get(
+          db,
+          'SELECT first_name, last_name, login, avatar FROM users WHERE id = ?',
+          [otherUserId]
+        );
+        if (!otherUser) continue;
+
+        const chat = {
+          id:           chatId,
+          type:         'trainer',
+          title:        (otherUser.first_name + ' ' + otherUser.last_name).trim(),
+          subtitle:     '',
+          avatar:       otherUser.avatar || '/img/default-avatar.png',
+          partnerId:    otherUserId,
+          partnerLogin: otherUser.login
+        };
+
+        const last = await getMsg(
+          'SELECT sender_login, text, created_at, attachment_type ' +
+          'FROM messages ' +
+          'WHERE chat_id = ? AND (deleted IS NULL OR deleted = 0) ' +
+          'ORDER BY created_at DESC, id DESC LIMIT 1',
+          [chatId]
+        );
+        if (last) {
+          chat.lastMessageSenderLogin    = last.sender_login;
+          chat.lastMessageText           = last.text;
+          chat.lastMessageCreatedAt      = last.created_at;
+          chat.lastMessageAttachmentType = last.attachment_type;
+          try {
+            const lu = await get(
+              db,
+              'SELECT first_name, last_name FROM users WHERE login = ?',
+              [last.sender_login]
+            );
+            if (lu) {
+              chat.lastMessageSenderName = (lu.first_name + ' ' + lu.last_name).trim();
+            }
+          } catch (e2) {
+            console.error('CHATS last sender name error (trainer personal):', e2);
           }
-        } catch (e2) {
-          console.error('CHATS last sender name error (trainer personal):', e2);
         }
-      }
 
-      chats.push(chat);
-    }
+        chats.push(chat);
+      }
 
       // 2) кастомные группы, созданные этим тренером
       const groups = await all(
