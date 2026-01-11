@@ -1707,16 +1707,19 @@ app.post('/api/chats', requireAuth, async (req, res) => {
     if (roleLower === 'trainer' || roleLower === 'тренер') {
       const chats = [];
 
-      // 1) личные чаты тренера (trainer-..., Veselovavdf-...) по существующим сообщениям
-      const pattern1 = `trainer-${userId}-%`;
-      const pattern2 = `veselovavdf-${userId}-%`;
+    // 1) личные чаты тренера (trainer-..., Veselovavdf-...) по существующим сообщениям
+    // Учитываем оба положения ID тренера: спереди и сзади.
+    const pattern1 = `trainer-${userId}-%`;    // trainer-<мойId>-...
+    const pattern2 = `trainer-%-${userId}`;    // trainer-...-<мойId>
+    const pattern3 = `Veselovavdf-${userId}-%`; // Veselovavdf-<мойId>-...
+    const pattern4 = `Veselovavdf-%-${userId}`; // Veselovavdf-...-<мойId>
 
-      const rows = await allMsg(
-        'SELECT DISTINCT chat_id FROM messages ' +
-        'WHERE (deleted IS NULL OR deleted = 0) ' +
-        '  AND (chat_id LIKE ? OR chat_id LIKE ?)',
-        [pattern1, pattern2]
-      );
+    const rows = await allMsg(
+      'SELECT DISTINCT chat_id FROM messages ' +
+      'WHERE (deleted IS NULL OR deleted = 0) ' +
+      '  AND (chat_id LIKE ? OR chat_id LIKE ? OR chat_id LIKE ? OR chat_id LIKE ?)',
+      [pattern1, pattern2, pattern3, pattern4]
+    );
 
       for (const row of rows) {
         const chatId = row.chat_id;
