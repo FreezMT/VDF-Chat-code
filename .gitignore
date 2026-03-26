@@ -1,7 +1,13 @@
 node_modules/
-db.sqlite*
-messages.sqlite*
+db.sqlite
+messages.sqlite
+messages.sqlite-shm
+messages.sqlite-wal
 
 public/uploads/
 public/video-previews/
 public/avatars/user-*
+
+.env
+.env.*
+*.env
