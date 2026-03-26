@@ -1,5 +1,4 @@
 // server.js —  PART 1/2
-require('dotenv').config();
 const express  = require('express');
 const sqlite3  = require('sqlite3').verbose();
 const bcrypt   = require('bcrypt');
@@ -407,9 +406,6 @@ const sessionMiddleware = session({
 
 app.use(sessionMiddleware);
 
-// Глобальный rate limit на все /api/* маршруты
-app.use('/api/', apiLimiter);
-
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,  // 15 минут
   max: 60,                    // максимум 60 запросов в 15 минут
@@ -424,6 +420,9 @@ const apiLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false
 });
+
+// Глобальный rate limit на все /api/* маршруты (объявляем ПОСЛЕ инициализации лимитеров)
+app.use('/api/', apiLimiter);
 
 // ---------- ХРАНИЛИЩЕ АВАТАРОВ / КАРТИНОК / ПРЕВЬЮ ----------
 
