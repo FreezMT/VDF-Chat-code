@@ -138,7 +138,6 @@ var chatUserMediaTab      = document.getElementById('chatUserMediaTab');
 var chatUserFilesTab      = document.getElementById('chatUserFilesTab');
 var chatUserAudioTab      = document.getElementById('chatUserAudioTab');
 var chatUserMediaGrid     = document.getElementById('chatUserMediaGrid');
-var chatUserFilesList     = document.getElementById('chatUserFilesList');
 var chatUserAudioList     = document.getElementById('chatUserAudioList');
 
 var keyboardOffset = 0;
@@ -151,7 +150,6 @@ var groupFilesTab         = document.getElementById('groupFilesTab');
 var groupAudioTab         = document.getElementById('groupAudioTab');
 var groupMembersPane      = document.getElementById('groupMembersPane');
 var groupMediaGrid        = document.getElementById('groupMediaGrid');
-var groupFilesList        = document.getElementById('groupFilesList');
 var groupAudioList        = document.getElementById('groupAudioList');
 var groupBackBtn          = document.getElementById('groupBackBtn');
 
@@ -618,7 +616,6 @@ var msgCtxReplyBtn    = null;
 var msgCtxEditBtn     = null;
 var msgCtxDeleteBtn   = null;
 var msgCtxForwardBtn  = null;
-var msgCtxPinBtn      = null;
 var msgCtxDownloadBtn = null;
 var msgCtxCopyBtn     = null;
 var msgCtxEmojiRow    = null;
@@ -1146,11 +1143,7 @@ function buildMediaMsgMenuButtons(msgInfo, type, attUrl){
     });
 
     // Закрепить / открепить
-    addBtn(msgInfo.isPinned ? 'Открепить сообщение' : 'Закрепить сообщение', '', function () {
-        pinMessage(msgInfo);
-    });
-
-    // Редактировать / удалить — только свои
+// Редактировать / удалить — только свои
     if (isMe) {
         addBtn('Редактировать', '', function () {
             editMessage(msgInfo);
@@ -1686,7 +1679,6 @@ function initAttachmentTabs() {
     if (chatUserAttachments && chatUserMediaTab && chatUserFilesTab && chatUserAudioTab) {
         var userTabs = {
             mediaTab: chatUserMediaTab,
-            filesTab: chatUserFilesTab,
             audioTab: chatUserAudioTab
         };
 
@@ -1694,13 +1686,7 @@ function initAttachmentTabs() {
             e.stopPropagation();
             setAttachmentsTab(chatUserAttachments, userTabs, 'media');
         });
-
-        chatUserFilesTab.addEventListener('click', function (e) {
-            e.stopPropagation();
-            setAttachmentsTab(chatUserAttachments, userTabs, 'files');
-        });
-
-        chatUserAudioTab.addEventListener('click', function (e) {
+chatUserAudioTab.addEventListener('click', function (e) {
             e.stopPropagation();
             setAttachmentsTab(chatUserAttachments, userTabs, 'audio');
         });
@@ -1713,7 +1699,6 @@ function initAttachmentTabs() {
         var groupTabs = {
             membersTab: groupMembersTab,
             mediaTab:   groupMediaTab,
-            filesTab:   groupFilesTab,
             audioTab:   groupAudioTab
         };
 
@@ -1726,13 +1711,7 @@ function initAttachmentTabs() {
             e.stopPropagation();
             setAttachmentsTab(groupAttachments, groupTabs, 'media');
         });
-
-        groupFilesTab.addEventListener('click', function (e) {
-            e.stopPropagation();
-            setAttachmentsTab(groupAttachments, groupTabs, 'files');
-        });
-
-        groupAudioTab.addEventListener('click', function (e) {
+groupAudioTab.addEventListener('click', function (e) {
             e.stopPropagation();
             setAttachmentsTab(groupAttachments, groupTabs, 'audio');
         });
@@ -1930,7 +1909,6 @@ function setAttachmentsTab(container, tabs, activeKey) {
 
     if (tabs.membersTab) tabs.membersTab.classList.toggle('chat-attachments-tab-active', activeKey === 'members');
     if (tabs.mediaTab)   tabs.mediaTab.classList.toggle('chat-attachments-tab-active', activeKey === 'media');
-    if (tabs.filesTab)   tabs.filesTab.classList.toggle('chat-attachments-tab-active', activeKey === 'files');
     if (tabs.audioTab)   tabs.audioTab.classList.toggle('chat-attachments-tab-active', activeKey === 'audio');
 }
 
@@ -3168,11 +3146,9 @@ function initChatAttachments() {
                 }
                 type = 'video';
             } else {
-                if (sizeMB > 500) {
-                    alert('Файл "' + file.name + '" больше 500 МБ и не будет добавлен.');
-                    return;
-                }
-                type = 'file';
+                // Файлы (не фото/видео) не принимаем
+                alert('Можно отправлять только фото и видео.');
+                return;
             }
 
             var url = null;
@@ -4259,38 +4235,6 @@ function createMsgContextMenu() {
     msgCtxForwardBtn = document.createElement('button');
     msgCtxForwardBtn.className = 'msg-context-btn';
     msgCtxForwardBtn.textContent = 'Переслать';
-
-    msgCtxPinBtn     = document.createElement('button');
-    msgCtxPinBtn.className = 'msg-context-btn';
-
-    msgCtxDownloadBtn = document.createElement('button');
-    msgCtxDownloadBtn.className = 'msg-context-btn';
-    msgCtxDownloadBtn.textContent = 'Скачать';
-
-    msgCtxCopyBtn = document.createElement('button');
-    msgCtxCopyBtn.className = 'msg-context-btn';
-    msgCtxCopyBtn.textContent = 'Копировать текст';
-
-    msgCtxEmojiRow = document.createElement('div');
-    msgCtxEmojiRow.className = 'msg-context-emoji-row';
-
-    (msgReactionsList || ['❤️','👍','👎','😂','🔥']).forEach(function (em) {
-        var b = document.createElement('span');
-        b.className = 'msg-context-emoji';
-        b.textContent = em;
-        b.addEventListener('click', function () {
-            if (!currentMsgContext) return;
-            reactToMessage(currentMsgContext, em);
-            hideMsgContextMenu();
-        });
-        msgCtxEmojiRow.appendChild(b);
-    });
-
-    msgContextMenu.appendChild(msgCtxReplyBtn);
-    msgContextMenu.appendChild(msgCtxEditBtn);
-    msgContextMenu.appendChild(msgCtxDeleteBtn);
-    msgContextMenu.appendChild(msgCtxForwardBtn);
-    msgContextMenu.appendChild(msgCtxPinBtn);
     msgContextMenu.appendChild(msgCtxDownloadBtn);
     msgContextMenu.appendChild(msgCtxCopyBtn);
     msgContextMenu.appendChild(msgCtxEmojiRow);
@@ -4344,14 +4288,7 @@ function createMsgContextMenu() {
         forwardMessage(currentMsgContext);
         hideMsgContextMenu();
     };
-
-    msgCtxPinBtn.onclick = function () {
-        if (!currentMsgContext) return;
-        pinMessage(currentMsgContext);
-        hideMsgContextMenu();
-    };
-
-    msgCtxDownloadBtn.onclick = function () {
+msgCtxDownloadBtn.onclick = function () {
         if (!currentMsgContext) return;
         downloadMessageAttachment(currentMsgContext);
         hideMsgContextMenu();
@@ -4588,7 +4525,6 @@ function showMsgContextMenu(msgInfo, item) {
     // видимость кнопок
     msgCtxEditBtn.style.display   = (isMe && (hasText || hasAttachment)) ? '' : 'none';
     msgCtxDeleteBtn.style.display = isMe ? '' : 'none';
-    msgCtxPinBtn.textContent      = msgInfo.isPinned ? 'Открепить сообщение' : 'Закрепить сообщение';
     msgCtxDownloadBtn.style.display = (canDownload && msgInfo.attachmentUrl) ? '' : 'none';
     msgCtxCopyBtn.style.display     = hasText ? '' : 'none';
 
@@ -5116,9 +5052,7 @@ async function loadMessages(chatId) {
         messagesById[m.id] = m;
         if (state.pinnedId && m.id === state.pinnedId) pinnedMsg = m;
     });
-    renderPinnedTop(pinnedMsg);
-
-    // рендер сообщений + "Непрочитанные" в нужном месте
+// рендер сообщений + "Непрочитанные" в нужном месте
     msgs.forEach(function (m) {
         if (!unreadInserted && myLastReadId && m.id > myLastReadId) {
             var sep = document.createElement('div');
@@ -5633,10 +5567,7 @@ function renderOrCreateChatItem(chat) {
             metaEl.appendChild(badge);
         }
     }
-
-    item.classList.toggle('chat-pinned', isChatPinned(chat.id));
-
-    // первый раз после создания — мягко показать
+// первый раз после создания — мягко показать
     if (!item._appeared) {
         item._appeared = true;
         requestAnimationFrame(function () {
@@ -5927,20 +5858,18 @@ async function openUserInfoModal(login, fromGroup) {
         }
 
         if (!userInfoFromGroup &&
-            chatUserAttachments && chatUserMediaGrid && chatUserFilesList && chatUserAudioList) {
+            chatUserAttachments && chatUserMediaGrid && chatUserAudioList) {
 
             chatUserAttachments.style.display = 'flex';
 
             const userTabs = {
                 mediaTab: chatUserMediaTab,
-                filesTab: chatUserFilesTab,
                 audioTab: chatUserAudioTab
             };
 
             await loadAttachmentsForCurrentChat(
                 chatUserAttachments,
                 chatUserMediaGrid,
-                chatUserFilesList,
                 chatUserAudioList,
                 userTabs,
                 'media'
@@ -6141,20 +6070,18 @@ async function openGroupModal() {
         if (editGroupNameBtn)   editGroupNameBtn.style.display   = isTrainer ? '' : 'none';
         if (groupAddMemberBtn)  groupAddMemberBtn.style.display  = isTrainer ? '' : 'none';
 
-        if (groupAttachments && groupMediaGrid && groupFilesList && groupAudioList) {
+        if (groupAttachments && groupMediaGrid && groupAudioList) {
             groupAttachments.style.display = 'flex';
 
             var groupTabs = {
                 membersTab: groupMembersTab,
                 mediaTab:   groupMediaTab,
-                filesTab:   groupFilesTab,
                 audioTab:   groupAudioTab
             };
 
             await loadAttachmentsForCurrentChat(
                 groupAttachments,
                 groupMediaGrid,
-                groupFilesList,
                 groupAudioList,
                 groupTabs,
                 'members'
@@ -7380,14 +7307,6 @@ function createChatContextMenu() {
 
     chatContextMenu = document.createElement('div');
     chatContextMenu.className = 'chat-context-menu';
-
-    ctxPinBtn = document.createElement('button');
-    ctxPinBtn.className = 'chat-context-btn';
-
-    ctxMuteBtn = document.createElement('button');
-    ctxMuteBtn.className = 'chat-context-btn';
-
-    chatContextMenu.appendChild(ctxPinBtn);
     chatContextMenu.appendChild(ctxMuteBtn);
     chatContextOverlay.appendChild(chatContextMenu);
     document.body.appendChild(chatContextOverlay);
@@ -7395,14 +7314,7 @@ function createChatContextMenu() {
     chatContextOverlay.addEventListener('click', function (e) {
         if (e.target === chatContextOverlay) hideChatContextMenu();
     });
-
-    ctxPinBtn.onclick = function () {
-        if (!contextMenuTargetChat) return;
-        toggleChatPin(contextMenuTargetChat);
-        hideChatContextMenu();
-    };
-
-    ctxMuteBtn.onclick = async function () {
+ctxMuteBtn.onclick = async function () {
         if (!contextMenuTargetChat) return;
         await toggleChatMute(contextMenuTargetChat);
         hideChatContextMenu();
@@ -7416,11 +7328,7 @@ function showChatContextMenu(chat, item) {
 
     contextMenuTargetChat = chat;
     contextMenuTargetChatItem = item;
-
-    if (ctxPinBtn) {
-        ctxPinBtn.textContent = isChatPinned(chat.id) ? 'Открепить чат' : 'Закрепить чат';
-    }
-    if (ctxMuteBtn) {
+if (ctxMuteBtn) {
         ctxMuteBtn.textContent = isChatMuted(chat.id) ? 'Включить уведомления' : 'Выключить уведомления';
     }
 
@@ -8954,8 +8862,7 @@ async function refreshMessages(preserveScroll) {
             if (!pinnedMsg && newPinnedId && messagesById[newPinnedId]) {
                 pinnedMsg = messagesById[newPinnedId];
             }
-            renderPinnedTop(pinnedMsg);
-        }
+}
 
         // обновляем статусы прочтения
         updateReadStatusInDom(msgs);

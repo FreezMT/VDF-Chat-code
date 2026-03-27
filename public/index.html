@@ -60,7 +60,7 @@
                 <div class="install-step">
                     <div class="install-step-title">Шаг 4</div>
                     <div class="install-step-text">
-                        Нажми «Добавить» — ярлык VDF Chat появится на главном экране.
+                        Нажмин добавить — ярлык VDF Chat появится на главном экране.
                     </div>
                 </div>
             </section>
@@ -363,7 +363,7 @@
             </div>
         </header>
 
-        <div id="pinnedTopBar" class="pinned-top-bar"></div>
+        
 
         <section class="chat-content"></section>
 
@@ -384,7 +384,7 @@
 
         <form class="chat-input-bar" id="chatInputForm" autocomplete="off">
             <button type="button" class="chat-attach-btn" id="chatAttachBtn" aria-label="Прикрепить файл"></button>
-            <input type="file" id="chatAttachInput" multiple style="display:none">
+            <input type="file" id="chatAttachInput" multiple accept="image/*,video/*" style="display:none">
             <input
                 type="file"
                 id="voiceFileInput"
@@ -466,9 +466,6 @@
                         <button type="button" class="chat-attachments-tab" id="groupMediaTab">
                             Медиа
                         </button>
-                        <button type="button" class="chat-attachments-tab" id="groupFilesTab">
-                            Файлы
-                        </button>
                         <button type="button" class="chat-attachments-tab" id="groupAudioTab">
                             Аудио
                         </button>
@@ -484,7 +481,6 @@
 
                         <!-- Медиа / файлы / аудио -->
                         <div class="chat-attachments-media-grid" id="groupMediaGrid"></div>
-                        <div class="chat-attachments-files-list" id="groupFilesList"></div>
                         <div class="chat-attachments-audio-list" id="groupAudioList"></div>
                     </div>
                 </div>
@@ -545,12 +541,10 @@
                 <div id="chatUserAttachments" class="chat-attachments" style="margin-top:16px;">
                     <div class="chat-attachments-tabs">
                         <button type="button" class="chat-attachments-tab chat-attachments-tab-active" id="chatUserMediaTab">Медиа</button>
-                        <button type="button" class="chat-attachments-tab" id="chatUserFilesTab">Файлы</button>
                         <button type="button" class="chat-attachments-tab" id="chatUserAudioTab">Аудио</button>
                     </div>
                     <div class="chat-attachments-content">
                         <div class="chat-attachments-media-grid" id="chatUserMediaGrid"></div>
-                        <div class="chat-attachments-files-list" id="chatUserFilesList"></div>
                         <div class="chat-attachments-audio-list" id="chatUserAudioList"></div>
                     </div>
                 </div>
