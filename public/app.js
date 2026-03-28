@@ -1676,7 +1676,7 @@ function cleanupAttachmentObjectUrl(att) {
 
 function initAttachmentTabs() {
     // Модалка пользователя
-    if (chatUserAttachments && chatUserMediaTab && chatUserFilesTab && chatUserAudioTab) {
+    if (chatUserAttachments && chatUserMediaTab && chatUserAudioTab) {
         var userTabs = {
             mediaTab: chatUserMediaTab,
             audioTab: chatUserAudioTab
@@ -1695,7 +1695,7 @@ chatUserAudioTab.addEventListener('click', function (e) {
     }
 
     // Модалка группы
-    if (groupAttachments && groupMembersTab && groupMediaTab && groupFilesTab && groupAudioTab) {
+    if (groupAttachments && groupMembersTab && groupMediaTab && groupAudioTab) {
         var groupTabs = {
             membersTab: groupMembersTab,
             mediaTab:   groupMediaTab,
@@ -2080,7 +2080,7 @@ function renderChatAttachmentsInto(mediaArr, filesArr, audioArr, mediaGrid, file
  * Загрузка вложений для текущего чата и рендер
  * initialTab: 'media' | 'files' | 'audio' | 'members'
  */
-async function loadAttachmentsForCurrentChat(container, mediaGrid, filesList, audioList, tabs, initialTab) {
+async function loadAttachmentsForCurrentChat(container, mediaGrid, audioList, tabs, initialTab) {
     if (!currentChat || !currentChat.id || !container) return;
 
     try {
@@ -2099,7 +2099,7 @@ async function loadAttachmentsForCurrentChat(container, mediaGrid, filesList, au
             data.files || [],
             data.audios || [],
             mediaGrid,
-            filesList,
+            null,
             audioList
         );
 
@@ -4220,24 +4220,52 @@ function createMsgContextMenu() {
     msgContextMenu = document.createElement('div');
     msgContextMenu.className = 'msg-context-menu';
 
-    msgCtxReplyBtn   = document.createElement('button');
+    msgCtxEmojiRow = document.createElement('div');
+    msgCtxEmojiRow.className = 'msg-context-emoji-row';
+    ['👍','❤️','😂','😮','😢','🔥'].forEach(function(em) {
+        var sp = document.createElement('span');
+        sp.className = 'msg-context-emoji';
+        sp.textContent = em;
+        sp.addEventListener('click', function(e) {
+            e.stopPropagation();
+            if (!currentMsgContext) return;
+            reactToMessage(currentMsgContext, em);
+            hideMsgContextMenu();
+        });
+        msgCtxEmojiRow.appendChild(sp);
+    });
+
+    msgCtxReplyBtn = document.createElement('button');
     msgCtxReplyBtn.className = 'msg-context-btn';
     msgCtxReplyBtn.textContent = 'Ответить';
-
-    msgCtxEditBtn    = document.createElement('button');
-    msgCtxEditBtn.className = 'msg-context-btn';
-    msgCtxEditBtn.textContent = 'Редактировать';
-
-    msgCtxDeleteBtn  = document.createElement('button');
-    msgCtxDeleteBtn.className = 'msg-context-btn msg-context-btn-danger';
-    msgCtxDeleteBtn.textContent = 'Удалить';
 
     msgCtxForwardBtn = document.createElement('button');
     msgCtxForwardBtn.className = 'msg-context-btn';
     msgCtxForwardBtn.textContent = 'Переслать';
+
+    msgCtxDownloadBtn = document.createElement('button');
+    msgCtxDownloadBtn.className = 'msg-context-btn';
+    msgCtxDownloadBtn.textContent = 'Скачать';
+
+    msgCtxCopyBtn = document.createElement('button');
+    msgCtxCopyBtn.className = 'msg-context-btn';
+    msgCtxCopyBtn.textContent = 'Копировать текст';
+
+    msgCtxEditBtn = document.createElement('button');
+    msgCtxEditBtn.className = 'msg-context-btn';
+    msgCtxEditBtn.textContent = 'Редактировать';
+
+    msgCtxDeleteBtn = document.createElement('button');
+    msgCtxDeleteBtn.className = 'msg-context-btn msg-context-btn-danger';
+    msgCtxDeleteBtn.textContent = 'Удалить';
+
+    msgContextMenu.appendChild(msgCtxEmojiRow);
+    msgContextMenu.appendChild(msgCtxReplyBtn);
+    msgContextMenu.appendChild(msgCtxForwardBtn);
     msgContextMenu.appendChild(msgCtxDownloadBtn);
     msgContextMenu.appendChild(msgCtxCopyBtn);
-    msgContextMenu.appendChild(msgCtxEmojiRow);
+    msgContextMenu.appendChild(msgCtxEditBtn);
+    msgContextMenu.appendChild(msgCtxDeleteBtn);
 
     msgContextOverlay.appendChild(msgContextMenu);
 
