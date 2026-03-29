@@ -1606,9 +1606,10 @@ if (chatScreen) {
 
         // Показываем mainScreen под chatScreen сразу, чуть затемнённым
         if (mainScreen) {
-            mainScreen.style.display   = 'flex';
-            mainScreen.style.opacity   = '0.6';
-            mainScreen.style.transition = 'none';
+            mainScreen.style.display       = 'flex';
+            mainScreen.style.opacity       = '0.6';
+            mainScreen.style.transition    = 'none';
+            mainScreen.style.pointerEvents = 'none'; // не перехватываем клики во время свайпа
         }
     }, { passive:true });
 
@@ -1653,15 +1654,17 @@ if (chatScreen) {
             var maxW = window.innerWidth || 375;
             chatScreen.style.transform = 'translateX(' + maxW + 'px)';
             if (mainScreen) {
-                mainScreen.style.transition = 'opacity 0.25s ease-out';
-                mainScreen.style.opacity    = '1';
+                mainScreen.style.transition    = 'opacity 0.25s ease-out';
+                mainScreen.style.opacity       = '1';
+                mainScreen.style.pointerEvents = 'auto'; // восстанавливаем клики
             }
             setTimeout(function () {
                 chatScreen.style.transition = '';
                 chatScreen.style.transform  = '';
                 if (mainScreen) {
-                    mainScreen.style.transition = '';
-                    mainScreen.style.opacity    = '';
+                    mainScreen.style.transition    = '';
+                    mainScreen.style.opacity       = '';
+                    mainScreen.style.pointerEvents = '';
                 }
                 closeChatScreenToMain();
             }, duration);
@@ -1669,14 +1672,16 @@ if (chatScreen) {
             // возвращаем назад — скрываем mainScreen обратно
             chatScreen.style.transform = 'translateX(0px)';
             if (mainScreen) {
-                mainScreen.style.transition = 'opacity 0.25s ease-out';
-                mainScreen.style.opacity    = '0';
+                mainScreen.style.transition    = 'opacity 0.25s ease-out';
+                mainScreen.style.opacity       = '0';
+                mainScreen.style.pointerEvents = 'none'; // сразу убираем клики
             }
             setTimeout(function () {
                 chatScreen.style.transition = '';
                 if (mainScreen) {
-                    mainScreen.style.transition = '';
-                    mainScreen.style.opacity    = '';
+                    mainScreen.style.transition    = '';
+                    mainScreen.style.opacity       = '';
+                    mainScreen.style.pointerEvents = '';
                     // скрываем mainScreen если чат всё ещё открыт
                     if (chatScreen.classList.contains('chat-screen-visible')) {
                         mainScreen.style.display = 'none';
