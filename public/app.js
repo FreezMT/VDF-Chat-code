@@ -1843,7 +1843,7 @@ async function tryRestoreSession() {
 
 // ---------- PUSH / SERVICE WORKER ----------
 
-var VAPID_PUBLIC_KEY = 'BG3M55GRSlmaufWbQKN_ykIZmlY0oEqhKvBGMiQX-dwpOPiqpnjtcrEmmRT3kq36nJwWBg7KO-MeZjOKvkr_qSQ';
+var VAPID_PUBLIC_KEY = 'BHkZdAiNhzJk7XFS-lX7tHaA9hoCdejv2WVNjPmhquDmUeMXwHW7RiJF87dy9l2xAjQfE3-DkFY-BVDbW2c0iAs';
 var pushSupported  = ('serviceWorker' in navigator) && ('PushManager' in window);
 var pushSubscribed = false;
 

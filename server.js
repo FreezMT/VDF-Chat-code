@@ -1,4 +1,4 @@
-// server.js —  PART 1/2\
+// server.js —  PART 1/2
 require('dotenv').config();
 const express  = require('express');
 const sqlite3  = require('sqlite3').verbose();
@@ -83,15 +83,12 @@ function normalizeTeam(team) {
 }
 
 // ---------- VAPID ДЛЯ WEB-PUSH ----------
-// ВАЖНО: задайте VAPID_PUBLIC_KEY и VAPID_PRIVATE_KEY в переменных окружения!
-// Сгенерировать пару ключей: node -e "const wp=require('web-push'); const k=wp.generateVAPIDKeys(); console.log(JSON.stringify(k));"
-
+// Ключи берутся из переменных окружения (.env)
 const VAPID_PUBLIC_KEY  = process.env.VAPID_PUBLIC_KEY;
 const VAPID_PRIVATE_KEY = process.env.VAPID_PRIVATE_KEY;
 
 if (!VAPID_PUBLIC_KEY || !VAPID_PRIVATE_KEY) {
-  console.error('FATAL: VAPID_PUBLIC_KEY и VAPID_PRIVATE_KEY должны быть заданы в переменных окружения!');
-  // Не роняем сервер — push-уведомления просто не будут работать
+  console.error('WARNING: VAPID_PUBLIC_KEY / VAPID_PRIVATE_KEY не заданы в .env — push-уведомления не будут работать');
 } else {
   webPush.setVapidDetails(
     'mailto:' + (process.env.VAPID_EMAIL || 'admin@example.com'),
@@ -384,11 +381,7 @@ app.use(express.json({ limit: '1mb' }));
 
 // ---------- СЕССИИ ----------
 
-// ВАЖНО: задайте SESSION_SECRET в env! Без него при каждом рестарте все сессии сбрасываются.
-const SESSION_SECRET = process.env.SESSION_SECRET || (() => {
-  console.warn('WARNING: SESSION_SECRET не задан в env! При рестарте сервера все пользователи будут разлогинены.');
-  return crypto.randomBytes(32).toString('hex');
-})();
+const SESSION_SECRET = process.env.SESSION_SECRET || crypto.randomBytes(32).toString('hex');
 
 const sessionMiddleware = session({
   name: 'vdf_sid',
@@ -398,9 +391,9 @@ const sessionMiddleware = session({
   cookie: {
     httpOnly: true,
     sameSite: 'lax',
-    // Автоматически включаем secure: true если сервер работает за HTTPS-прокси (Nginx/Cloudflare)
-    // Задайте COOKIE_SECURE=true в переменных окружения чтобы включить принудительно
-    secure: process.env.COOKIE_SECURE === 'true' || process.env.NODE_ENV === 'production',
+    // Для твоей текущей конфигурации (HTTP / локально) лучше оставить secure: false.
+    // Когда перейдёшь на полноценный HTTPS, можно будет включить secure: true.
+    secure: false,
     maxAge: 30 * 24 * 60 * 60 * 1000   // 30 дней
   }
 });
@@ -409,21 +402,10 @@ app.use(sessionMiddleware);
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,  // 15 минут
-  max: 60,                    // максимум 60 запросов в 15 минут
+  max: 60,                  // максимум 100 запросов в это окно
   standardHeaders: true,
   legacyHeaders: false
 });
-
-// Более мягкий лимит для обычных API-запросов
-const apiLimiter = rateLimit({
-  windowMs: 1 * 60 * 1000,   // 1 минута
-  max: 120,                   // 120 запросов в минуту
-  standardHeaders: true,
-  legacyHeaders: false
-});
-
-// Глобальный rate limit на все /api/* маршруты (объявляем ПОСЛЕ инициализации лимитеров)
-app.use('/api/', apiLimiter);
 
 // ---------- ХРАНИЛИЩЕ АВАТАРОВ / КАРТИНОК / ПРЕВЬЮ ----------
 
@@ -448,8 +430,7 @@ const avatarStorage = multer.diskStorage({
     cb(null, avatarsDir);
   },
   filename: function (req, file, cb) {
-    // Берём логин из сессии (безопасно), а не из body (небезопасно)
-    const login = String((req.session && req.session.login) || 'user').replace(/[^a-zA-Z0-9_-]/g, '');
+    const login = String(req.body.login || 'user').replace(/[^a-zA-Z0-9_-]/g, '');
     const ext = path.extname(file.originalname) || '.jpg';
     cb(null, login + '-' + Date.now() + ext);
   }
@@ -483,12 +464,9 @@ const uploadAttachment = multer({
 });
 
 // статика с кэшированием
-// НЕ используем immutable для аватаров — они могут обновляться
-// Клиент будет перепроверять кэш при каждом запросе, но загружать только при изменении
 app.use('/avatars', express.static(avatarsDir, {
-  maxAge: '1d',
-  etag: true,
-  lastModified: true
+  maxAge: '30d',
+  immutable: true
 }));
 
 // Вложения чата (любые файлы)
@@ -730,6 +708,134 @@ async function enrichChatsWithUnreadAndSort(userLogin, chats) {
   });
 
   return chats;
+}
+
+async function appendFriendChatsForUser(user, chats) {
+  console.error('FRIEND DEBUG: called for', user && user.login);
+
+  if (!user || !user.login || !Array.isArray(chats)) {
+    console.error('FRIEND DEBUG: invalid args', !!user, user && user.login, Array.isArray(chats));
+    return;
+  }
+
+  const meLogin = user.login;
+  const meLower = String(meLogin || '').toLowerCase();
+
+  const existingIds = new Set(chats.map(c => c.id));
+
+  const friendRows = await all(
+    db,
+    `SELECT chat_id, user1_login, user2_login
+     FROM friends
+     WHERE LOWER(user1_login) = LOWER(?)
+        OR LOWER(user2_login) = LOWER(?)`,
+    [meLogin, meLogin]
+  );
+
+  console.error('FRIEND DEBUG: me=', meLogin, 'friendRows=', friendRows.length);
+
+  if (!friendRows || !friendRows.length) return;
+
+  for (const fr of friendRows) {
+    const chatId = fr.chat_id;
+    if (!chatId) {
+      console.error('FRIEND DEBUG: skip row without chatId', fr);
+      continue;
+    }
+    if (existingIds.has(chatId)) {
+      console.error('FRIEND DEBUG: skip existing chatId', chatId);
+      continue;
+    }
+
+    const u1 = String(fr.user1_login || '');
+    const u2 = String(fr.user2_login || '');
+
+    const otherLogin = u1.toLowerCase() === meLower ? u2 : u1;
+    if (!otherLogin) {
+      console.error('FRIEND DEBUG: no otherLogin for row', fr);
+      continue;
+    }
+
+    const otherUser = await get(
+      db,
+      'SELECT id, login, role, first_name, last_name, avatar FROM users WHERE login = ?',
+      [otherLogin]
+    );
+    if (!otherUser) {
+      console.error('FRIEND DEBUG: no otherUser for', otherLogin);
+      continue;
+    }
+
+    const fullName = ((otherUser.first_name || '') + ' ' + (otherUser.last_name || '')).trim();
+
+    const chat = { id: chatId };
+
+    if (chatId.startsWith('pm-')) {
+      chat.type         = 'personal';
+      chat.title        = fullName || otherUser.login;
+      chat.avatar       = otherUser.avatar || '/img/default-avatar.png';
+      chat.partnerId    = otherUser.id;
+      chat.partnerLogin = otherUser.login;
+    } else if (chatId.startsWith('trainer-') ||
+               chatId.startsWith('veselovavdf-') ||
+               chatId.startsWith('veselovavdf-')) {
+      chat.type = 'trainer';
+
+      const myRole  = (user.role || '').toLowerCase();
+      const hisRole = (otherUser.role || '').toLowerCase();
+
+      const meIsTrainer    = (myRole === 'trainer' || myRole === 'тренер' || user.login === ANGELINA_LOGIN);
+      const otherIsTrainer = (hisRole === 'trainer' || hisRole === 'тренер' || otherUser.login === ANGELINA_LOGIN);
+
+      const trainerUser = meIsTrainer ? user      : otherUser;
+      const partnerUser = meIsTrainer ? otherUser : user;
+
+      const pFull = ((partnerUser.first_name || '') + ' ' + (partnerUser.last_name || '')).trim();
+
+      chat.title        = pFull || partnerUser.login;
+      chat.avatar       = partnerUser.avatar || '/img/default-avatar.png';
+      chat.trainerId    = trainerUser.id;
+      chat.trainerLogin = trainerUser.login;
+      chat.partnerId    = partnerUser.id;
+      chat.partnerLogin = partnerUser.login;
+    } else {
+      chat.type         = 'personal';
+      chat.title        = fullName || otherUser.login;
+      chat.avatar       = otherUser.avatar || '/img/default-avatar.png';
+      chat.partnerId    = otherUser.id;
+      chat.partnerLogin = otherUser.login;
+    }
+
+    const last = await getMsg(
+      'SELECT sender_login, text, created_at, attachment_type ' +
+      'FROM messages ' +
+      'WHERE chat_id = ? AND (deleted IS NULL OR deleted = 0) ' +
+      'ORDER BY created_at DESC, id DESC LIMIT 1',
+      [chatId]
+    );
+    if (last) {
+      chat.lastMessageSenderLogin    = last.sender_login;
+      chat.lastMessageText           = last.text;
+      chat.lastMessageCreatedAt      = last.created_at;
+      chat.lastMessageAttachmentType = last.attachment_type;
+      try {
+        const lu = await get(
+          db,
+          'SELECT first_name, last_name FROM users WHERE login = ?',
+          [last.sender_login]
+        );
+        if (lu) {
+          chat.lastMessageSenderName = (lu.first_name + ' ' + lu.last_name).trim();
+        }
+      } catch (e2) {
+        console.error('FRIEND CHATS last sender name error:', e2);
+      }
+    }
+
+    console.error('FRIEND DEBUG: push chat', chatId, 'for', meLogin, 'type', chat.type);
+    chats.push(chat);
+    existingIds.add(chatId);
+  }
 }
 
 async function appendFriendChatsForUser(user, chats) {
@@ -1417,21 +1523,11 @@ app.post('/api/messages/react', requireAuth, async (req, res) => {
       return res.status(400).json({ error: 'Нет логина или ID сообщения' });
     }
 
-    // Проверка emoji: должен быть строкой, не пустой, только Unicode emoji-символы
+    // Жёсткая проверка emoji
     const rawEmoji = emoji;
     const safeEmoji = (typeof rawEmoji === 'string' && rawEmoji.trim()) ? rawEmoji.trim() : null;
     if (!safeEmoji) {
       return res.status(400).json({ error: 'Некорректный эмодзи' });
-    }
-    // Whitelist: только emoji (Unicode Emoji block + региональные индикаторы + стандартные символы)
-    // Разрешаем строки до 8 символов (с модификаторами кожи, ZWJ-последовательности)
-    if (safeEmoji.length > 16) {
-      return res.status(400).json({ error: 'Эмодзи слишком длинный' });
-    }
-    // Проверяем что содержит хотя бы один emoji-codepoint
-    const emojiRegex = /\p{Emoji}/u;
-    if (!emojiRegex.test(safeEmoji)) {
-      return res.status(400).json({ error: 'Допустимы только эмодзи' });
     }
 
     const msg = await getMsg(
@@ -1660,7 +1756,7 @@ async function appendPersonalChatsForUser(user, chats) {
         if (lu) {
           chat.lastMessageSenderName = (lu.first_name + ' ' + lu.last_name).trim();
         }
-      } catch (e2) {
+      } catch (e2) {``
         console.error('CHATS last sender name error (personal):', e2);
       }
     }
