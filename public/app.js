@@ -4327,9 +4327,10 @@ function createMsgContextMenu() {
 
     (chatScreen || document.body).appendChild(msgContextOverlay);
 
-    // Клик по фону: закрываем меню (с задержкой после открытия)
+    // Клик по фону или по сообщению под меню — закрываем меню
     msgContextOverlay.addEventListener('click', function (e) {
-        if (e.target !== msgContextOverlay) return;
+        // Если клик внутри самого меню — не закрываем
+        if (msgContextMenu && msgContextMenu.contains(e.target)) return;
 
         var elapsed = Date.now() - msgCtxOpenedAt;
         if (elapsed < 400) {
