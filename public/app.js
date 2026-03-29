@@ -4508,6 +4508,14 @@ function attachMessageInteractions(item, msg) {
     var touchTimer = null;
 
     item.addEventListener('touchstart', function (e) {
+        // Если меню уже открыто — сразу закрываем, таймер не запускаем
+        if (msgContextOverlay && msgContextOverlay.classList.contains('visible')) {
+            e.preventDefault();
+            e.stopPropagation();
+            hideMsgContextMenu();
+            return;
+        }
+
         touchTimer = setTimeout(function () {
             vibrate(40);
             item.classList.add('msg-item-pressed');
@@ -4529,15 +4537,6 @@ function attachMessageInteractions(item, msg) {
         if (touchTimer) {
             clearTimeout(touchTimer);
             touchTimer = null;
-        }
-
-        if (msgContextOverlay &&
-            msgContextOverlay.classList.contains('visible')) {
-            e.preventDefault();
-            e.stopPropagation();
-            // Тап на любое сообщение (включая то на котором открыто меню) — закрываем меню
-            hideMsgContextMenu();
-            return;
         }
 
         if (!msgContextOverlay || !msgContextOverlay.classList.contains('visible')) {
@@ -4562,12 +4561,7 @@ function hideMsgContextMenu() {
 
     if (currentMsgContextItem) {
         currentMsgContextItem.classList.remove('msg-item-pressed');
-        if (currentMsgContextItem._oldZIndex !== undefined) {
-            currentMsgContextItem.style.zIndex = currentMsgContextItem._oldZIndex || '';
-            delete currentMsgContextItem._oldZIndex;
-        } else {
-            currentMsgContextItem.style.zIndex = '';
-        }
+        currentMsgContextItem.style.zIndex = '';
         currentMsgContextItem = null;
     }
     currentMsgContext = null;
@@ -4605,10 +4599,8 @@ function showMsgContextMenu(msgInfo, item) {
          msgInfo.attachmentType === 'image' ||
          msgInfo.attachmentType === 'video');
 
-    if (item._oldZIndex === undefined) {
-        item._oldZIndex = item.style.zIndex || '';
-    }
-    item.style.zIndex = '9999';
+    // НЕ поднимаем z-index сообщения — иначе оно будет выше overlay
+    // и клик по нему не будет закрывать меню
 
     // видимость кнопок
     msgCtxEditBtn.style.display   = (isMe && (hasText || hasAttachment)) ? '' : 'none';
