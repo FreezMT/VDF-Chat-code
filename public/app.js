@@ -5560,6 +5560,7 @@ function renderOrCreateChatItem(chat) {
         var touchTimer = null;
         item.addEventListener('touchstart', function () {
             touchTimer = setTimeout(function () {
+                vibrate(40);
                 item.classList.add('chat-item-pressed');
                 showChatContextMenu(chat, item);
                 suppressChatClick = true;
@@ -7392,6 +7393,14 @@ function createChatContextMenu() {
 
     chatContextMenu = document.createElement('div');
     chatContextMenu.className = 'chat-context-menu';
+
+    // Создаём кнопку мута если ещё не создана
+    if (!ctxMuteBtn) {
+        ctxMuteBtn = document.createElement('button');
+        ctxMuteBtn.className = 'chat-context-btn';
+        ctxMuteBtn.textContent = 'Выключить уведомления';
+    }
+
     chatContextMenu.appendChild(ctxMuteBtn);
     chatContextOverlay.appendChild(chatContextMenu);
     document.body.appendChild(chatContextOverlay);
@@ -7399,7 +7408,8 @@ function createChatContextMenu() {
     chatContextOverlay.addEventListener('click', function (e) {
         if (e.target === chatContextOverlay) hideChatContextMenu();
     });
-ctxMuteBtn.onclick = async function () {
+
+    ctxMuteBtn.onclick = async function () {
         if (!contextMenuTargetChat) return;
         await toggleChatMute(contextMenuTargetChat);
         hideChatContextMenu();
