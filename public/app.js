@@ -4329,7 +4329,8 @@ function createMsgContextMenu() {
 
     // Клик по фону: закрываем меню (с задержкой после открытия)
     msgContextOverlay.addEventListener('click', function (e) {
-        if (e.target !== msgContextOverlay) return;
+        // Клик по самому меню — не закрываем
+        if (msgContextMenu && msgContextMenu.contains(e.target)) return;
 
         var elapsed = Date.now() - msgCtxOpenedAt;
         if (elapsed < 400) {
@@ -4531,10 +4532,12 @@ function attachMessageInteractions(item, msg) {
         }
 
         if (msgContextOverlay &&
-            msgContextOverlay.classList.contains('visible') &&
-            currentMsgContextItem === item) {
+            msgContextOverlay.classList.contains('visible')) {
             e.preventDefault();
             e.stopPropagation();
+            // Тап на любое сообщение (включая то на котором открыто меню) — закрываем меню
+            hideMsgContextMenu();
+            return;
         }
 
         if (!msgContextOverlay || !msgContextOverlay.classList.contains('visible')) {
