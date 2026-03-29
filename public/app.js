@@ -1600,17 +1600,8 @@ if (chatScreen) {
         chatSwipeStartX = t.clientX;
         chatSwipeStartY = t.clientY;
         chatSwipeDx     = 0;
-
-        // на время жеста убираем transition, чтобы не мешал
-        chatScreen.style.transition = 'none';
-
-        // Показываем mainScreen под chatScreen сразу, чуть затемнённым
-        if (mainScreen) {
-            mainScreen.style.display       = 'flex';
-            mainScreen.style.opacity       = '0.6';
-            mainScreen.style.transition    = 'none';
-            mainScreen.style.pointerEvents = 'none'; // не перехватываем клики во время свайпа
-        }
+        // НЕ трогаем transition и mainScreen здесь — делаем это только в touchmove
+        // когда свайп реально начался, иначе каждый тап на input ломает фокус
     }, { passive:true });
 
     chatScreen.addEventListener('touchmove', function (e) {
@@ -1623,20 +1614,30 @@ if (chatScreen) {
         if (dx <= 0 || Math.abs(dy) > Math.abs(dx)) {
             chatSwipeDx = 0;
             chatScreen.style.transform = 'translateX(0px)';
-            if (mainScreen) mainScreen.style.opacity = '0.6';
             return;
         }
 
         chatSwipeDx = dx;
         var maxW    = window.innerWidth || 375;
         var translate = Math.min(dx, maxW);
+
+        // Убираем transition только когда свайп реально начался (dx > 10px)
+        if (dx > 10) {
+            chatScreen.style.transition = 'none';
+
+            // Показываем mainScreen под chatScreen только при реальном свайпе
+            if (mainScreen && mainScreen.style.display !== 'flex') {
+                mainScreen.style.display       = 'flex';
+                mainScreen.style.opacity       = '0.6';
+                mainScreen.style.transition    = 'none';
+                mainScreen.style.pointerEvents = 'none';
+            }
+        }
+
         chatScreen.style.transform = 'translateX(' + translate + 'px)';
 
-        // Показываем mainScreen под chatScreen и плавно осветляем его
-        if (mainScreen) {
-            mainScreen.style.display  = 'flex';
-            mainScreen.style.transition = 'none';
-            // 0 -> затемнён (0.6), 1 -> полностью виден (1.0)
+        // Плавно осветляем mainScreen по мере свайпа
+        if (mainScreen && mainScreen.style.display === 'flex') {
             var progress = Math.min(translate / maxW, 1);
             var opacity  = 0.6 + progress * 0.4;
             mainScreen.style.opacity = opacity;
