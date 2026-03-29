@@ -4327,21 +4327,29 @@ function createMsgContextMenu() {
 
     (chatScreen || document.body).appendChild(msgContextOverlay);
 
-    // Клик по фону или по сообщению под меню — закрываем меню
-    msgContextOverlay.addEventListener('click', function (e) {
-        // Если клик внутри самого меню — не закрываем
+    // Закрываем меню при тапе/клике вне меню
+    function onOverlayClose(e) {
+        // Если внутри самого меню — не закрываем
         if (msgContextMenu && msgContextMenu.contains(e.target)) return;
 
         var elapsed = Date.now() - msgCtxOpenedAt;
-        if (elapsed < 400) {
-            e.preventDefault();
-            e.stopPropagation();
-            return;
-        }
+        if (elapsed < 300) return; // защита от случайного закрытия сразу после открытия
 
         e.preventDefault();
         e.stopPropagation();
         hideMsgContextMenu();
+    }
+
+    // touchstart - для мобильных (срабатывает раньше click)
+    msgContextOverlay.addEventListener('touchstart', function (e) {
+        onOverlayClose(e);
+    }, { passive: false });
+
+    // click - для десктопа и как запасной вариант
+    msgContextOverlay.addEventListener('click', function (e) {
+        if (msgContextMenu && msgContextMenu.contains(e.target)) return;
+        e.preventDefault();
+        e.stopPropagation();
     });
 
     msgCtxReplyBtn.onclick = function () {
@@ -4531,17 +4539,12 @@ function attachMessageInteractions(item, msg) {
             touchTimer = null;
         }
 
-        if (msgContextOverlay &&
-            msgContextOverlay.classList.contains('visible') &&
-            currentMsgContextItem === item) {
-            e.preventDefault();
-            e.stopPropagation();
-        }
-
         if (!msgContextOverlay || !msgContextOverlay.classList.contains('visible')) {
             item.classList.remove('msg-item-pressed');
         }
-    }, { passive: false });
+        // НЕ делаем preventDefault/stopPropagation — иначе click на overlay не срабатывает
+        // и меню не закрывается при тапе на сообщение
+    }, { passive: true });
 
     // Двойной клик / даблтап — только реакция ❤️
     item.addEventListener('dblclick', function (e) {
