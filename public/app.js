@@ -4329,8 +4329,7 @@ function createMsgContextMenu() {
 
     // Клик по фону: закрываем меню (с задержкой после открытия)
     msgContextOverlay.addEventListener('click', function (e) {
-        // Клик по самому меню — не закрываем
-        if (msgContextMenu && msgContextMenu.contains(e.target)) return;
+        if (e.target !== msgContextOverlay) return;
 
         var elapsed = Date.now() - msgCtxOpenedAt;
         if (elapsed < 400) {
@@ -4508,14 +4507,6 @@ function attachMessageInteractions(item, msg) {
     var touchTimer = null;
 
     item.addEventListener('touchstart', function (e) {
-        // Если меню уже открыто — сразу закрываем, таймер не запускаем
-        if (msgContextOverlay && msgContextOverlay.classList.contains('visible')) {
-            e.preventDefault();
-            e.stopPropagation();
-            hideMsgContextMenu();
-            return;
-        }
-
         touchTimer = setTimeout(function () {
             vibrate(40);
             item.classList.add('msg-item-pressed');
@@ -4537,6 +4528,13 @@ function attachMessageInteractions(item, msg) {
         if (touchTimer) {
             clearTimeout(touchTimer);
             touchTimer = null;
+        }
+
+        if (msgContextOverlay &&
+            msgContextOverlay.classList.contains('visible') &&
+            currentMsgContextItem === item) {
+            e.preventDefault();
+            e.stopPropagation();
         }
 
         if (!msgContextOverlay || !msgContextOverlay.classList.contains('visible')) {
@@ -4561,7 +4559,12 @@ function hideMsgContextMenu() {
 
     if (currentMsgContextItem) {
         currentMsgContextItem.classList.remove('msg-item-pressed');
-        currentMsgContextItem.style.zIndex = '';
+        if (currentMsgContextItem._oldZIndex !== undefined) {
+            currentMsgContextItem.style.zIndex = currentMsgContextItem._oldZIndex || '';
+            delete currentMsgContextItem._oldZIndex;
+        } else {
+            currentMsgContextItem.style.zIndex = '';
+        }
         currentMsgContextItem = null;
     }
     currentMsgContext = null;
@@ -4599,8 +4602,10 @@ function showMsgContextMenu(msgInfo, item) {
          msgInfo.attachmentType === 'image' ||
          msgInfo.attachmentType === 'video');
 
-    // НЕ поднимаем z-index сообщения — иначе оно будет выше overlay
-    // и клик по нему не будет закрывать меню
+    if (item._oldZIndex === undefined) {
+        item._oldZIndex = item.style.zIndex || '';
+    }
+    item.style.zIndex = '9999';
 
     // видимость кнопок
     msgCtxEditBtn.style.display   = (isMe && (hasText || hasAttachment)) ? '' : 'none';
