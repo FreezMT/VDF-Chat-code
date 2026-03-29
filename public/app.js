@@ -2,6 +2,12 @@
 
 console.log('app.js loaded');
 
+// ---------- ВИБРАЦИЯ ----------
+function vibrate(pattern) {
+    if (!navigator.vibrate) return;
+    try { navigator.vibrate(pattern); } catch(e) {}
+}
+
 // ---------- ГЛОБАЛЬНЫЕ ЗАПРЕТЫ / ЖЕСТЫ ----------
 //
 // РАНЕЕ: глобально запрещали contextmenu + copy/cut/paste.
@@ -577,6 +583,7 @@ var swipeItem   = null;
 
 var swipeActive = false;
 var swipeLastDx = 0;
+var swipeVibratedReply = false;
 
 var lastChats         = [];
 var userInfoFromGroup = false;
@@ -1596,6 +1603,13 @@ if (chatScreen) {
 
         // на время жеста убираем transition, чтобы не мешал
         chatScreen.style.transition = 'none';
+
+        // Показываем mainScreen под chatScreen сразу, чуть затемнённым
+        if (mainScreen) {
+            mainScreen.style.display   = 'flex';
+            mainScreen.style.opacity   = '0.6';
+            mainScreen.style.transition = 'none';
+        }
     }, { passive:true });
 
     chatScreen.addEventListener('touchmove', function (e) {
@@ -1608,6 +1622,7 @@ if (chatScreen) {
         if (dx <= 0 || Math.abs(dy) > Math.abs(dx)) {
             chatSwipeDx = 0;
             chatScreen.style.transform = 'translateX(0px)';
+            if (mainScreen) mainScreen.style.opacity = '0.6';
             return;
         }
 
@@ -1615,6 +1630,16 @@ if (chatScreen) {
         var maxW    = window.innerWidth || 375;
         var translate = Math.min(dx, maxW);
         chatScreen.style.transform = 'translateX(' + translate + 'px)';
+
+        // Показываем mainScreen под chatScreen и плавно осветляем его
+        if (mainScreen) {
+            mainScreen.style.display  = 'flex';
+            mainScreen.style.transition = 'none';
+            // 0 -> затемнён (0.6), 1 -> полностью виден (1.0)
+            var progress = Math.min(translate / maxW, 1);
+            var opacity  = 0.6 + progress * 0.4;
+            mainScreen.style.opacity = opacity;
+        }
     }, { passive:true });
 
     function finishChatSwipe(shouldClose) {
@@ -1624,22 +1649,39 @@ if (chatScreen) {
         chatScreen.style.transition = 'transform 0.25s cubic-bezier(.4,0,.2,1)';
 
         if (shouldClose) {
-            // плавно доводим экран до правого края
+            // плавно доводим экран до правого края и осветляем mainScreen
             var maxW = window.innerWidth || 375;
             chatScreen.style.transform = 'translateX(' + maxW + 'px)';
-
+            if (mainScreen) {
+                mainScreen.style.transition = 'opacity 0.25s ease-out';
+                mainScreen.style.opacity    = '1';
+            }
             setTimeout(function () {
-                // сбрасываем inline‑transition/transform, а потом уже закрываем экран
                 chatScreen.style.transition = '';
                 chatScreen.style.transform  = '';
+                if (mainScreen) {
+                    mainScreen.style.transition = '';
+                    mainScreen.style.opacity    = '';
+                }
                 closeChatScreenToMain();
             }, duration);
         } else {
-            // возвращаем назад
+            // возвращаем назад — скрываем mainScreen обратно
             chatScreen.style.transform = 'translateX(0px)';
-
+            if (mainScreen) {
+                mainScreen.style.transition = 'opacity 0.25s ease-out';
+                mainScreen.style.opacity    = '0';
+            }
             setTimeout(function () {
                 chatScreen.style.transition = '';
+                if (mainScreen) {
+                    mainScreen.style.transition = '';
+                    mainScreen.style.opacity    = '';
+                    // скрываем mainScreen если чат всё ещё открыт
+                    if (chatScreen.classList.contains('chat-screen-visible')) {
+                        mainScreen.style.display = 'none';
+                    }
+                }
             }, duration);
         }
 
@@ -3506,6 +3548,13 @@ function onMsgTouchMove(e) {
     }
 
     swipeLastDx = dx;
+    // вибрация один раз при достижении порога ответа (-40px)
+    if (dx < -40 && !swipeVibratedReply) {
+        swipeVibratedReply = true;
+        vibrate(30);
+    } else if (dx >= -40) {
+        swipeVibratedReply = false;
+    }
     var translate = Math.max(dx, -80);
     col.style.transition = 'none';
     col.style.transform  = 'translateX(' + translate + 'px)';
@@ -3534,6 +3583,7 @@ function onMsgTouchEnd() {
     swipeActive = false;
     swipeItem   = null;
     swipeLastDx = 0;
+    swipeVibratedReply = false;
 }
 
 // ---------- ОНЛАЙН-СТАТУС В ШАПКЕ ----------
@@ -4452,6 +4502,7 @@ function attachMessageInteractions(item, msg) {
 
     item.addEventListener('touchstart', function (e) {
         touchTimer = setTimeout(function () {
+            vibrate(40);
             item.classList.add('msg-item-pressed');
             showMsgContextMenu(item._msgInfo, item);
         }, 300);
