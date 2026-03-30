@@ -4333,6 +4333,8 @@ function createMsgContextMenu() {
         if (!msgContextOverlay || !msgContextOverlay.classList.contains('visible')) return;
         // Если тап внутри самого меню — не закрываем
         if (msgContextMenu && msgContextMenu.contains(e.target)) return;
+        // Если тап на поле ввода, кнопках отправки/голоса/аттача — не закрываем
+        if (chatInputForm && chatInputForm.contains(e.target)) return;
         var elapsed = Date.now() - msgCtxOpenedAt;
         if (elapsed < 300) return;
         hideMsgContextMenu();
