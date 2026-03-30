@@ -319,24 +319,24 @@ if (chatContent) {
 
             var firstMsgEl = chatContent.querySelector('.msg-item');
 
-            // добавляем старые сообщения, вставляем их сверху в правильном порядке
-            // msgs идут от старых к новым (ASC), поэтому вставляем в обратном порядке
-            // чтобы каждый следующий оказался перед предыдущим
-            var insertRef = firstMsgEl; // точка вставки
-            for (var mi = msgs.length - 1; mi >= 0; mi--) {
-                var m = msgs[mi];
-                if (messagesById[m.id]) continue;
+            // добавляем старые сообщения сверху в правильном порядке
+            // msgs идут ASC (старые -> новые), insertRef = первое уже загруженное сообщение
+            // insertBefore(el, insertRef) каждый раз: el встаёт перед insertRef
+            // итерируем прямо 0..N: msg[0](старый) -> msg[N-1](ближе к уже загруженным)
+            // результат: msg[0], msg[1], ..., msg[N-1], firstMsgEl, ...
+            var insertRef = firstMsgEl;
+            msgs.forEach(function(m) {
+                if (messagesById[m.id]) return;
                 messagesById[m.id] = m;
 
                 renderMessage(m); // добавляется в конец chatContent
                 var el = chatContent.querySelector('.msg-item[data-msg-id="' + m.id + '"]');
-                if (el) {
-                    if (insertRef) {
-                        chatContent.insertBefore(el, insertRef);
-                    }
-                    // insertRef не меняем — каждый следующий (более старый) вставляется выше
+                if (el && insertRef) {
+                    chatContent.insertBefore(el, insertRef);
                 }
-            }
+                // insertRef не меняем — каждый следующий встаёт перед ним же
+                // благодаря прямой итерации порядок сохраняется правильным
+            });
 
             // возвращаем пользователя к тому же сообщению (якорю)
             if (anchorId) {
