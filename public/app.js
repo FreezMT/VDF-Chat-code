@@ -319,22 +319,24 @@ if (chatContent) {
 
             var firstMsgEl = chatContent.querySelector('.msg-item');
 
-            // добавляем старые сообщения, но визуально вставляем их сверху
-            msgs.forEach(function (m) {
-                if (messagesById[m.id]) return;
+            // добавляем старые сообщения, вставляем их сверху в правильном порядке
+            // msgs идут от старых к новым (ASC), поэтому вставляем в обратном порядке
+            // чтобы каждый следующий оказался перед предыдущим
+            var insertRef = firstMsgEl; // точка вставки
+            for (var mi = msgs.length - 1; mi >= 0; mi--) {
+                var m = msgs[mi];
+                if (messagesById[m.id]) continue;
                 messagesById[m.id] = m;
 
-                renderMessage(m); // добавилось в конец
+                renderMessage(m); // добавляется в конец chatContent
                 var el = chatContent.querySelector('.msg-item[data-msg-id="' + m.id + '"]');
                 if (el) {
-                    if (firstMsgEl) {
-                        chatContent.insertBefore(el, firstMsgEl);
-                    } else {
-                        chatContent.appendChild(el);
-                        firstMsgEl = el;
+                    if (insertRef) {
+                        chatContent.insertBefore(el, insertRef);
                     }
+                    // insertRef не меняем — каждый следующий (более старый) вставляется выше
                 }
-            });
+            }
 
             // возвращаем пользователя к тому же сообщению (якорю)
             if (anchorId) {
@@ -4060,7 +4062,7 @@ function renderMessage(msg, opts) {
     var textDiv = document.createElement('div');
     textDiv.className = 'msg-text';
     if (hasText) {
-        textDiv.textContent = mainText;
+        linkifyText(textDiv, mainText); // сразу подсвечиваем ссылки при создании
     }
     bubble.appendChild(textDiv);
 
