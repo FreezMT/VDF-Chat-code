@@ -3358,6 +3358,14 @@ function updateProfileUI() {
             this.onerror = null;
             this.src = '/img/default-avatar.png';
         };
+        // Открываем аватар в медиавьюере по клику
+        profileAvatar.style.cursor = 'pointer';
+        profileAvatar.onclick = function () {
+            var s = currentUser && (currentUser.avatar || '/img/default-avatar.png');
+            if (s && s !== '/img/default-avatar.png') {
+                openMediaViewer(s, 'image');
+            }
+        };
     }
 
     if (profileNameEl) {
@@ -5822,6 +5830,14 @@ async function openUserInfoModal(login, fromGroup) {
                 this.src = '/group-avatar.png';
             };
             chatUserAvatar.src = src;
+            // Открываем аватар в медиавьюере по клику
+            chatUserAvatar.style.cursor = 'pointer';
+            chatUserAvatar.onclick = function () {
+                var s = user.avatar;
+                if (s && s !== '/img/default-avatar.png' && s !== '/group-avatar.png') {
+                    openMediaViewer(s, 'image');
+                }
+            };
         }
 
         if (chatUserName) {
@@ -6581,8 +6597,9 @@ async function loadFeed() {
         }
 
         var posts = data.posts || [];
-        feedList.innerHTML = '';
+
         if (!posts.length) {
+            feedList.innerHTML = '';
             var empty = document.createElement('div');
             empty.style.padding = '16px';
             empty.style.color   = 'rgba(255,255,255,0.7)';
@@ -6591,7 +6608,49 @@ async function loadFeed() {
             feedList.appendChild(empty);
             return;
         }
-        posts.forEach(renderFeedPost);
+
+        // Умный diff: не сбрасываем весь список, а обновляем только изменения
+        // Это устраняет моргание при поллинге
+        var existingIds = new Set();
+        feedList.querySelectorAll('.feed-post[data-post-id]').forEach(function(el) {
+            existingIds.add(String(el.dataset.postId));
+        });
+
+        var newIds = new Set(posts.map(function(p) { return String(p.id); }));
+
+        // Удаляем посты которых больше нет
+        feedList.querySelectorAll('.feed-post[data-post-id]').forEach(function(el) {
+            if (!newIds.has(String(el.dataset.postId))) {
+                el.remove();
+            }
+        });
+
+        // Добавляем новые посты и обновляем лайки существующих
+        posts.forEach(function(post) {
+            var pid = String(post.id);
+            var existing = feedList.querySelector('.feed-post[data-post-id="' + pid + '"]');
+            if (existing) {
+                // Обновляем только счётчик лайков и состояние кнопки — без перерисовки
+                // Обновляем лайк-пилюлю (класс feed-like-pill)
+                var likePillEl = existing.querySelector('.feed-like-pill');
+                if (likePillEl) {
+                    var cnt = post.likesCount || 0;
+                    likePillEl.textContent = cnt === 0 ? '❤️' : '❤️ ' + cnt;
+                    likePillEl.classList.toggle('liked', !!post.likedByMe);
+                }
+            } else {
+                renderFeedPost(post);
+            }
+        });
+
+        // Восстанавливаем правильный порядок (новые сверху)
+        var cards = Array.from(feedList.querySelectorAll('.feed-post[data-post-id]'));
+        cards.sort(function(a, b) {
+            var ai = posts.findIndex(function(p) { return String(p.id) === a.dataset.postId; });
+            var bi = posts.findIndex(function(p) { return String(p.id) === b.dataset.postId; });
+            return ai - bi;
+        });
+        cards.forEach(function(card) { feedList.appendChild(card); });
     } catch (e) {
         alert('Сетевая ошибка при загрузке ленты');
     }
