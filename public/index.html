@@ -552,38 +552,8 @@
         </div>
 
         <!-- MEDIA VIEWER (просмотр фото/видео, PWA-style) -->
-        <div id="mediaViewer" class="media-viewer" aria-hidden="true">
-            <div class="media-viewer-backdrop"></div>
-            <div class="media-viewer-content">
-                <div class="media-viewer-chrome">
-                    <div class="media-viewer-topbar">
-                        <button type="button" id="mediaViewerCloseBtn" class="media-viewer-close-btn" aria-label="Закрыть просмотр">✕</button>
-                        <div class="media-viewer-title" id="mediaViewerTitle"></div>
-                    </div>
 
-                    <div class="media-viewer-main">
-                        <img  id="mediaViewerImg"   class="media-viewer-img"   src="" alt="">
-                        <video id="mediaViewerVideo" class="media-viewer-video" playsinline webkit-playsinline></video>
-                        <!-- Лоадер видео -->
-                        <div id="mediaViewerLoader" class="media-viewer-loader"></div>
-                    </div>
 
-                    <div class="media-viewer-bottombar" id="mediaViewerControls">
-                        <button type="button" id="mediaViewerPlayPause" class="media-viewer-playpause" aria-label="Пуск/пауза"></button>
-                        <div class="media-viewer-timeline">
-                            <div class="media-viewer-timeline-track">
-                                <div class="media-viewer-timeline-fill" id="mediaViewerTimelineFill"></div>
-                                <div class="media-viewer-timeline-thumb" id="mediaViewerTimelineThumb"></div>
-                            </div>
-                        </div>
-                        <div class="media-viewer-time">
-                            <span id="mediaViewerCurrentTime">0:00</span>
-                            <span id="mediaViewerTotalTime">0:00</span>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </div>
     </main>
 
     <!-- PROFILE -->
@@ -861,5 +831,38 @@
     <div id="networkBanner" class="network-banner" role="status" aria-live="polite"></div>
 
     <script src="app.js"></script>
-</body>
+
+    <div id="mediaViewer" class="media-viewer" aria-hidden="true">
+            <div class="media-viewer-backdrop"></div>
+            <div class="media-viewer-content">
+                <div class="media-viewer-chrome">
+                    <div class="media-viewer-topbar">
+                        <button type="button" id="mediaViewerCloseBtn" class="media-viewer-close-btn" aria-label="Закрыть просмотр">✕</button>
+                        <div class="media-viewer-title" id="mediaViewerTitle"></div>
+                    </div>
+
+                    <div class="media-viewer-main">
+                        <img  id="mediaViewerImg"   class="media-viewer-img"   src="" alt="">
+                        <video id="mediaViewerVideo" class="media-viewer-video" playsinline webkit-playsinline></video>
+                        <!-- Лоадер видео -->
+                        <div id="mediaViewerLoader" class="media-viewer-loader"></div>
+                    </div>
+
+                    <div class="media-viewer-bottombar" id="mediaViewerControls">
+                        <button type="button" id="mediaViewerPlayPause" class="media-viewer-playpause" aria-label="Пуск/пауза"></button>
+                        <div class="media-viewer-timeline">
+                            <div class="media-viewer-timeline-track">
+                                <div class="media-viewer-timeline-fill" id="mediaViewerTimelineFill"></div>
+                                <div class="media-viewer-timeline-thumb" id="mediaViewerTimelineThumb"></div>
+                            </div>
+                        </div>
+                        <div class="media-viewer-time">
+                            <span id="mediaViewerCurrentTime">0:00</span>
+                            <span id="mediaViewerTotalTime">0:00</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </body>
 </html>
