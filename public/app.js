@@ -4404,7 +4404,7 @@ msgCtxDownloadBtn.onclick = function () {
 }
 
 // скачивание / открытие вложения сообщения
-function downloadMessageAttachment(msgInfo) {
+async function downloadMessageAttachment(msgInfo) {
     if (!msgInfo || !msgInfo.attachmentUrl) return;
 
     var url  = msgInfo.attachmentUrl;
@@ -4418,30 +4418,45 @@ function downloadMessageAttachment(msgInfo) {
         else                       fileName = 'file';
     }
 
-    // На iOS (особенно в PWA) атрибут download и программный клик по ссылке
-    // почти не работают. Вместо этого открываем медиа в Safari / новом окне,
-    // а пользователь сохраняет через меню «Поделиться».
+    // На iOS используем Web Share API — открывает нативный шит
+    // откуда пользователь одним тапом сохраняет в галерею
     if (IS_IOS && (type === 'image' || type === 'video' || type === 'audio')) {
+        // Пробуем Web Share API с файлом (iOS 15+)
+        if (navigator.share && navigator.canShare) {
+            try {
+                // Скачиваем файл как blob чтобы передать в share
+                var resp = await fetch(url);
+                var blob = await resp.blob();
+
+                // Определяем правильный mime-type
+                var mime = blob.type;
+                if (!mime || mime === 'application/octet-stream') {
+                    if (type === 'image') mime = 'image/jpeg';
+                    else if (type === 'video') mime = 'video/mp4';
+                    else if (type === 'audio') mime = 'audio/mp4';
+                }
+
+                var file = new File([blob], fileName, { type: mime });
+
+                if (navigator.canShare({ files: [file] })) {
+                    await navigator.share({ files: [file] });
+                    return;
+                }
+            } catch (e) {
+                // Пользователь отменил или API не сработал — падаем на fallback
+                if (e && e.name === 'AbortError') return; // пользователь закрыл шит
+            }
+        }
+
+        // Fallback: просто открываем файл в браузере
         try {
             var opened = window.open(url, '_blank');
-            if (!opened) {
-                // Если блокируется попап — навигируемся в это же окно
-                window.location.href = url;
-            }
+            if (!opened) window.location.href = url;
         } catch (e) {
             window.location.href = url;
         }
-
         if (typeof showInfoBanner === 'function') {
-            var hint;
-            if (type === 'image') {
-                hint = 'Фото открыто. Нажмите «Поделиться» → «Сохранить изображение», чтобы сохранить в галерею.';
-            } else if (type === 'video') {
-                hint = 'Видео открыто. Нажмите «Поделиться» → «Сохранить видео», чтобы сохранить в галерею.';
-            } else {
-                hint = 'Файл открыт. Используйте меню «Поделиться», чтобы сохранить.';
-            }
-            showInfoBanner(hint);
+            showInfoBanner('Удерживайте фото → «Сохранить изображение»');
         }
         return;
     }
