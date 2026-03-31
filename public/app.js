@@ -663,6 +663,8 @@ if (voiceCancelBtn) {
         if (isRecordingVoice) {
             vibrate(40);
             stopVoiceRecording(false); // false = не отправлять
+            if (voiceTimerEl) voiceTimerEl.textContent = 'Отменено';
+            showInfoBanner('Голосовое отменено');
         }
     });
     voiceCancelBtn.addEventListener('touchstart', function (e) {

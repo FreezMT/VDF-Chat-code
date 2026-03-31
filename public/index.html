@@ -384,6 +384,7 @@
 
         <form class="chat-input-bar" id="chatInputForm" autocomplete="off">
             <button type="button" class="chat-attach-btn" id="chatAttachBtn" aria-label="Прикрепить файл"></button>
+            <button type="button" class="voice-cancel-btn" id="voiceCancelBtn" aria-label="Отменить запись">🗑 Отмена</button>
             <input type="file" id="chatAttachInput" multiple accept="image/*,video/*" style="display:none">
             <input
                 type="file"
@@ -397,7 +398,6 @@
 
             <!-- UI для записи голосового -->
             <div class="voice-record-ui" id="voiceRecordUi">
-                <button type="button" class="voice-cancel-btn" id="voiceCancelBtn" aria-label="Отменить запись">🗑</button>
                 <div class="voice-red-dot"></div>
                 <div class="voice-wave-live" id="voiceWaveLive"></div>
                 <div class="voice-timer" id="voiceTimer">0:00</div>
