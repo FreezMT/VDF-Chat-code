@@ -652,7 +652,23 @@ var chatJustOpenedAt = 0;
 
 var chatLoadingOverlay = document.getElementById('chatLoadingOverlay');
 
-var voiceRecordHint = document.querySelector('.voice-record-hint');
+var voiceRecordHint   = document.querySelector('.voice-record-hint');
+var voiceCancelBtn    = document.getElementById('voiceCancelBtn');
+
+// Кнопка корзины — отменяет запись голосового
+if (voiceCancelBtn) {
+    voiceCancelBtn.addEventListener('click', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (isRecordingVoice) {
+            vibrate(40);
+            stopVoiceRecording(false); // false = не отправлять
+        }
+    });
+    voiceCancelBtn.addEventListener('touchstart', function (e) {
+        e.stopPropagation(); // не даём сработать свайп-отмене
+    }, { passive: false });
+}
 
 var suppressFeedReloadUntil = 0; // тайм-аут, пока не перерисовывать ленту по feedUpdated
 
@@ -9357,9 +9373,6 @@ function updateVoiceCancelPreview(dx) {
         voiceRecordUi.style.transform = '';
         voiceRecordUi.style.backgroundColor = 'rgba(63,63,63,0.95)';
         chatInputForm.classList.remove('recording-cancel-preview');
-        if (voiceRecordHint) {
-            voiceRecordHint.textContent = 'Свайп влево — отмена';
-        }
         return;
     }
 
@@ -9368,9 +9381,6 @@ function updateVoiceCancelPreview(dx) {
         voiceRecordUi.style.transform = '';
         voiceRecordUi.style.backgroundColor = 'rgba(63,63,63,0.95)';
         chatInputForm.classList.remove('recording-cancel-preview');
-        if (voiceRecordHint) {
-            voiceRecordHint.textContent = 'Свайп влево — отмена';
-        }
         return;
     }
 
@@ -9382,14 +9392,8 @@ function updateVoiceCancelPreview(dx) {
 
     if (p > 0.35) {
         chatInputForm.classList.add('recording-cancel-preview');
-        if (voiceRecordHint) {
-            voiceRecordHint.textContent = 'Отпустите, чтобы отменить';
-        }
     } else {
         chatInputForm.classList.remove('recording-cancel-preview');
-        if (voiceRecordHint) {
-            voiceRecordHint.textContent = 'Свайп влево — отмена';
-        }
     }
 }
 
