@@ -819,19 +819,24 @@ textarea {
     display:flex;
     align-items:center;
     justify-content:center;
-    background:none;
+    gap:5px;
+    background:rgba(255,59,48,0.18);
     border:none;
-    padding:4px;
-    font-size:18px;
+    border-radius:20px;
+    padding:6px 12px;
+    font-size:15px;
+    color:#FF3B30;
+    font-family:inherit;
+    font-weight:500;
     cursor:pointer;
     flex-shrink:0;
-    opacity:0.85;
-    transition:opacity 0.15s, transform 0.15s;
+    white-space:nowrap;
+    transition:background 0.15s, transform 0.12s;
     -webkit-tap-highlight-color:transparent;
 }
 .voice-cancel-btn:active{
-    opacity:1;
-    transform:scale(0.88);
+    background:rgba(255,59,48,0.32);
+    transform:scale(0.94);
 }
 .voice-timer{
     font-size:13px;
