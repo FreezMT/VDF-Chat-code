@@ -587,6 +587,15 @@ var swipeActive = false;
 var swipeLastDx = 0;
 var swipeVibratedReply = false;
 
+// Глобальная блокировка направления свайпа:
+// 'none' = не определено, 'h' = горизонтальный, 'v' = вертикальный
+// Как только направление определено — другие свайпы блокируются до touchend
+var globalSwipeDir = 'none';
+
+// Сбрасываем направление при завершении любого касания
+document.addEventListener('touchend',    function() { globalSwipeDir = 'none'; }, { passive: true });
+document.addEventListener('touchcancel', function() { globalSwipeDir = 'none'; }, { passive: true });
+
 var lastChats         = [];
 var userInfoFromGroup = false;
 
@@ -1537,6 +1546,12 @@ if (chatMicBtn) {
         var dx = t.clientX - micTouchStartX;
         var dy = t.clientY - micTouchStartY;
 
+        // захватываем направление глобально
+        var adx = Math.abs(dx), ady = Math.abs(dy);
+        if (globalSwipeDir === 'none' && (adx > 6 || ady > 6)) {
+            globalSwipeDir = ady > adx ? 'v' : 'h';
+        }
+
         // если вертикальное движение больше — считаем, что жест не про отмену
         if (Math.abs(dy) > Math.abs(dx)) {
             updateVoiceCancelPreview(0);
@@ -1636,12 +1651,21 @@ if (chatScreen) {
 
     chatScreen.addEventListener('touchmove', function (e) {
         if (chatSwipeStartX == null) return;
+        // Если другой свайп уже захватил направление — игнорируем
+        if (globalSwipeDir === 'v') { chatSwipeStartX = chatSwipeStartY = null; return; }
+
         var t  = e.touches[0];
         var dx = t.clientX - chatSwipeStartX;
         var dy = t.clientY - chatSwipeStartY;
+        var adx = Math.abs(dx), ady = Math.abs(dy);
+
+        // Определяем направление только когда движение достаточное
+        if (globalSwipeDir === 'none' && (adx > 6 || ady > 6)) {
+            globalSwipeDir = ady > adx ? 'v' : 'h';
+        }
 
         // свайп должен быть вправо и более горизонтальный, чем вертикальный
-        if (dx <= 0 || Math.abs(dy) > Math.abs(dx)) {
+        if (dx <= 0 || globalSwipeDir === 'v') {
             chatSwipeDx = 0;
             chatScreen.style.transform = 'translateX(0px)';
             return;
@@ -3571,12 +3595,23 @@ function onMsgTouchStart(e) {
 
 function onMsgTouchMove(e) {
     if (!swipeActive || !swipeItem) return;
+    // Если уже определён вертикальный скролл — не перехватываем
+    if (globalSwipeDir === 'v') { swipeActive = false; return; }
+    // Если чат закрывается горизонтально — не мешаем
+    if (globalSwipeDir === 'h' && chatSwipeDx > 0) { swipeActive = false; return; }
 
     var t  = e.touches[0];
     var dx = t.clientX - swipeStartX;
     var dy = t.clientY - swipeStartY;
+    var adx = Math.abs(dx), ady = Math.abs(dy);
 
-    if (Math.abs(dy) > Math.abs(dx)) {
+    // Определяем направление
+    if (globalSwipeDir === 'none' && (adx > 6 || ady > 6)) {
+        globalSwipeDir = ady > adx ? 'v' : 'h';
+    }
+
+    if (globalSwipeDir === 'v') {
+        swipeActive = false;
         return;
     }
 
