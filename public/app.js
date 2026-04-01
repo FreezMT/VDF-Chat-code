@@ -740,6 +740,12 @@ function patchMessageDomFromData(msg) {
             sp.className = 'msg-reaction';
             if (msg.myReaction === r.emoji) sp.classList.add('my');
             sp.textContent = r.emoji + ' ' + r.count;
+            (function(emoji) {
+                sp.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    if (item._msgInfo) reactToMessage(item._msgInfo, emoji);
+                });
+            })(r.emoji);
             reactRow.appendChild(sp);
         });
     }
@@ -4131,6 +4137,14 @@ function renderMessage(msg, opts) {
             sp.className = 'msg-reaction';
             if (msg.myReaction === r.emoji) sp.classList.add('my');
             sp.textContent = r.emoji + ' ' + r.count;
+            (function(emoji, msgRef) {
+                sp.addEventListener('click', function(e) {
+                    e.stopPropagation();
+                    var el = chatContent && chatContent.querySelector('.msg-item[data-msg-id="' + msgRef.id + '"]');
+                    var info = el && el._msgInfo ? el._msgInfo : msgRef;
+                    reactToMessage(info, emoji);
+                });
+            })(r.emoji, msg);
             reactRow.appendChild(sp);
         });
         col.appendChild(reactRow);
@@ -5033,6 +5047,12 @@ async function reactToMessage(msgInfo, emoji) {
                 sp.className = 'msg-reaction';
                 if (data.myReaction === r.emoji) sp.classList.add('my');
                 sp.textContent = r.emoji + ' ' + r.count;
+                (function(emoji) {
+                    sp.addEventListener('click', function(e) {
+                        e.stopPropagation();
+                        if (item._msgInfo) reactToMessage(item._msgInfo, emoji);
+                    });
+                })(r.emoji);
                 reactRow.appendChild(sp);
             });
         }
