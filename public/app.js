@@ -720,7 +720,9 @@ function patchMessageDomFromData(msg) {
     }
 
     // Обновляем реакции
-    var reactRow = bubble.querySelector('.msg-reactions');
+    // Ищем reactRow в col (не в bubble — реакции снаружи бабла)
+    var col = item.querySelector('.msg-col');
+    var reactRow = col ? col.querySelector('.msg-reactions') : bubble.querySelector('.msg-reactions');
     var list = msg.reactions || [];
     if (!list.length) {
         if (reactRow && reactRow.parentNode) reactRow.parentNode.removeChild(reactRow);
@@ -728,7 +730,9 @@ function patchMessageDomFromData(msg) {
         if (!reactRow) {
             reactRow = document.createElement('div');
             reactRow.className = 'msg-reactions';
-            bubble.appendChild(reactRow);
+            // добавляем в col после bubble, не внутрь bubble
+            if (col) col.appendChild(reactRow);
+            else bubble.appendChild(reactRow);
         }
         reactRow.innerHTML = '';
         list.forEach(function (r) {
@@ -4117,6 +4121,8 @@ function renderMessage(msg, opts) {
 
     bubble.appendChild(metaLine);
 
+    col.appendChild(bubble);
+
     if (msg.reactions && msg.reactions.length) {
         var reactRow = document.createElement('div');
         reactRow.className = 'msg-reactions';
@@ -4127,10 +4133,8 @@ function renderMessage(msg, opts) {
             sp.textContent = r.emoji + ' ' + r.count;
             reactRow.appendChild(sp);
         });
-        bubble.appendChild(reactRow);
+        col.appendChild(reactRow);
     }
-
-    col.appendChild(bubble);
     item.appendChild(col);
     chatContent.appendChild(item);
 
@@ -5012,14 +5016,16 @@ async function reactToMessage(msgInfo, emoji) {
         var bubble = item.querySelector('.msg-bubble');
         if (!bubble) return;
 
-        var reactRow = bubble.querySelector('.msg-reactions');
+        var col2 = item.querySelector('.msg-col');
+        var reactRow = col2 ? col2.querySelector('.msg-reactions') : bubble.querySelector('.msg-reactions');
         if (!data.reactions || !data.reactions.length) {
             if (reactRow && reactRow.parentNode) reactRow.parentNode.removeChild(reactRow);
         } else {
             if (!reactRow) {
                 reactRow = document.createElement('div');
                 reactRow.className = 'msg-reactions';
-                bubble.appendChild(reactRow);
+                if (col2) col2.appendChild(reactRow);
+                else bubble.appendChild(reactRow);
             }
             reactRow.innerHTML = '';
             (data.reactions || []).forEach(function (r) {
@@ -9534,11 +9540,7 @@ if (adminAuditReloadBtn) {
 // Инструкция по установке: "Продолжить"
 if (installContinueBtn) {
     installContinueBtn.addEventListener('click', function () {
-        if (installDontShow && installDontShow.checked) {
-            try {
-                localStorage.setItem('installGuideHidden', '1');
-            } catch (e) {}
-        }
+
         if (installScreen) {
             installScreen.style.display = 'none';
             installScreen.setAttribute('aria-hidden','true');

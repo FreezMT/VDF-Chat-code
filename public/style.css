@@ -1432,34 +1432,46 @@ textarea {
     margin-left:4px;
 }
 .msg-reactions{
-    margin-top:4px;
     display:flex;
     flex-wrap:wrap;
     gap:4px;
-    font-size:12px;
+    font-size:13px;
+    margin-top:-8px;      /* нахлёст на баббл снизу */
+    padding:0 6px 4px;
+    position:relative;
+    z-index:1;
+}
+/* для своих сообщений - выравниваем вправо */
+.msg-item.msg-me .msg-reactions{
+    justify-content:flex-end;
 }
 .msg-reaction{
-    padding:2px 6px;
+    padding:3px 7px;
     border-radius:999px;
-    background-color:rgba(0,0,0,0.2);
+    background-color:rgba(40,40,40,0.92);
     color:#FFFFFF;
+    backdrop-filter:blur(4px);
+    border:1px solid rgba(255,255,255,0.10);
+    cursor:pointer;
+    user-select:none;
     transition:
         transform 0.12s ease-out,
         background-color 0.12s ease-out,
-        box-shadow 0.12s ease-out,
-        border-color 0.12s ease-out;
+        box-shadow 0.12s ease-out;
 }
 .msg-item.msg-me .msg-reaction{
-    background-color:rgba(255,255,255,0.5);
-    color:#000000;
+    background-color:rgba(255,255,255,0.22);
+    color:#FFFFFF;
+    border-color:rgba(255,255,255,0.2);
 }
 .msg-reaction.my{
-    border:1px solid #3BA9FF;
-    transform:scale(1.06);
-    box-shadow:0 0 0 1px rgba(59,169,255,0.4);
+    border:1.5px solid #3BA9FF;
+    background-color:rgba(59,169,255,0.18);
+    transform:scale(1.05);
+    box-shadow:0 0 0 2px rgba(59,169,255,0.25);
 }
-.msg-reaction.my:active{
-    transform:scale(0.96);
+.msg-reaction:active{
+    transform:scale(0.93);
 }
 
 /* reply */
