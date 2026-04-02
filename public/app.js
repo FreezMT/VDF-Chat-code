@@ -3404,7 +3404,9 @@ function updateProfileUI() {
     if (!currentUser) return;
 
     if (profileAvatar) {
-        var src = currentUser.avatar || '/img/default-avatar.png';
+        var src = currentUser.avatar
+            ? (currentUser.avatar + '?t=' + Date.now())
+            : '/img/default-avatar.png';
         profileAvatar.src = src;
         profileAvatar.onerror = function () {
             this.onerror = null;
@@ -5739,7 +5741,11 @@ function renderOrCreateChatItem(chat) {
             src = defaultUserAvatar;
         }
 
-        imgEl.src = src;
+        // Добавляем cache-bust только для пользовательских аватаров (не дефолтных)
+        var srcWithBust = (src && !src.startsWith('/img/') && !src.startsWith('/group-avatar'))
+            ? src
+            : src;
+        imgEl.src = srcWithBust;
         imgEl.alt = chat.title || '';
         imgEl.onerror = function () {
             this.onerror = null;
@@ -6202,6 +6208,13 @@ async function openGroupModal() {
             groupAvatar.onerror = function () {
                 this.onerror = null;
                 this.src = defaultGroupAvatar;
+            };
+            groupAvatar.style.cursor = 'pointer';
+            groupAvatar.onclick = function () {
+                var s = groupAvatar.src;
+                if (s && !s.endsWith('/group-avatar.png') && !s.endsWith('/logo.png')) {
+                    openMediaViewer(s, 'image');
+                }
             };
         }
 
@@ -8041,7 +8054,24 @@ if (changePhotoBtn && profilePhotoInput) {
             }
 
             if (data.avatar) {
+                var newAvatar = data.avatar + '?t=' + Date.now(); // cache-bust
                 currentUser.avatar = data.avatar;
+
+                // Обновляем аватар в профиле
+                if (profileAvatar) {
+                    profileAvatar.src = newAvatar;
+                }
+
+                // Обновляем аватар в шапке чата если открыт личный чат с собой (маловероятно)
+                // и в chatUserModal если он открыт
+                if (chatUserAvatar && chatUserAvatar.dataset.userLogin === currentUser.login) {
+                    chatUserAvatar.src = newAvatar;
+                }
+
+                // Обновляем все аватары в списке чатов где отправитель — текущий пользователь
+                // (личные чаты показывают аватар партнёра, не своё фото — пропускаем)
+
+                // Принудительно обновляем profileAvatar с cache-bust
                 updateProfileUI();
                 await reloadChatList();
             }
@@ -8149,23 +8179,31 @@ if (editGroupAvatarBtn && groupAvatarInput) {
                 return;
             }
 
-            if (data.avatar && groupAvatar) {
-                groupAvatar.src = data.avatar;
-                groupAvatar.onerror = function () {
-                    this.onerror = null;
-                    this.src = '/group-avatar.png';
-                };
-            }
-
-            if (currentChat && currentChat.type === 'groupCustom' && currentChat.id === currentGroupName) {
-                currentChat.avatar = data.avatar || currentChat.avatar;
-                if (chatHeaderAvatar) {
-                    chatHeaderAvatar.src = currentChat.avatar || '/group-avatar.png';
-                    chatHeaderAvatar.onerror = function () {
-                        this.onerror = null;
-                        this.src = '/group-avatar.png';
-                    };
+            if (data.avatar) {
+                // Обновляем аватар в модалке группы
+                if (groupAvatar) {
+                    groupAvatar.src = data.avatar;
+                    groupAvatar.onerror = function () { this.onerror = null; this.src = '/group-avatar.png'; };
                 }
+
+                // Обновляем аватар в шапке чата
+                if (currentChat && currentChat.id === currentGroupName) {
+                    currentChat.avatar = data.avatar;
+                    if (chatHeaderAvatar) {
+                        chatHeaderAvatar.src = data.avatar;
+                        chatHeaderAvatar.onerror = function () { this.onerror = null; this.src = '/group-avatar.png'; };
+                    }
+                }
+
+                // Обновляем аватар в списке чатов сразу, без перезагрузки
+                var chatItemEl = chatItemsById && chatItemsById[currentGroupName];
+                if (chatItemEl) {
+                    var imgInList = chatItemEl.querySelector('.chat-avatar img');
+                    if (imgInList) imgInList.src = data.avatar;
+                }
+
+                // Также обновляем в currentGroupInfo
+                if (currentGroupInfo) currentGroupInfo.avatar = data.avatar;
             }
 
             await reloadChatList();

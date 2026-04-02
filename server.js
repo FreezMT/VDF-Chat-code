@@ -2343,7 +2343,7 @@ app.post('/api/chats', requireAuth, async (req, res) => {
         type:     'groupCustom',
         title:    title,
         subtitle: subtitle,
-        avatar:   avatar || '/logo.png'
+        avatar:   avatar || '/group-avatar.png'
       };
 
       const last = await getMsg(
