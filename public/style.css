@@ -6,6 +6,11 @@
 }
 html, body {
     height: 100%;
+    /* iOS: фиксируем страницу чтобы она не скроллилась при открытии клавиатуры */
+    overflow: hidden;
+    position: fixed;
+    width: 100%;
+    overscroll-behavior: none;
 }
 body {
     min-height: 100vh;

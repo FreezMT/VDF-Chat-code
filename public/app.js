@@ -1335,27 +1335,63 @@ function applyAdminTableFilters() {
 function applyKeyboardOffset() {
     var offset = keyboardOffset || 0;
 
-    if (chatInputForm) chatInputForm.style.transform = offset ? ('translateY(-' + offset + 'px)') : '';
-    if (replyBar)      replyBar.style.transform      = offset ? ('translateY(-' + offset + 'px)') : '';
+    if (chatInputForm) {
+        chatInputForm.style.transform = offset ? ('translateY(-' + offset + 'px)') : '';
+        if (!offset) chatInputForm.style.top = ''; // сбрасываем top при закрытии клавиатуры
+    }
+    if (replyBar)         replyBar.style.transform      = offset ? ('translateY(-' + offset + 'px)') : '';
     if (attachPreviewBar) attachPreviewBar.style.transform = offset ? ('translateY(-' + offset + 'px)') : '';
+
+    // Сбрасываем скролл страницы — iOS иногда его двигает
+    try { window.scrollTo(0, 0); } catch(e) {}
 
     updateFloatingBarsPosition();
 }
 
 if (window.visualViewport) {
-    visualViewport.addEventListener('resize', function () {
-        // На многих браузерах высота visualViewport уменьшается при появлении клавиатуры
-        var offset = window.innerHeight - visualViewport.height;
-        keyboardOffset = offset > 0 ? offset : 0;
-        applyKeyboardOffset();
-    });
+    function onViewportChange() {
+        var vv = window.visualViewport;
 
-    visualViewport.addEventListener('scroll', function () {
-        // На iOS иногда ещё и сдвигается сам visual viewport
-        var offset = window.innerHeight - visualViewport.height;
-        keyboardOffset = offset > 0 ? offset : 0;
-        applyKeyboardOffset();
-    });
+        // Сбрасываем скролл страницы — iOS иногда скроллит body при открытии клавиатуры
+        if (window.scrollY !== 0 || document.documentElement.scrollTop !== 0) {
+            window.scrollTo(0, 0);
+        }
+
+        // Высота клавиатуры = разница между innerHeight и высотой visualViewport
+        var keyboardH = window.innerHeight - vv.height;
+        keyboardOffset = keyboardH > 50 ? keyboardH : 0; // игнорируем мелкие сдвиги
+
+        // Корректируем position:fixed элементы с учётом сдвига viewport
+        // vv.offsetTop показывает насколько iOS сдвинул страницу вниз
+        var topShift = vv.offsetTop || 0;
+
+        if (chatInputForm) {
+            chatInputForm.style.transform = keyboardOffset
+                ? ('translateY(-' + keyboardOffset + 'px)')
+                : '';
+            // Компенсируем сдвиг body на iOS
+            if (topShift > 0) {
+                chatInputForm.style.top = (-topShift) + 'px';
+            } else {
+                chatInputForm.style.top = '';
+            }
+        }
+        if (replyBar) {
+            replyBar.style.transform = keyboardOffset
+                ? ('translateY(-' + keyboardOffset + 'px)')
+                : '';
+        }
+        if (attachPreviewBar) {
+            attachPreviewBar.style.transform = keyboardOffset
+                ? ('translateY(-' + keyboardOffset + 'px)')
+                : '';
+        }
+
+        updateFloatingBarsPosition();
+    }
+
+    visualViewport.addEventListener('resize', onViewportChange);
+    visualViewport.addEventListener('scroll', onViewportChange);
 }
 
 // На фокус в textarea скроллим контент к низу
@@ -1367,7 +1403,12 @@ if (chatInput) {
     });
     chatInput.addEventListener('blur', function () {
         keyboardOffset = 0;
+        if (chatInputForm) chatInputForm.style.top = '';
         applyKeyboardOffset();
+        // Принудительно сбрасываем скролл страницы на iOS
+        setTimeout(function() {
+            try { window.scrollTo(0, 0); } catch(e) {}
+        }, 50);
     });
 }
 
