@@ -2,6 +2,18 @@
 
 console.log('app.js loaded');
 
+// ---------- BADGE НА ИКОНКЕ PWA ----------
+function updateAppBadge(unreadCount) {
+    if (!navigator.setAppBadge) return;
+    try {
+        if (unreadCount > 0) {
+            navigator.setAppBadge(unreadCount);
+        } else {
+            navigator.clearAppBadge();
+        }
+    } catch (e) {}
+}
+
 // ---------- ВИБРАЦИЯ ----------
 function vibrate(pattern) {
     if (!navigator.vibrate) return;
@@ -320,23 +332,51 @@ if (chatContent) {
             var firstMsgEl = chatContent.querySelector('.msg-item');
 
             // добавляем старые сообщения сверху в правильном порядке
-            // msgs идут ASC (старые -> новые), insertRef = первое уже загруженное сообщение
-            // insertBefore(el, insertRef) каждый раз: el встаёт перед insertRef
-            // итерируем прямо 0..N: msg[0](старый) -> msg[N-1](ближе к уже загруженным)
-            // результат: msg[0], msg[1], ..., msg[N-1], firstMsgEl, ...
             var insertRef = firstMsgEl;
+            var prevDateKey = null; // будем отслеживать смену дат
+
+            // Определяем дату первого уже загруженного сообщения
+            if (firstMsgEl) {
+                var firstMsgId = firstMsgEl.dataset.msgId;
+                if (firstMsgId && messagesById[firstMsgId]) {
+                    prevDateKey = getDateKey(messagesById[firstMsgId].created_at);
+                }
+            }
+
             msgs.forEach(function(m) {
                 if (messagesById[m.id]) return;
                 messagesById[m.id] = m;
 
-                renderMessage(m); // добавляется в конец chatContent
+                var dateKey = getDateKey(m.created_at);
+
+                renderMessage(m);
                 var el = chatContent.querySelector('.msg-item[data-msg-id="' + m.id + '"]');
                 if (el && insertRef) {
                     chatContent.insertBefore(el, insertRef);
                 }
-                // insertRef не меняем — каждый следующий встаёт перед ним же
-                // благодаря прямой итерации порядок сохраняется правильным
+
+                // Если дата изменилась — вставляем разделитель перед следующим сообщением
+                if (prevDateKey && dateKey !== prevDateKey) {
+                    var dateSep = createDateSeparator(formatDateSeparator(m.created_at));
+                    // разделитель относится к блоку НОВЫХ дат (m), ставим его перед el
+                    if (el && el.parentNode) {
+                        el.parentNode.insertBefore(dateSep, el);
+                    }
+                }
+                prevDateKey = dateKey;
             });
+
+            // Если самое старое новое сообщение имеет другую дату чем первое уже загруженное
+            // нужно вставить разделитель перед firstMsgEl
+            if (msgs.length && firstMsgEl) {
+                var firstNewDateKey = getDateKey(msgs[0].created_at);
+                if (prevDateKey && firstNewDateKey !== prevDateKey) {
+                    var boundaryDateSep = createDateSeparator(formatDateSeparator(firstMsgEl.dataset.msgCreatedAt || ''));
+                    if (firstMsgEl.parentNode && firstMsgEl.dataset.msgCreatedAt) {
+                        firstMsgEl.parentNode.insertBefore(boundaryDateSep, firstMsgEl);
+                    }
+                }
+            }
 
             // возвращаем пользователя к тому же сообщению (якорю)
             if (anchorId) {
@@ -2645,6 +2685,62 @@ if (chatInput) {
     autoResizeChatInput();
 }
 
+// Форматирование даты для разделителя в чате
+function getDateKey(ts) {
+    if (!ts) return '';
+    var d = new Date(typeof ts === 'string' ? ts.replace(' ', 'T') + 'Z' : ts);
+    if (isNaN(d.getTime())) return '';
+    return d.getFullYear() + '-' + d.getMonth() + '-' + d.getDate();
+}
+
+function formatDateSeparator(ts) {
+    if (!ts) return '';
+    var d = new Date(typeof ts === 'string' ? ts.replace(' ', 'T') + 'Z' : ts);
+    if (isNaN(d.getTime())) return '';
+    var now   = new Date();
+    var today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    var msgDay = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    var diff  = today - msgDay; // ms
+
+    if (diff < 86400000) return 'Сегодня';
+    if (diff < 172800000) return 'Вчера';
+
+    var months = ['января','февраля','марта','апреля','мая','июня',
+                  'июля','августа','сентября','октября','ноября','декабря'];
+    var day = d.getDate();
+    var mon = months[d.getMonth()];
+    if (d.getFullYear() !== now.getFullYear()) {
+        return day + ' ' + mon + ' ' + d.getFullYear();
+    }
+    return day + ' ' + mon;
+}
+
+function formatLastSeen(ts) {
+    if (!ts) return '';
+    var d = new Date(typeof ts === 'string' ? ts.replace(' ', 'T') + 'Z' : ts);
+    if (isNaN(d.getTime())) return '';
+    var now   = new Date();
+    var today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    var msgDay = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    var diff  = today - msgDay;
+
+    var hh  = String(d.getHours()).padStart(2, '0');
+    var mm  = String(d.getMinutes()).padStart(2, '0');
+    var time = hh + ':' + mm;
+
+    if (diff < 86400000) return 'Был(а) в сети в ' + time;
+    if (diff < 172800000) return 'Был(а) вчера в ' + time;
+
+    var months = ['января','февраля','марта','апреля','мая','июня',
+                  'июля','августа','сентября','октября','ноября','декабря'];
+    var day = d.getDate();
+    var mon = months[d.getMonth()];
+    if (d.getFullYear() !== now.getFullYear()) {
+        return 'Был(а) ' + day + ' ' + mon + ' ' + d.getFullYear() + ' в ' + time;
+    }
+    return 'Был(а) ' + day + ' ' + mon + ' в ' + time;
+}
+
 function formatTime(ts) {
     if (!ts) return '';
     var d;
@@ -3737,14 +3833,7 @@ async function updateChatStatus() {
         if (data.online) {
             chatHeaderStatus.textContent = 'Онлайн';
         } else if (data.lastSeen) {
-            var d = new Date(data.lastSeen.replace(' ', 'T') + 'Z');
-            if (!isNaN(d.getTime())) {
-                var hh = String(d.getHours()).padStart(2, '0');
-                var mm = String(d.getMinutes()).padStart(2, '0');
-                chatHeaderStatus.textContent = 'Был(а) в сети ' + hh + ':' + mm;
-            } else {
-                chatHeaderStatus.textContent = '';
-            }
+            chatHeaderStatus.textContent = formatLastSeen(data.lastSeen);
         } else {
             chatHeaderStatus.textContent = '';
         }
@@ -3814,6 +3903,15 @@ function linkifyText(container, text) {
             document.createTextNode(str.slice(lastIndex))
         );
     }
+}
+
+function createDateSeparator(dateLabel) {
+    var sep = document.createElement('div');
+    sep.className = 'msg-date-separator';
+    var span = document.createElement('span');
+    span.textContent = dateLabel;
+    sep.appendChild(span);
+    return sep;
 }
 
 function renderMessage(msg, opts) {
@@ -4235,6 +4333,7 @@ function renderMessage(msg, opts) {
     item.dataset.msgSenderLogin    = msg.sender_login;
     item.dataset.msgSenderName     = msg.sender_name || msg.sender_login || '';
     item.dataset.msgAttachmentType = msg.attachment_type || '';
+    item.dataset.msgCreatedAt      = msg.created_at || '';
     item.dataset.msgAttachmentUrl  = msg.attachment_url || '';
 
     item.addEventListener('touchstart', onMsgTouchStart, { passive: true });
@@ -5287,8 +5386,16 @@ async function loadMessages(chatId) {
         messagesById[m.id] = m;
         if (state.pinnedId && m.id === state.pinnedId) pinnedMsg = m;
     });
-// рендер сообщений + "Непрочитанные" в нужном месте
+// рендер сообщений + "Непрочитанные" в нужном месте + разделители дат
+    var lastDateKey = null;
     msgs.forEach(function (m) {
+        // Разделитель даты
+        var dateKey = getDateKey(m.created_at);
+        if (dateKey && dateKey !== lastDateKey) {
+            chatContent.appendChild(createDateSeparator(formatDateSeparator(m.created_at)));
+            lastDateKey = dateKey;
+        }
+
         if (!unreadInserted && myLastReadId && m.id > myLastReadId) {
             var sep = document.createElement('div');
             sep.className = 'msg-unread-separator';
@@ -5887,6 +5994,12 @@ async function reloadChatList() {
         });
 
         lastChats = chatsArr.slice();
+
+        // Обновляем badge на иконке PWA
+        var totalUnread = chatsArr.reduce(function(sum, c) {
+            return sum + (c.unreadCount || 0);
+        }, 0);
+        updateAppBadge(totalUnread);
 
         var idSet = new Set(chatsArr.map(function (c) { return c.id; }));
         Object.keys(chatItemsById).forEach(function (id) {
@@ -6952,6 +7065,13 @@ async function openFeedScreen() {
 async function openChat(chat) {
     if (!chatScreen) return;
     if (!chat || !chat.id) return;
+    // При открытии чата пересчитаем badge
+    setTimeout(function() {
+        var totalUnread = lastChats.reduce(function(sum, c) {
+            return sum + (c.id !== chat.id ? (c.unreadCount || 0) : 0);
+        }, 0);
+        updateAppBadge(totalUnread);
+    }, 1000);
 
     // Проверяем, можно ли переиспользовать уже отрисованный DOM этого чата
     var state = chatRenderState[chat.id];
