@@ -339,11 +339,14 @@ textarea {
 /* ========== MAIN SCREEN (LIST OF CHATS) ========== */
 .main-screen{
     display:none;
-    min-height:100vh;
+    position:fixed;
+    inset:0;
     background-color:#1C1C1C;
     padding-bottom:90px;
     color:#FFFFFF;
     flex-direction:column;
+    overflow-y:auto;
+    -webkit-overflow-scrolling:touch;
 }
 .chat-search-wrapper{
     padding:72px 16px 8px;
@@ -931,11 +934,14 @@ textarea {
 /* ========== PROFILE ========== */
 .profile-screen{
     display:none;
-    min-height:100vh;
+    position:fixed;
+    inset:0;
     background-color:#1C1C1C;
     color:#FFFFFF;
     padding:80px 24px 90px;
     box-sizing:border-box;
+    overflow-y:auto;
+    -webkit-overflow-scrolling:touch;
 }
 .profile-content{
     max-width:360px;
@@ -2197,7 +2203,10 @@ textarea {
 /* feed screen (главный экран после входа) */
 .feed-screen{
     display:none;
-    min-height:100vh;
+    position:fixed;
+    inset:0;
+    overflow-y:auto;
+    -webkit-overflow-scrolling:touch;
     background-color:#1C1C1C;
     color:#FFFFFF;
     padding:80px 16px 90px;
@@ -2986,11 +2995,14 @@ textarea {
 /* ADMIN SCREEN */
 .admin-screen{
     display:none;
-    min-height:100vh;
+    position:fixed;
+    inset:0;
     background-color:#1C1C1C;
     color:#FFFFFF;
     padding:80px 16px 90px;
     box-sizing:border-box;
+    overflow-y:auto;
+    -webkit-overflow-scrolling:touch;
 }
 .admin-content{
     max-width:480px;
