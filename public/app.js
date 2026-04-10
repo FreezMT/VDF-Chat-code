@@ -584,6 +584,25 @@ var voiceTimerEl  = document.getElementById('voiceTimer');
 var voiceFileInput= document.getElementById('voiceFileInput');
 
 var mediaRecorder      = null;
+
+// ---------- ВИДЕОСООБЩЕНИЯ ----------
+var videoMsgScreen     = document.getElementById('videoMsgScreen');
+var videoMsgPreview    = document.getElementById('videoMsgPreview');
+var videoMsgBorder     = document.getElementById('videoMsgBorder');
+var videoMsgTimer      = document.getElementById('videoMsgTimer');
+var videoMsgRecordBtn  = document.getElementById('videoMsgRecordBtn');
+var videoMsgCancelBtn  = document.getElementById('videoMsgCancelBtn');
+var videoMsgFlipBtn    = document.getElementById('videoMsgFlipBtn');
+var chatVideoMsgBtn    = document.getElementById('chatVideoMsgBtn');
+
+var isRecordingVideo   = false;
+var videoStream        = null;
+var videoMediaRecorder = null;
+var videoRecordedChunks = [];
+var videoTimerInterval = null;
+var videoStartTime     = null;
+var videoFacingMode    = 'user'; // 'user' = фронтальная, 'environment' = задняя
+var videoMsgMaxSec     = 60;
 var mediaStream        = null;
 var recordedChunks     = [];
 var isRecordingVoice   = false;
@@ -1377,13 +1396,10 @@ function applyKeyboardOffset() {
 
     if (chatInputForm) {
         chatInputForm.style.transform = offset ? ('translateY(-' + offset + 'px)') : '';
-        if (!offset) chatInputForm.style.top = ''; // сбрасываем top при закрытии клавиатуры
+        chatInputForm.style.top = '';
     }
-    if (replyBar)         replyBar.style.transform      = offset ? ('translateY(-' + offset + 'px)') : '';
+    if (replyBar)         replyBar.style.transform = offset ? ('translateY(-' + offset + 'px)') : '';
     if (attachPreviewBar) attachPreviewBar.style.transform = offset ? ('translateY(-' + offset + 'px)') : '';
-
-    // Сбрасываем скролл страницы — iOS иногда его двигает
-    try { window.scrollTo(0, 0); } catch(e) {}
 
     updateFloatingBarsPosition();
 }
@@ -1392,29 +1408,20 @@ if (window.visualViewport) {
     function onViewportChange() {
         var vv = window.visualViewport;
 
-        // Сбрасываем скролл страницы — iOS иногда скроллит body при открытии клавиатуры
-        if (window.scrollY !== 0 || document.documentElement.scrollTop !== 0) {
-            window.scrollTo(0, 0);
-        }
-
         // Высота клавиатуры = разница между innerHeight и высотой visualViewport
         var keyboardH = window.innerHeight - vv.height;
-        keyboardOffset = keyboardH > 50 ? keyboardH : 0; // игнорируем мелкие сдвиги
+        keyboardOffset = keyboardH > 50 ? keyboardH : 0;
 
-        // Корректируем position:fixed элементы с учётом сдвига viewport
-        // vv.offsetTop показывает насколько iOS сдвинул страницу вниз
-        var topShift = vv.offsetTop || 0;
+        // Компенсируем сдвиг — на iOS visualViewport.offsetTop показывает
+        // насколько сдвинулся viewport когда появилась клавиатура
+        var shift = vv.offsetTop || 0;
 
         if (chatInputForm) {
-            chatInputForm.style.transform = keyboardOffset
-                ? ('translateY(-' + keyboardOffset + 'px)')
+            // Сдвигаем инпут вверх на высоту клавиатуры + компенсируем offsetTop
+            var totalShift = keyboardOffset + shift;
+            chatInputForm.style.transform = totalShift > 0
+                ? ('translateY(-' + totalShift + 'px)')
                 : '';
-            // Компенсируем сдвиг body на iOS
-            if (topShift > 0) {
-                chatInputForm.style.top = (-topShift) + 'px';
-            } else {
-                chatInputForm.style.top = '';
-            }
         }
         if (replyBar) {
             replyBar.style.transform = keyboardOffset
@@ -1443,12 +1450,7 @@ if (chatInput) {
     });
     chatInput.addEventListener('blur', function () {
         keyboardOffset = 0;
-        if (chatInputForm) chatInputForm.style.top = '';
         applyKeyboardOffset();
-        // Принудительно сбрасываем скролл страницы на iOS
-        setTimeout(function() {
-            try { window.scrollTo(0, 0); } catch(e) {}
-        }, 50);
     });
 }
 
@@ -2411,6 +2413,311 @@ async function startVoiceRecording() {
     mediaRecorder.onstop = handleVoiceRecordingStop;
 
     mediaRecorder.start();
+}
+
+// ========== ВИДЕОСООБЩЕНИЯ ==========
+
+async function openVideoMsgScreen() {
+    if (!videoMsgScreen) return;
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        alert('Камера недоступна в этом браузере');
+        return;
+    }
+    try {
+        videoStream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: videoFacingMode, width: { ideal: 512 }, height: { ideal: 512 } },
+            audio: true
+        });
+    } catch (e) {
+        alert('Нет доступа к камере или микрофону');
+        return;
+    }
+    if (videoMsgPreview) {
+        videoMsgPreview.srcObject = videoStream;
+        videoMsgPreview.muted = true;
+        videoMsgPreview.play().catch(function(){});
+    }
+    if (videoMsgScreen) {
+        videoMsgScreen.style.display = 'flex';
+    }
+    vibrate(20);
+}
+
+function closeVideoMsgScreen() {
+    stopVideoStream();
+    if (videoMsgScreen) videoMsgScreen.style.display = 'none';
+    if (videoMsgRecordBtn) videoMsgRecordBtn.classList.remove('recording');
+    if (videoMsgBorder) videoMsgBorder.classList.remove('recording');
+    clearInterval(videoTimerInterval);
+    videoTimerInterval = null;
+    videoStartTime = null;
+    if (videoMsgTimer) videoMsgTimer.textContent = '0:00';
+    isRecordingVideo = false;
+    videoRecordedChunks = [];
+}
+
+function stopVideoStream() {
+    if (videoStream) {
+        videoStream.getTracks().forEach(function(t) { try { t.stop(); } catch(e){} });
+        videoStream = null;
+    }
+    if (videoMsgPreview) {
+        videoMsgPreview.srcObject = null;
+    }
+}
+
+function startVideoRecording() {
+    if (!videoStream || isRecordingVideo) return;
+    isRecordingVideo = true;
+    videoRecordedChunks = [];
+
+    if (videoMsgRecordBtn) videoMsgRecordBtn.classList.add('recording');
+    if (videoMsgBorder) videoMsgBorder.classList.add('recording');
+
+    var mimeType = 'video/webm;codecs=vp8,opus';
+    if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = 'video/webm';
+    if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = '';
+
+    try {
+        videoMediaRecorder = mimeType
+            ? new MediaRecorder(videoStream, { mimeType: mimeType })
+            : new MediaRecorder(videoStream);
+    } catch(e) {
+        videoMediaRecorder = new MediaRecorder(videoStream);
+    }
+
+    videoMediaRecorder.ondataavailable = function(e) {
+        if (e.data && e.data.size > 0) videoRecordedChunks.push(e.data);
+    };
+    videoMediaRecorder.onstop = handleVideoRecordingStop;
+    videoMediaRecorder.start(100);
+
+    videoStartTime = Date.now();
+    if (videoMsgTimer) videoMsgTimer.textContent = '0:00';
+
+    videoTimerInterval = setInterval(function() {
+        if (!videoStartTime) return;
+        var sec = (Date.now() - videoStartTime) / 1000;
+        if (videoMsgTimer) videoMsgTimer.textContent = formatSecondsToMMSS(sec);
+        // Авто-стоп через 60 секунд
+        if (sec >= videoMsgMaxSec) stopVideoRecording(true);
+    }, 500);
+
+    vibrate(40);
+}
+
+function stopVideoRecording(send) {
+    if (!isRecordingVideo) return;
+    isRecordingVideo = false;
+    clearInterval(videoTimerInterval);
+    videoTimerInterval = null;
+
+    if (videoMsgRecordBtn) videoMsgRecordBtn.classList.remove('recording');
+    if (videoMsgBorder) videoMsgBorder.classList.remove('recording');
+
+    if (videoMediaRecorder && videoMediaRecorder.state !== 'inactive') {
+        videoMediaRecorder._shouldSend = !!send;
+        try { videoMediaRecorder.stop(); } catch(e){}
+    } else if (!send) {
+        closeVideoMsgScreen();
+    }
+}
+
+async function handleVideoRecordingStop() {
+    var shouldSend = videoMediaRecorder && videoMediaRecorder._shouldSend;
+    closeVideoMsgScreen();
+
+    if (!shouldSend || !videoRecordedChunks.length) return;
+    if (!currentChat || !currentUser || !currentUser.login) return;
+
+    var blob = new Blob(videoRecordedChunks, { type: 'video/webm' });
+    var fileName = 'videomsg_' + Date.now() + '.webm';
+    var file = new File([blob], fileName, { type: 'video/webm' });
+
+    var formData = new FormData();
+    formData.append('file', file);
+    formData.append('chatId', currentChat.id);
+    formData.append('login', currentUser.login);
+    formData.append('isVideoMsg', '1');
+
+    try {
+        var resp = await fetch('/api/messages/send-file', { method: 'POST', body: formData });
+        var data = await resp.json();
+        if (!resp.ok || !data.ok) {
+            alert(data.error || 'Ошибка отправки видеосообщения');
+            return;
+        }
+        if (data.message) {
+            // Помечаем как видеосообщение
+            data.message.is_video_msg = true;
+            messagesById[data.message.id] = data.message;
+            renderMessage(data.message);
+            if (chatContent) chatContent.scrollTop = chatContent.scrollHeight;
+        }
+    } catch(e) {
+        alert('Сетевая ошибка при отправке видеосообщения');
+    }
+}
+
+async function flipVideoCamera() {
+    videoFacingMode = (videoFacingMode === 'user') ? 'environment' : 'user';
+    var wasRecording = isRecordingVideo;
+    if (wasRecording) stopVideoRecording(false);
+    stopVideoStream();
+    try {
+        videoStream = await navigator.mediaDevices.getUserMedia({
+            video: { facingMode: videoFacingMode, width: { ideal: 512 }, height: { ideal: 512 } },
+            audio: true
+        });
+        if (videoMsgPreview) {
+            videoMsgPreview.srcObject = videoStream;
+            videoMsgPreview.play().catch(function(){});
+        }
+    } catch(e) {
+        alert('Не удалось переключить камеру');
+    }
+}
+
+// Кнопка открытия экрана видеосообщения
+if (chatVideoMsgBtn) {
+    var videoLongPressTimer = null;
+    var videoLongPressed = false;
+
+    // Тап — просто открыть экран
+    chatVideoMsgBtn.addEventListener('click', function(e) {
+        if (videoLongPressed) { videoLongPressed = false; return; }
+        if (!currentChat || !currentUser) return;
+        openVideoMsgScreen();
+    });
+
+    // Long press — открыть И сразу начать запись
+    chatVideoMsgBtn.addEventListener('touchstart', function(e) {
+        videoLongPressed = false;
+        videoLongPressTimer = setTimeout(async function() {
+            if (!currentChat || !currentUser) return;
+            videoLongPressed = true;
+            vibrate(40);
+            await openVideoMsgScreen();
+            // Небольшая задержка чтобы камера инициализировалась
+            setTimeout(function() {
+                startVideoRecording();
+            }, 600);
+        }, 400);
+    }, { passive: true });
+
+    chatVideoMsgBtn.addEventListener('touchend', function() {
+        if (videoLongPressTimer) {
+            clearTimeout(videoLongPressTimer);
+            videoLongPressTimer = null;
+        }
+    });
+    chatVideoMsgBtn.addEventListener('touchcancel', function() {
+        if (videoLongPressTimer) {
+            clearTimeout(videoLongPressTimer);
+            videoLongPressTimer = null;
+        }
+    });
+}
+
+// Кнопка запись/стоп
+if (videoMsgRecordBtn) {
+    videoMsgRecordBtn.addEventListener('click', function() {
+        if (isRecordingVideo) {
+            stopVideoRecording(true);
+        } else {
+            startVideoRecording();
+        }
+    });
+}
+
+// Кнопка отмена
+if (videoMsgCancelBtn) {
+    videoMsgCancelBtn.addEventListener('click', function() {
+        if (isRecordingVideo) stopVideoRecording(false);
+        else closeVideoMsgScreen();
+    });
+}
+
+// Кнопка переключить камеру
+if (videoMsgFlipBtn) {
+    videoMsgFlipBtn.addEventListener('click', flipVideoCamera);
+}
+
+// ========== РЕНДЕР КРУЖОЧКА В ЧАТЕ ==========
+
+function renderVideoCircle(msg, bubble) {
+    var wrap = document.createElement('div');
+    wrap.className = 'msg-video-circle';
+
+    var vid = document.createElement('video');
+    vid.src = msg.attachment_url;
+    vid.preload = 'metadata';
+    vid.playsInline = true;
+    vid.setAttribute('playsinline', 'true');
+    vid.setAttribute('webkit-playsinline', 'true');
+    vid.muted = false;
+    wrap.appendChild(vid);
+
+    var overlay = document.createElement('div');
+    overlay.className = 'msg-video-circle-overlay';
+
+    var playIcon = document.createElement('div');
+    playIcon.className = 'msg-video-circle-play';
+    playIcon.textContent = '▶';
+    overlay.appendChild(playIcon);
+    wrap.appendChild(overlay);
+
+    var dur = document.createElement('div');
+    dur.className = 'msg-video-circle-duration';
+    dur.textContent = '0:00';
+    wrap.appendChild(dur);
+
+    var border = document.createElement('div');
+    border.className = 'msg-video-circle-border';
+    wrap.appendChild(border);
+
+    vid.addEventListener('loadedmetadata', function() {
+        if (!isNaN(vid.duration) && isFinite(vid.duration)) {
+            dur.textContent = formatSecondsToMMSS(vid.duration);
+        }
+    });
+
+    var isPlaying = false;
+    wrap.addEventListener('click', function(e) {
+        e.stopPropagation();
+        if (isPlaying) {
+            vid.pause();
+        } else {
+            // Останавливаем другие видео-кружочки
+            document.querySelectorAll('.msg-video-circle video').forEach(function(v) {
+                if (v !== vid && !v.paused) { v.pause(); v.currentTime = 0; }
+            });
+            vid.play().catch(function(){});
+        }
+    });
+
+    vid.addEventListener('play', function() {
+        isPlaying = true;
+        overlay.classList.add('playing');
+        border.style.borderColor = '#3BA9FF';
+    });
+    vid.addEventListener('pause', function() {
+        isPlaying = false;
+        overlay.classList.remove('playing');
+        dur.textContent = formatSecondsToMMSS(vid.duration || 0);
+    });
+    vid.addEventListener('ended', function() {
+        isPlaying = false;
+        overlay.classList.remove('playing');
+        vid.currentTime = 0;
+        dur.textContent = formatSecondsToMMSS(vid.duration || 0);
+    });
+    vid.addEventListener('timeupdate', function() {
+        var remaining = (vid.duration || 0) - vid.currentTime;
+        dur.textContent = formatSecondsToMMSS(remaining > 0 ? remaining : 0);
+    });
+
+    bubble.appendChild(wrap);
 }
 
 function stopVoiceRecording(send) {
@@ -3992,7 +4299,15 @@ function renderMessage(msg, opts) {
     }
 
     var mediaWrapper = null;
-    if (hasAttachment && (msg.attachment_type === 'image' || msg.attachment_type === 'video')) {
+    // Видеосообщение (кружочек)
+    var isVideoMsg = msg.is_video_msg ||
+        (msg.attachment_type === 'video' && msg.attachment_name &&
+         String(msg.attachment_name).startsWith('videomsg_'));
+
+    if (isVideoMsg && msg.attachment_url) {
+        renderVideoCircle(msg, bubble);
+        // не рендерим стандартное видео
+    } else if (hasAttachment && (msg.attachment_type === 'image' || msg.attachment_type === 'video')) {
         mediaWrapper = document.createElement('div');
         mediaWrapper.className = 'msg-media-wrapper';
 

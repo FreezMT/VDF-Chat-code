@@ -668,7 +668,7 @@ textarea {
 
 .chat-send-mic-wrapper{
     position:relative;
-    width:40px;
+    width:80px;
     height:40px;
     flex-shrink:0;
 }
@@ -700,6 +700,30 @@ textarea {
 }
 .chat-mic-btn{
     background-image:url("icons/mic.png");
+    left:calc(50% + 20px); /* правее - рядом с video */
+}
+.chat-video-msg-btn{
+    position:absolute;
+    top:50%;
+    left:calc(50% - 20px); /* левее */
+    width:36px;
+    height:36px;
+    border-radius:50%;
+    border:none;
+    padding:0;
+    cursor:pointer;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    background-color:#3BA9FF;
+    background-position:center;
+    background-repeat:no-repeat;
+    background-size:20px 20px;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='white'%3E%3Ccircle cx='12' cy='12' r='10' fill='none' stroke='white' stroke-width='1.5'/%3E%3Ccircle cx='12' cy='12' r='4' fill='white'/%3E%3C/svg%3E");
+    transform:translate(-50%,-50%);
+    opacity:1;
+    transition:opacity 0.2s ease, transform 0.2s ease;
+    -webkit-tap-highlight-color:transparent;
 }
 .chat-send-btn{
     background-image:url("icons/send.png");
@@ -712,6 +736,11 @@ textarea {
     opacity:0;
     pointer-events:none;
     transform:translate(-50%,-50%) translateX(8px);
+}
+.chat-input-bar.can-send:not(.recording) .chat-video-msg-btn{
+    opacity:0;
+    pointer-events:none;
+    transform:translate(-50%,-50%) scale(0.8);
 }
 .chat-input-bar.can-send:not(.recording) .chat-send-btn{
     opacity:1;
@@ -734,6 +763,10 @@ textarea {
     animation:mic-record-pulse 0.9s ease-in-out infinite;
 }
 .chat-input-bar.recording .chat-send-btn{
+    opacity:0;
+    pointer-events:none;
+}
+.chat-input-bar.recording .chat-video-msg-btn{
     opacity:0;
     pointer-events:none;
 }
@@ -3487,4 +3520,201 @@ textarea {
 .msg-item.msg-me .msg-text a,
 .msg-item.msg-me .msg-link {
     color: #0040a0;          /* цвет ссылок в своих сообщениях (фон голубой) */
+}
+
+
+/* ========== ВИДЕОСООБЩЕНИЯ (КРУЖОЧКИ) ========== */
+
+/* Экран записи */
+.video-msg-screen{
+    position:fixed;
+    inset:0;
+    z-index:200;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:space-between;
+    padding:0 0 48px;
+}
+/* Размытый фон через псевдоэлемент */
+.video-msg-screen::before{
+    content:'';
+    position:absolute;
+    inset:0;
+    background:rgba(0,0,0,0.55);
+    backdrop-filter:blur(24px);
+    -webkit-backdrop-filter:blur(24px);
+    z-index:-1;
+}
+.video-msg-preview-wrap{
+    position:relative;
+    width:min(80vw,340px);
+    height:min(80vw,340px);
+    margin-top:calc(50vh - min(80vw,340px)/2 - 60px);
+}
+.video-msg-preview{
+    width:100%;
+    height:100%;
+    object-fit:cover;
+    border-radius:50%;
+    display:block;
+}
+.video-msg-circle-border{
+    position:absolute;
+    inset:0;
+    border-radius:50%;
+    border:3px solid #3BA9FF;
+    pointer-events:none;
+    transition:border-color 0.3s;
+}
+.video-msg-circle-border.recording{
+    border-color:#FF3B30;
+    animation:video-border-pulse 1s ease-in-out infinite;
+}
+@keyframes video-border-pulse{
+    0%,100%{ box-shadow:0 0 0 4px rgba(255,59,48,0.25); }
+    50%{ box-shadow:0 0 0 10px rgba(255,59,48,0.1); }
+}
+
+.video-msg-controls{
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    padding:0 32px;
+    width:100%;
+    box-sizing:border-box;
+}
+.video-msg-cancel-btn{
+    background:none;
+    border:none;
+    color:rgba(255,255,255,0.9);
+    font-size:17px;
+    font-family:inherit;
+    cursor:pointer;
+    padding:8px 4px;
+    min-width:80px;
+}
+.video-msg-timer{
+    font-size:20px;
+    font-variant-numeric:tabular-nums;
+    color:#FFFFFF;
+    text-align:center;
+    min-width:60px;
+}
+.video-msg-record-btn{
+    width:72px;
+    height:72px;
+    border-radius:50%;
+    border:4px solid #FFFFFF;
+    background:transparent;
+    cursor:pointer;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    transition:transform 0.12s;
+    -webkit-tap-highlight-color:transparent;
+}
+.video-msg-record-btn::after{
+    content:'';
+    width:52px;
+    height:52px;
+    border-radius:50%;
+    background:#FF3B30;
+    transition:border-radius 0.2s, width 0.2s, height 0.2s;
+    box-shadow:0 0 16px rgba(255,59,48,0.5);
+}
+.video-msg-record-btn.recording::after{
+    border-radius:10px;
+    width:30px;
+    height:30px;
+}
+.video-msg-record-btn:active{
+    transform:scale(0.9);
+}
+.video-msg-flip-btn{
+    background:rgba(80,80,80,0.7);
+    border:none;
+    color:#FFFFFF;
+    font-size:20px;
+    width:48px;
+    height:48px;
+    border-radius:50%;
+    cursor:pointer;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    -webkit-tap-highlight-color:transparent;
+    min-width:80px;
+    justify-content:flex-end;
+    background:none;
+}
+
+/* Кружочек в чате */
+.msg-video-circle{
+    position:relative;
+    width:200px;
+    height:200px;
+    border-radius:50%;
+    overflow:hidden;
+    cursor:pointer;
+    background:#000;
+    flex-shrink:0;
+}
+.msg-video-circle video{
+    width:100%;
+    height:100%;
+    object-fit:cover;
+    border-radius:50%;
+    display:block;
+}
+.msg-video-circle-overlay{
+    position:absolute;
+    inset:0;
+    border-radius:50%;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    background:rgba(0,0,0,0.3);
+    transition:background 0.2s;
+}
+.msg-video-circle-overlay.playing{
+    background:transparent;
+}
+.msg-video-circle-play{
+    width:48px;
+    height:48px;
+    border-radius:50%;
+    background:rgba(255,255,255,0.9);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-size:18px;
+    color:#000;
+    transition:opacity 0.2s;
+}
+.msg-video-circle-overlay.playing .msg-video-circle-play{
+    opacity:0;
+}
+.msg-video-circle-duration{
+    position:absolute;
+    bottom:16px;
+    left:50%;
+    transform:translateX(-50%);
+    font-size:13px;
+    color:#FFFFFF;
+    font-variant-numeric:tabular-nums;
+    text-shadow:0 1px 4px rgba(0,0,0,0.8);
+}
+.msg-video-circle-border{
+    position:absolute;
+    inset:0;
+    border-radius:50%;
+    border:2.5px solid rgba(59,169,255,0.5);
+    pointer-events:none;
+}
+.msg-video-circle-progress{
+    position:absolute;
+    inset:0;
+    border-radius:50%;
+    pointer-events:none;
 }

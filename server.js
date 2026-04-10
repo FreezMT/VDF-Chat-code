@@ -2822,20 +2822,25 @@ app.post('/api/messages/send-file', requireAuth, uploadAttachment.single('file')
     );
 
     // Если у фото/видео нет имени — генерируем
+    // НЕ перезаписываем если имя уже задано (например videomsg_ для видеосообщений)
     if (row && (row.attachment_type === 'image' || row.attachment_type === 'video')) {
-      const id      = row.id;
-      const extSrc  = origName && origName.includes('.') ? origName.substring(origName.lastIndexOf('.')) : '';
-      const ext     = extSrc || (row.attachment_type === 'image' ? '.jpg' : '.mp4');
-      const genName = 'file' + id + ext;
-
-      try {
-        await runMsg(
-          'UPDATE messages SET attachment_name = ? WHERE id = ?',
-          [genName, id]
-        );
-        row.attachment_name = genName;
-      } catch (e) {
-        console.error('UPDATE attachment_name error:', e);
+      const alreadyNamed = row.attachment_name &&
+        (String(row.attachment_name).startsWith('videomsg_') ||
+         String(row.attachment_name).length > 0);
+      if (!alreadyNamed) {
+        const id      = row.id;
+        const extSrc  = origName && origName.includes('.') ? origName.substring(origName.lastIndexOf('.')) : '';
+        const ext     = extSrc || (row.attachment_type === 'image' ? '.jpg' : '.mp4');
+        const genName = 'file' + id + ext;
+        try {
+          await runMsg(
+            'UPDATE messages SET attachment_name = ? WHERE id = ?',
+            [genName, id]
+          );
+          row.attachment_name = genName;
+        } catch (e) {
+          console.error('UPDATE attachment_name error:', e);
+        }
       }
     }
 
