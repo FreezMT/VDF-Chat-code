@@ -3533,8 +3533,10 @@ textarea {
     display:flex;
     flex-direction:column;
     align-items:center;
-    justify-content:space-between;
-    padding:0 0 48px;
+    justify-content:center;
+    gap:40px;
+    padding:60px 0 40px;
+    box-sizing:border-box;
 }
 /* Размытый фон через псевдоэлемент */
 .video-msg-screen::before{
@@ -3548,9 +3550,12 @@ textarea {
 }
 .video-msg-preview-wrap{
     position:relative;
-    width:min(80vw,340px);
-    height:min(80vw,340px);
-    margin-top:calc(50vh - min(80vw,340px)/2 - 60px);
+    /* Кружок = 72% ширины экрана, но не больше чем влезет с кнопками */
+    width:min(72vw, calc(100vh - 260px));
+    height:min(72vw, calc(100vh - 260px));
+    max-width:320px;
+    max-height:320px;
+    flex-shrink:0;
 }
 .video-msg-preview{
     width:100%;
