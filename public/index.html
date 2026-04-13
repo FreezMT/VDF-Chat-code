@@ -401,10 +401,25 @@
             </div>
 
             <div class="chat-send-mic-wrapper">
+                <button type="button" class="chat-video-msg-btn" id="chatVideoMsgBtn" aria-label="Видеосообщение"></button>
                 <button type="button" class="chat-mic-btn" id="chatMicBtn" aria-label="Записать голосовое"></button>
                 <button type="submit" class="chat-send-btn" id="chatSendBtn" aria-label="Отправить сообщение"></button>
             </div>
         </form>
+
+        <!-- ЭКРАН ЗАПИСИ ВИДЕОСООБЩЕНИЯ -->
+        <div id="videoMsgScreen" class="video-msg-screen" style="display:none;">
+            <div class="video-msg-preview-wrap" id="videoMsgPreviewWrap">
+                <video id="videoMsgPreview" class="video-msg-preview" autoplay muted playsinline webkit-playsinline></video>
+                <div class="video-msg-circle-border" id="videoMsgBorder"></div>
+            </div>
+            <div class="video-msg-controls">
+                <button type="button" class="video-msg-cancel-btn" id="videoMsgCancelBtn">Отменить</button>
+                <div class="video-msg-timer" id="videoMsgTimer">0:00</div>
+                <button type="button" class="video-msg-record-btn" id="videoMsgRecordBtn"></button>
+                <button type="button" class="video-msg-flip-btn" id="videoMsgFlipBtn">↺</button>
+            </div>
+        </div>
 
         <!-- MODAL: ПЕРЕСЛАТЬ СООБЩЕНИЕ -->
         <div id="forwardModal" class="forward-modal" aria-hidden="true">
