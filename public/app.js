@@ -1408,19 +1408,17 @@ if (window.visualViewport) {
     function onViewportChange() {
         var vv = window.visualViewport;
 
-        // Высота клавиатуры = разница между innerHeight и высотой visualViewport
+        // Высота клавиатуры
         var keyboardH = window.innerHeight - vv.height;
-        keyboardOffset = keyboardH > 50 ? keyboardH : 0;
+        keyboardOffset = keyboardH > 80 ? keyboardH : 0; // порог 80px - игнорируем мелкие изменения
 
-        // Компенсируем сдвиг — на iOS visualViewport.offsetTop показывает
-        // насколько сдвинулся viewport когда появилась клавиатура
-        var shift = vv.offsetTop || 0;
+        // На iOS offsetTop показывает сдвиг страницы
+        // НО: мы используем position:fixed, поэтому offsetTop уже компенсирован
+        // Просто сдвигаем инпут вверх на высоту клавиатуры
 
         if (chatInputForm) {
-            // Сдвигаем инпут вверх на высоту клавиатуры + компенсируем offsetTop
-            var totalShift = keyboardOffset + shift;
-            chatInputForm.style.transform = totalShift > 0
-                ? ('translateY(-' + totalShift + 'px)')
+            chatInputForm.style.transform = keyboardOffset
+                ? ('translateY(-' + keyboardOffset + 'px)')
                 : '';
         }
         if (replyBar) {
@@ -2474,16 +2472,23 @@ function startVideoRecording() {
     if (videoMsgRecordBtn) videoMsgRecordBtn.classList.add('recording');
     if (videoMsgBorder) videoMsgBorder.classList.add('recording');
 
-    var mimeType = 'video/webm;codecs=vp8,opus';
-    if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = 'video/webm';
-    if (!MediaRecorder.isTypeSupported(mimeType)) mimeType = '';
+    // iOS поддерживает только video/mp4, Android/Chrome - video/webm
+    var mimeType = '';
+    var mimeOrder = ['video/mp4', 'video/webm;codecs=vp8,opus', 'video/webm'];
+    for (var mi = 0; mi < mimeOrder.length; mi++) {
+        if (MediaRecorder.isTypeSupported(mimeOrder[mi])) {
+            mimeType = mimeOrder[mi];
+            break;
+        }
+    }
 
     try {
         videoMediaRecorder = mimeType
             ? new MediaRecorder(videoStream, { mimeType: mimeType })
             : new MediaRecorder(videoStream);
     } catch(e) {
-        videoMediaRecorder = new MediaRecorder(videoStream);
+        try { videoMediaRecorder = new MediaRecorder(videoStream); }
+        catch(e2) { alert('Запись видео не поддерживается'); return; }
     }
 
     videoMediaRecorder.ondataavailable = function(e) {
@@ -2530,9 +2535,12 @@ async function handleVideoRecordingStop() {
     if (!shouldSend || !videoRecordedChunks.length) return;
     if (!currentChat || !currentUser || !currentUser.login) return;
 
-    var blob = new Blob(videoRecordedChunks, { type: 'video/webm' });
-    var fileName = 'videomsg_' + Date.now() + '.webm';
-    var file = new File([blob], fileName, { type: 'video/webm' });
+    // Берём реальный mimeType из MediaRecorder (iOS = mp4, Android = webm)
+    var actualMime = (videoMediaRecorder && videoMediaRecorder.mimeType) || 'video/mp4';
+    var actualExt  = (actualMime.indexOf('mp4') !== -1) ? '.mp4' : '.webm';
+    var blob = new Blob(videoRecordedChunks, { type: actualMime });
+    var fileName = 'videomsg_' + Date.now() + actualExt;
+    var file = new File([blob], fileName, { type: actualMime });
 
     var formData = new FormData();
     formData.append('file', file);
