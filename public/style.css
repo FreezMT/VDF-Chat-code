@@ -585,6 +585,13 @@ textarea {
     right:0;
     bottom:80px;
     overflow-y:auto;
+    /* Последние сообщения видны, скрываются только под инпутом */
+    -webkit-mask-image: linear-gradient(to bottom,
+        black calc(100% - 24px),
+        transparent 100%);
+    mask-image: linear-gradient(to bottom,
+        black calc(100% - 24px),
+        transparent 100%);
 }
 
 /* LOADER поверх чата (перекрывает и сообщения, и инпут) */
@@ -626,6 +633,17 @@ textarea {
     align-items:center;
     gap:8px;
     background:transparent;
+}
+/* Градиент-маска: сообщения скрываются только под самим инпутом */
+.chat-input-bar::before{
+    content:'';
+    position:absolute;
+    left:0;
+    right:0;
+    bottom:100%;
+    height:32px;
+    background:linear-gradient(to bottom, transparent, rgba(28,28,28,0));
+    pointer-events:none;
 }
 
 /* textarea */
@@ -3528,34 +3546,38 @@ textarea {
 /* Экран записи */
 .video-msg-screen{
     position:fixed;
-    inset:0;
+    top:0;
+    left:0;
+    right:0;
+    bottom:0;
     z-index:200;
     display:flex;
     flex-direction:column;
     align-items:center;
-    justify-content:center;
-    gap:40px;
-    padding:60px 0 40px;
+    justify-content:flex-end;
+    padding-bottom:52px;
     box-sizing:border-box;
 }
-/* Размытый фон через псевдоэлемент */
+/* Размытый фон */
 .video-msg-screen::before{
     content:'';
     position:absolute;
-    inset:0;
+    top:0; left:0; right:0; bottom:0;
     background:rgba(0,0,0,0.55);
     backdrop-filter:blur(24px);
     -webkit-backdrop-filter:blur(24px);
     z-index:-1;
 }
 .video-msg-preview-wrap{
-    position:relative;
-    /* Кружок = 72% ширины экрана, но не больше чем влезет с кнопками */
-    width:min(72vw, calc(100vh - 260px));
-    height:min(72vw, calc(100vh - 260px));
-    max-width:320px;
-    max-height:320px;
-    flex-shrink:0;
+    position:absolute;
+    /* Кружок по центру с запасом для кнопок */
+    width:70vw;
+    height:70vw;
+    max-width:300px;
+    max-height:300px;
+    top:50%;
+    left:50%;
+    transform:translate(-50%, -60%);
 }
 .video-msg-preview{
     width:100%;
@@ -3582,6 +3604,8 @@ textarea {
 }
 
 .video-msg-controls{
+    position:relative;
+    z-index:1;
     display:flex;
     align-items:center;
     justify-content:space-between;
