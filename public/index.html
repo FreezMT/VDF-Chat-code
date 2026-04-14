@@ -409,10 +409,14 @@
 
         <!-- ЭКРАН ЗАПИСИ ВИДЕОСООБЩЕНИЯ -->
         <div id="videoMsgScreen" class="video-msg-screen" style="display:none;">
-            <div class="video-msg-preview-wrap" id="videoMsgPreviewWrap">
-                <video id="videoMsgPreview" class="video-msg-preview" autoplay muted playsinline webkit-playsinline></video>
-                <div class="video-msg-circle-border" id="videoMsgBorder"></div>
+            <!-- Область кружка - занимает верх экрана -->
+            <div class="video-msg-circle-area">
+                <div class="video-msg-circle-wrap" id="videoMsgPreviewWrap">
+                    <video id="videoMsgPreview" class="video-msg-preview" autoplay muted playsinline webkit-playsinline></video>
+                    <div class="video-msg-circle-border" id="videoMsgBorder"></div>
+                </div>
             </div>
+            <!-- Кнопки снизу -->
             <div class="video-msg-controls">
                 <button type="button" class="video-msg-cancel-btn" id="videoMsgCancelBtn">Отменить</button>
                 <div class="video-msg-timer" id="videoMsgTimer">0:00</div>

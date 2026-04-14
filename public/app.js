@@ -2530,40 +2530,57 @@ function stopVideoRecording(send) {
 
 async function handleVideoRecordingStop() {
     var shouldSend = videoMediaRecorder && videoMediaRecorder._shouldSend;
+    var chunks = videoRecordedChunks.slice(); // копируем до closeVideoMsgScreen
+    var chat = currentChat;
+    var user = currentUser;
     closeVideoMsgScreen();
 
-    if (!shouldSend || !videoRecordedChunks.length) return;
-    if (!currentChat || !currentUser || !currentUser.login) return;
+    if (!shouldSend) return;
+    if (!chunks.length) {
+        showInfoBanner('Видеосообщение пустое — попробуйте ещё раз');
+        return;
+    }
+    if (!chat || !user || !user.login) return;
 
     // Берём реальный mimeType из MediaRecorder (iOS = mp4, Android = webm)
-    var actualMime = (videoMediaRecorder && videoMediaRecorder.mimeType) || 'video/mp4';
-    var actualExt  = (actualMime.indexOf('mp4') !== -1) ? '.mp4' : '.webm';
-    var blob = new Blob(videoRecordedChunks, { type: actualMime });
+    var actualMime = '';
+    if (videoMediaRecorder && videoMediaRecorder.mimeType) {
+        actualMime = videoMediaRecorder.mimeType;
+    }
+    // Fallback: определяем по содержимому chunks
+    if (!actualMime || actualMime === 'video/') {
+        actualMime = 'video/mp4';
+    }
+    var actualExt = (actualMime.indexOf('mp4') !== -1 || actualMime.indexOf('x-m4v') !== -1)
+        ? '.mp4' : '.webm';
+
+    var blob = new Blob(chunks, { type: actualMime });
     var fileName = 'videomsg_' + Date.now() + actualExt;
     var file = new File([blob], fileName, { type: actualMime });
 
     var formData = new FormData();
     formData.append('file', file);
-    formData.append('chatId', currentChat.id);
-    formData.append('login', currentUser.login);
+    formData.append('chatId', chat.id);
+    formData.append('login', user.login);
     formData.append('isVideoMsg', '1');
+
+    showInfoBanner('Отправка видеосообщения...');
 
     try {
         var resp = await fetch('/api/messages/send-file', { method: 'POST', body: formData });
         var data = await resp.json();
         if (!resp.ok || !data.ok) {
-            alert(data.error || 'Ошибка отправки видеосообщения');
+            showInfoBanner(data.error || 'Ошибка отправки видеосообщения');
             return;
         }
         if (data.message) {
-            // Помечаем как видеосообщение
             data.message.is_video_msg = true;
             messagesById[data.message.id] = data.message;
             renderMessage(data.message);
             if (chatContent) chatContent.scrollTop = chatContent.scrollHeight;
         }
     } catch(e) {
-        alert('Сетевая ошибка при отправке видеосообщения');
+        showInfoBanner('Сетевая ошибка при отправке видеосообщения');
     }
 }
 

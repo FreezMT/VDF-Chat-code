@@ -3529,45 +3529,50 @@ textarea {
 /* Экран записи */
 .video-msg-screen{
     position:fixed;
-    top:0;
-    left:0;
-    right:0;
-    bottom:0;
+    top:0; left:0; right:0; bottom:0;
     z-index:200;
     display:flex;
     flex-direction:column;
-    align-items:center;
-    background:rgba(0,0,0,0.55);
-    -webkit-backdrop-filter:blur(22px);
-    backdrop-filter:blur(22px);
+    align-items:stretch;
+    background:rgba(0,0,0,0.65);
+    -webkit-backdrop-filter:blur(20px);
+    backdrop-filter:blur(20px);
 }
-.video-msg-screen::before{
-    display:none;
-}
-/* Кружок занимает всё доступное место сверху */
-.video-msg-preview-wrap{
+.video-msg-screen::before{ display:none; }
+
+/* Область кружка — flex:1, занимает весь верх */
+.video-msg-circle-area{
     flex:1;
     min-height:0;
-    width:100%;
     display:flex;
     align-items:center;
     justify-content:center;
-    padding:56px 20px 20px;
+    padding:52px 0 16px;
     box-sizing:border-box;
 }
-/* Внутренний квадрат для сохранения пропорций 1:1 */
-.video-msg-preview-wrap > * {
+
+/* Сам кружок — квадрат с обрезкой */
+.video-msg-circle-wrap{
     position:relative;
-    width:min(80vw, 65vh);
-    height:min(80vw, 65vh);
+    width:88vw;
+    height:88vw;
+    max-width:380px;
+    max-height:380px;
+    border-radius:50%;
+    overflow:hidden;   /* обрезаем видео по кругу */
+    flex-shrink:0;
 }
+
 .video-msg-preview{
+    position:absolute;
+    top:0; left:0;
     width:100%;
     height:100%;
     object-fit:cover;
-    border-radius:50%;
+    border-radius:0;   /* обрезка уже на wrap */
     display:block;
 }
+
 .video-msg-circle-border{
     position:absolute;
     inset:0;
@@ -3575,6 +3580,7 @@ textarea {
     border:3px solid #3BA9FF;
     pointer-events:none;
     transition:border-color 0.3s;
+    z-index:1;
 }
 .video-msg-circle-border.recording{
     border-color:#FF3B30;
@@ -3584,14 +3590,20 @@ textarea {
     0%,100%{ box-shadow:0 0 0 4px rgba(255,59,48,0.25); }
     50%{ box-shadow:0 0 0 12px rgba(255,59,48,0.1); }
 }
-/* Кнопки прижаты к низу */
+
+/* Старый preview-wrap не используется, но на всякий случай */
+.video-msg-preview-wrap{
+    display:contents;
+}
+
+/* Панель кнопок — снизу */
 .video-msg-controls{
     flex-shrink:0;
     width:100%;
     display:flex;
     align-items:center;
     justify-content:space-between;
-    padding:16px 40px 52px;
+    padding:16px 40px 48px;
     box-sizing:border-box;
 }
 .video-msg-cancel-btn{
@@ -3604,17 +3616,16 @@ textarea {
     padding:8px 0;
     min-width:80px;
     text-align:left;
+    -webkit-tap-highlight-color:transparent;
 }
 .video-msg-timer{
-    font-size:17px;
+    font-size:18px;
     font-variant-numeric:tabular-nums;
     color:#FFFFFF;
     text-align:center;
-    display:flex;
-    align-items:center;
-    gap:6px;
+    min-width:60px;
 }
-/* Большая синяя кнопка как на скрине 3 */
+/* Синяя кнопка записи */
 .video-msg-record-btn{
     width:72px;
     height:72px;
@@ -3625,14 +3636,14 @@ textarea {
     display:flex;
     align-items:center;
     justify-content:center;
+    box-shadow:0 4px 20px rgba(59,169,255,0.5);
     transition:transform 0.12s, background 0.2s;
     -webkit-tap-highlight-color:transparent;
-    box-shadow:0 4px 20px rgba(59,169,255,0.5);
 }
 .video-msg-record-btn::after{
     content:'';
-    width:26px;
-    height:26px;
+    width:28px;
+    height:28px;
     border-radius:50%;
     background:#FFFFFF;
     transition:border-radius 0.18s, width 0.18s, height 0.18s;
@@ -3642,29 +3653,24 @@ textarea {
     box-shadow:0 4px 20px rgba(255,59,48,0.5);
 }
 .video-msg-record-btn.recording::after{
-    border-radius:4px;
-    width:20px;
-    height:20px;
+    border-radius:5px;
+    width:22px;
+    height:22px;
 }
-.video-msg-record-btn:active{
-    transform:scale(0.92);
-}
+.video-msg-record-btn:active{ transform:scale(0.92); }
+/* Кнопка переключения камеры */
 .video-msg-flip-btn{
-    background:rgba(255,255,255,0.12);
+    min-width:80px;
+    display:flex;
+    justify-content:flex-end;
+    align-items:center;
+    background:none;
     border:none;
     color:#FFFFFF;
-    font-size:20px;
-    width:44px;
-    height:44px;
-    border-radius:50%;
+    font-size:24px;
     cursor:pointer;
-    display:flex;
-    align-items:center;
-    justify-content:center;
     -webkit-tap-highlight-color:transparent;
-    min-width:80px;
-    background:none;
-    justify-content:flex-end;
+    padding:0;
 }
 
 /* Кружочек в чате */
