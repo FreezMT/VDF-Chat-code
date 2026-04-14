@@ -2700,7 +2700,11 @@ app.post('/api/messages/send-file', requireAuth, uploadAttachment.single('file')
 
     let attachmentType = 'file';
 
-    if (mime.startsWith('image/')) {
+    // Видеосообщения (кружочки) всегда video независимо от mime
+    const origNameLower = (req.file.originalname || '').toLowerCase();
+    if (origNameLower.startsWith('videomsg_')) {
+      attachmentType = 'video';
+    } else if (mime.startsWith('image/')) {
       if (sizeMB > 25) {
         return res.status(400).json({ error: 'Фото больше 25 МБ' });
       }

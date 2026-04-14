@@ -4330,6 +4330,10 @@ function renderMessage(msg, opts) {
          String(msg.attachment_name).startsWith('videomsg_'));
 
     if (isVideoMsg && msg.attachment_url) {
+        // Убираем фон пузыря для кружочка
+        bubble.style.background = 'transparent';
+        bubble.style.padding = '0';
+        bubble.style.boxShadow = 'none';
         renderVideoCircle(msg, bubble);
         // не рендерим стандартное видео
     } else if (hasAttachment && (msg.attachment_type === 'image' || msg.attachment_type === 'video')) {
