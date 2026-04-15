@@ -2434,6 +2434,8 @@ async function openVideoMsgScreen() {
         videoMsgPreview.srcObject = videoStream;
         videoMsgPreview.muted = true;
         videoMsgPreview.play().catch(function(){});
+        // Зеркалим превью для фронтальной камеры
+        videoMsgPreview.style.transform = (videoFacingMode === 'user') ? 'scaleX(-1)' : 'scaleX(1)';
     }
     if (videoMsgScreen) {
         videoMsgScreen.style.display = 'flex';
@@ -2548,11 +2550,16 @@ async function handleVideoRecordingStop() {
         actualMime = videoMediaRecorder.mimeType;
     }
     // Fallback: определяем по содержимому chunks
-    if (!actualMime || actualMime === 'video/') {
+    if (!actualMime || actualMime === 'video/' || actualMime.trim() === '') {
         actualMime = 'video/mp4';
+    }
+    // Убираем codec info если есть (iOS не любит)
+    if (actualMime.indexOf(';') !== -1) {
+        actualMime = actualMime.split(';')[0].trim();
     }
     var actualExt = (actualMime.indexOf('mp4') !== -1 || actualMime.indexOf('x-m4v') !== -1)
         ? '.mp4' : '.webm';
+    console.log('[VideoMsg] mime:', actualMime, 'ext:', actualExt, 'chunks:', chunks.length);
 
     var blob = new Blob(chunks, { type: actualMime });
     var fileName = 'videomsg_' + Date.now() + actualExt;
@@ -2564,22 +2571,53 @@ async function handleVideoRecordingStop() {
     formData.append('login', user.login);
     formData.append('isVideoMsg', '1');
 
-    showInfoBanner('Отправка видеосообщения...');
+    // Мгновенный оптимистичный рендер через blob URL
+    var blobUrl = URL.createObjectURL(blob);
+    var tempId  = 'tmp-video-' + Date.now();
+    var tempMsg = {
+        id:              tempId,
+        chat_id:         chat.id,
+        sender_login:    user.login,
+        sender_name:     ((user.firstName || '') + ' ' + (user.lastName || '')).trim() || user.login,
+        text:            '',
+        created_at:      new Date().toISOString(),
+        attachment_type: 'video',
+        attachment_url:  blobUrl,
+        attachment_name: fileName,
+        is_video_msg:    true,
+        pending:         true,
+        reactions:       [],
+        myReaction:      null
+    };
+    messagesById[tempId] = tempMsg;
+    renderMessage(tempMsg);
+    if (chatContent) chatContent.scrollTop = chatContent.scrollHeight;
 
     try {
         var resp = await fetch('/api/messages/send-file', { method: 'POST', body: formData });
         var data = await resp.json();
+
+        // Удаляем временное сообщение
+        var tempEl = chatContent && chatContent.querySelector('.msg-item[data-msg-id="' + tempId + '"]');
+        if (tempEl) tempEl.parentNode && tempEl.parentNode.removeChild(tempEl);
+        delete messagesById[tempId];
+        URL.revokeObjectURL(blobUrl);
+
         if (!resp.ok || !data.ok) {
             showInfoBanner(data.error || 'Ошибка отправки видеосообщения');
             return;
         }
         if (data.message) {
+            console.log('[VideoMsg] server response:', data.message.attachment_type, data.message.attachment_name);
+            // Принудительно ставим флаг и тип
             data.message.is_video_msg = true;
+            data.message.attachment_type = 'video';
             messagesById[data.message.id] = data.message;
             renderMessage(data.message);
             if (chatContent) chatContent.scrollTop = chatContent.scrollHeight;
         }
     } catch(e) {
+        // Оставляем временное сообщение с ошибкой
         showInfoBanner('Сетевая ошибка при отправке видеосообщения');
     }
 }
@@ -2597,6 +2635,7 @@ async function flipVideoCamera() {
         if (videoMsgPreview) {
             videoMsgPreview.srcObject = videoStream;
             videoMsgPreview.play().catch(function(){});
+            videoMsgPreview.style.transform = (videoFacingMode === 'user') ? 'scaleX(-1)' : 'scaleX(1)';
         }
     } catch(e) {
         alert('Не удалось переключить камеру');
